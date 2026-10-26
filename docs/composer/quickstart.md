@@ -20,7 +20,9 @@ The composer runs on your own computer. It works on macOS and Linux; Windows is 
 From a copy of the repository, run `software/choreo/studio-up.sh`. It starts the composer and
 prints its address (usually `http://127.0.0.1:8091/`). It also opens a preview of the robot's face
 in your browser, and a 3D preview of the whole robot in its own window. Everything runs on your
-computer only. `software/choreo/studio-down.sh` stops it all.
+computer only. Show files are kept outside the repository (in `~/opendubs-shows` if it exists,
+else `~/.local/share/opendubs-studio/shows` on Linux or `~/Library/Application Support/opendubs-studio/shows` on macOS)
+so your routines are preserved across git updates. `software/choreo/studio-down.sh` stops it all.
 
 ## :octicons-unmute-24: 2. Bring the music
 
@@ -113,7 +115,14 @@ Earlier versions of the show are kept: **history** brings one back.
 
 ## :octicons-play-24: 7. Run it live
 
-Send the show to the robot with `python3 software/choreo/show_sync.py push <robot> <show>.yaml`.
+Send the show to the robot with:
+```bash
+python3 software/choreo/show_sync.py push <robot> path/to/<show>.yaml
+```
+For example, with the default Linux shows folder:
+```bash
+python3 software/choreo/show_sync.py push opendubs2 ~/.local/share/opendubs-studio/shows/my-show.yaml
+```
 Add `--dry-run` to see what would happen without sending anything. The push refuses a show that
 does not pass its checks, or that plays music or sounds the robot's library does not have; music
 must come from the show library, not a file beside the show.

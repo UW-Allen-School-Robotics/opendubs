@@ -65,6 +65,10 @@ To stop the background server when done, run `software/choreo/studio-down.sh` or
 
 6. **Save the Show**:
    - Press **`Ctrl+S`** or click **Save**.
+   - Shows are stored outside the git repository so custom routines are never overwritten by git pulls:
+     - Defaults to `~/opendubs-shows/` if that directory exists in your home folder.
+     - Otherwise saved to the platform data folder: `~/.local/share/opendubs-studio/shows/` on Linux (`~/Library/Application Support/opendubs-studio/shows/` on macOS).
+     - Prior versions are archived under `.history/` in the same directory.
    - The save-time clearance sweep (`CLEAR_MIN_MM = 30.0 mm` in `software/choreo/ik.py`) runs across the entire interpolated show to verify clearance.
 
 ---
@@ -74,7 +78,7 @@ To stop the background server when done, run `software/choreo/studio-down.sh` or
 Physical robot execution and show deployment are documented in the composer guides:
 
 - [docs/composer/quickstart.md](../../docs/composer/quickstart.md) ("Run it live"): Live execution with the show runner (`software/choreo/runner.py`), RC authority (`AUTO`), and deadman switch gating.
-- [docs/composer/making-a-show.md](../../docs/composer/making-a-show.md) ("Sending a show to the robot"): Shows are transferred to the robot (`/var/lib/opendubs/shows`) using `python3 software/choreo/show_sync.py push <robot> <show>.yaml`.
+- [docs/composer/making-a-show.md](../../docs/composer/making-a-show.md) ("Sending a show to the robot"): Shows are transferred to the robot (`/var/lib/opendubs/shows`) using `python3 software/choreo/show_sync.py push <robot> path/to/<show>.yaml` (e.g. `~/.local/share/opendubs-studio/shows/<show>.yaml`).
 
 Before running arm shows, the arms must be energized and active (via the dashboard's Teleop page or `openarm-up activate` on the robot).
 
