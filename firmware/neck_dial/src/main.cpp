@@ -129,7 +129,7 @@ WiFiUDP g_udp;
 Preferences g_nvs;
 char g_ssid[33] = {0};
 uint32_t g_lastReport = 0;
-uint32_t g_restartAt = 0;      // 0 = no restart pending; see the OTA handler
+uint32_t g_restartAt = 0;      // 0 = no restart pending; set by REBOOT and by the OTA handler
 
 // SIGNED UPDATES (notes/design/firmware-signing.md; the policy table in firmware/common/ota_verify/
 // README.md). An image is installed only if its signature, made on the Thor for board "neck", verifies
@@ -425,7 +425,9 @@ bool otaPull(const char* url, char* out, size_t n) {
 void handle(const char* cmd, char* out, size_t n) {
     if (!strncmp(cmd, "PING", 4))      { replyPing(out, n); return; }
     if (!strncmp(cmd, "NECK", 4))      { replyNeck(out, n); return; }
-    if (!strncmp(cmd, "REBOOT", 6))    { snprintf(out, n, "OK reboot"); return; }
+    // REBOOT restarts, as OTA does: the reply goes out first, the restart follows in the loop. It used to
+    // answer "OK reboot" and do nothing (found 2026-10-26, rotating the robot's Wi-Fi).
+    if (!strncmp(cmd, "REBOOT", 6))    { snprintf(out, n, "OK reboot"); g_restartAt = millis() + 400; return; }
 
     // GAZE <pan> <tilt> [lease_ms] -- an absolute target in degrees. The control law owns what
     // happens next: the slew limit, the bounds and the arbitration are in pantilt_core, not here.
