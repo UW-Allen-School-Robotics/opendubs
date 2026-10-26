@@ -119,6 +119,15 @@ song alone when a show has no video. The tablet keeps dialogue.
   - the skeletons are placed and scaled inside the video's picture, by its height and never wider than it;
   - the canvas is sized only when the viewport changes, and capped at 4K pixels on a very large wall, and at 1080p's on a stage box, whose
     screen scales it up (a Pi drawing a 4K canvas every frame would starve the video).
+- **A screen that stretches its input** — a video wall that spreads a 16:9 frame over its own 32:9 (the
+  building's 6 × 3 wall, 729 × 206 cm) — is set with `?stretch=2` on the page's address (a stage box: in
+  `stage.conf`'s `ROBOT_URL` and `ROBOT_FALLBACK`). The page then lays itself out at the wall's true shape
+  (3840 × 1080 for a 1920 × 1080 frame) and squeezes that into the frame, so the wall shows everything in
+  proportion: a 16:9 show video fills the middle half (three of the six columns), the ready card and the
+  skeletons are their own shape, and a pattern drawn at 3840 × 1080 square pixels lands true. Checked
+  headless against a simulated 2× wall: a drawn circle and square come out at their drawn sizes. The frame
+  holds only 1920 columns, so the wall's horizontal detail is two of those pixels at best. Off (1) everywhere
+  else; the card's Screen row says when it is on.
 - **No screen.** On a Pi with only a speaker, the browser runs on a virtual output and may never draw.
   The show's media is also kept in step from a 250 ms timer, so the music plays to the show's clock with
   nothing drawn.

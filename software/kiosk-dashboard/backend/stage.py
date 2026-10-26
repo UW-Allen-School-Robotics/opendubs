@@ -98,6 +98,7 @@ hub = Hub()
 PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "audio_name": str, "under_voltage_now": bool,
                "under_voltage_since_boot": bool, "throttled_now": bool, "screen_connected": bool, "screen_mode": str,
                "viewport": list, "dpr": (int, float), "clock_err_ms": (int, float), "sound": str,
+               "stretch": (int, float),   # the page's ?stretch: how much the screen stretches its input across
                "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool,
                # the box's own estimate of its sound output's delay, and the audio lead the page is using
                "audio_latency_ms": (int, float), "audio_lead_ms": (int, float), "audio_lead_from": str,

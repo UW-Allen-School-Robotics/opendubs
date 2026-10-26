@@ -29,7 +29,10 @@
 
    Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
    &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
-   ?card=0 hides the ready card. The device this page runs on reloads a page that stops checking in:
+   ?card=0 hides the ready card; ?stretch=2 is for a screen that STRETCHES its input — a video wall that
+   spreads a 16:9 frame over 32:9 — the page lays itself out at the wall's own shape (twice as wide) and
+   squeezes that into the frame, so the wall shows everything in its true proportions (a stage box sets it
+   in stage.conf's ROBOT_URL). The device this page runs on reloads a page that stops checking in:
    alive() (the kiosk app's, else a POST to the stage Pi's /alive) every 5 s from the draw loop, or from
    the sync timer when the device says it has no screen. A deploy that changes the dashboard's pages
    reloads this one too, between shows (it polls /api/frontend-version every 15 s). */
@@ -52,6 +55,11 @@
                                                      // frame would starve the video; the screen scales it up
   const SOUND_NAMES = { usb: "USB", hdmi: "HDMI", jack: "3.5 mm jack", bt: "Bluetooth", none: "none" };
   let device = null, lastWsMsg = 0;
+  // a screen that stretches its input by STRETCH across: lay out at its true shape, squeeze into the frame
+  const STRETCH = Math.min(4, Math.max(0.25, Number(q.get("stretch")) || 1));
+  const wall = document.getElementById("wall");
+  if (STRETCH !== 1) { wall.style.width = `${100 * STRETCH}vw`; wall.style.transform = `scaleX(${1 / STRETCH})`; }
+  const LW = () => innerWidth * STRETCH;               // the page's width as the wall shows it
   if (q.get("hud")) hud.style.display = "block";
   if (q.get("video")) {
     video.src = q.get("video"); video.hidden = false; video.muted = !q.get("sound");
@@ -317,8 +325,8 @@
   function draw(now) {
     lastDraw = now;
     const maxPx = device && device.device === "stage-pi" ? BOX_MAX_PIXELS : MAX_PIXELS;
-    const k = Math.min(devicePixelRatio || 1, Math.sqrt(maxPx / Math.max(1, innerWidth * innerHeight)));
-    const W = Math.round(innerWidth * k), H = Math.round(innerHeight * k);
+    const k = Math.min(devicePixelRatio || 1, Math.sqrt(maxPx / Math.max(1, LW() * innerHeight)));
+    const W = Math.round(LW() * k), H = Math.round(innerHeight * k);
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }   // only when the screen changes
     const st = keepVideo(now);                     // first: the show's video kept to the show's clock
     showCard(now);
@@ -407,7 +415,7 @@
       throttled_now: d.throttled_now, screen_connected: d.screen?.connected, screen_mode: d.screen?.mode,
       media_items: d.media?.items, media_bytes: d.media?.bytes, media_free: d.media?.free,
       media_syncing: d.media?.syncing } : null;
-    send({ page: { ...(device || {}), viewport: [innerWidth, innerHeight], dpr: devicePixelRatio,
+    send({ page: { ...(device || {}), viewport: [innerWidth, innerHeight], dpr: devicePixelRatio, stretch: STRETCH,
                    clock_err_ms: clock ? Math.round(clock.err * 10) / 10 : undefined,
                    // the audio lead this page used for the last show it played, and where it came from
                    audio_lead_ms: leadFor.id ? Math.round(leadFor.s * 1000) : undefined,
@@ -434,6 +442,8 @@
       : SOUND_NAMES[device.audio_output] || device.audio_output || "unknown";
     const res = `${Math.round(screen.width * devicePixelRatio)}×${Math.round(screen.height * devicePixelRatio)}`
       + (device && device.screen_mode ? ` (${device.screen_mode})` : "")
+      + (STRETCH !== 1 ? ` · the screen stretches it ×${STRETCH}: laid out as ${Math.round(screen.width * devicePixelRatio * STRETCH)}`
+                         + `×${Math.round(screen.height * devicePixelRatio)}` : "")
       + (device && device.screen_connected === false ? " — NO SCREEN: sound only" : "");
     const rows = [["Robot", up ? "connected" : "NOT connected", !up],
                   ["Screen", res, false],

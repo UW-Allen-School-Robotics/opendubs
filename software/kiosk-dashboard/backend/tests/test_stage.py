@@ -143,3 +143,14 @@ def test_a_page_reports_its_chosen_output_its_delay_and_the_lead_it_used():
         info = c.get("/api/stage").json()["pages_info"][0]
     assert info["audio_output"] == "bt" and info["audio_setting"] == "bt" and info["audio_latency_ms"] == 200
     assert info["audio_lead_ms"] == 225 and info["audio_lead_from"] == "set for bt"
+
+
+def test_a_page_on_a_stretching_wall_reports_its_stretch():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as page:
+        page.send_text(json.dumps({"page": {"viewport": [1920, 1080], "stretch": 2, "dpr": 1}}))
+        page.send_text(json.dumps({"ping": 1.0}))
+        page.receive_text()
+        info = c.get("/api/stage").json()["pages_info"][0]
+    assert info["stretch"] == 2 and info["viewport"] == [1920, 1080]
