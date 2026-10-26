@@ -146,11 +146,17 @@ Key observations:
 ## Choreo Composer integration
 
 Motion planning is integrated into the Choreo Composer (`software/choreo/composer/`). To start the
-composer, see the [Composer quickstart](composer/quickstart.md) or run:
+composer with optional backends enabled (CBiRRT, cuRobo), run it in the Python environment where those dependencies are installed:
 
 ```bash
-software/choreo/studio-up.sh
+# With planning environment active:
+python3 software/choreo/studio/studio.py up
+
+# Or launch the standalone composer server:
+python3 software/choreo/composer/server.py
 ```
+
+*(Note: Running `software/choreo/studio-up.sh` launches through an isolated `uv` sandbox for zero-setup runs; optional planners whose dependencies are not installed in that sandbox will be marked as `(unavailable)` in the UI).*
 
 ### Capabilities
 - **3D Robot Arm Preview:** Dual-arm WebGL visualizer rendering real OpenArm mesh geometry with orbit camera.

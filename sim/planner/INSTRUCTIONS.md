@@ -14,16 +14,22 @@ collision-free trajectories.
 
 ### Starting the Composer
 
-From the repository root, start the composer using the studio launcher:
+To run the composer with full motion planning support (CBiRRT and cuRobo), activate your planning environment and start the studio or standalone server:
 
 ```bash
-software/choreo/studio-up.sh
+# 1. Full Studio with your planning environment active:
+python3 software/choreo/studio/studio.py up
+
+# 2. Or start the standalone composer server:
+python3 software/choreo/composer/server.py
 ```
+
+*(Note: Running `software/choreo/studio-up.sh` uses an isolated `uv` virtual environment for zero-setup execution; in that isolated environment, optional backends like CBiRRT or cuRobo will show as `(unavailable)` unless their packages are installed in that environment).*
 
 Open your web browser and navigate to:
 **`http://localhost:8091`**
 
-To stop the background server when done, run `software/choreo/studio-down.sh`.
+To stop the background server when done, run `software/choreo/studio-down.sh` or `python3 software/choreo/studio/studio.py down`.
 
 ---
 
