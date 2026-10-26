@@ -507,10 +507,11 @@ from face_door import router as _face_door_router  # noqa: E402
 app.include_router(_face_door_router)
 from head_settings import router as _head_settings_router  # noqa: E402
 app.include_router(_head_settings_router)
-# The face looks this robot has, and the content folder's looks for the face (face_looks.py). Before the
+# The face looks this robot has, and the content folder's looks for the face (head_looks.py: not
+# face_looks, which is the show runner's module of that name, imported into this process by library.py). Before the
 # /face static mount below, which would otherwise answer /face/content itself.
-from face_looks import router as _face_looks_router  # noqa: E402
-app.include_router(_face_looks_router)
+from head_looks import router as _head_looks_router  # noqa: E402
+app.include_router(_head_looks_router)
 
 # The face page's microphone stream, relayed to the voice service on loopback (voice_proxy.py, the
 # Voice lane's). Before the static mounts, which would otherwise take the WebSocket's path.
