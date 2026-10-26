@@ -65,8 +65,11 @@ class Hub:
     def show_command(self, m: dict) -> dict:
         op = m.get("op")
         if op == "load":
+            # audio_leads_s: the stage's audio lead per sound output (each page picks its box's own);
+            # skeletons: the show draws the skeleton layer over its video (else the video plays clean)
             self.show = {"id": m.get("id"), "videos": m.get("videos") or [], "beat": m.get("beat"),
-                         "buffer_s": m.get("buffer_s"), "state": "loaded", "t0_mono": None}
+                         "buffer_s": m.get("buffer_s"), "audio_leads_s": m.get("audio_leads_s") or {},
+                         "skeletons": m.get("skeletons") is True, "state": "loaded", "t0_mono": None}
         elif op == "start" and self.show and self.show.get("id") == m.get("id"):
             self.show.update(state="playing", t0_mono=m.get("t0_mono"))
         elif op == "stop" and self.show and self.show.get("id") == m.get("id"):
@@ -95,13 +98,16 @@ hub = Hub()
 PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "audio_name": str, "under_voltage_now": bool,
                "under_voltage_since_boot": bool, "throttled_now": bool, "screen_connected": bool, "screen_mode": str,
                "viewport": list, "dpr": (int, float), "clock_err_ms": (int, float), "sound": str,
-               "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool}
+               "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool,
+               # the box's own estimate of its sound output's delay, and the audio lead the page is using
+               "audio_latency_ms": (int, float), "audio_lead_ms": (int, float), "audio_lead_from": str,
+               "audio_setting": str}   # the output CHOSEN on the box (auto, hdmi, jack, usb, bt); audio_output is the one playing
 
 
 def page_info(raw: dict) -> dict:
     out = {k: raw[k] for k, t in PAGE_FIELDS.items()
            if k in raw and isinstance(raw[k], t) and not (t is not bool and isinstance(raw[k], bool))}
-    for k in ("device", "name", "model", "audio_output", "audio_name", "screen_mode", "sound"):
+    for k in ("device", "name", "model", "audio_output", "audio_name", "screen_mode", "sound", "audio_lead_from", "audio_setting"):
         if k in out:
             out[k] = out[k][:80]
     if "viewport" in out:

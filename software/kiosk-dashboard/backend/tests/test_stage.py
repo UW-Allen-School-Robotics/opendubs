@@ -116,3 +116,30 @@ def test_mute_silences_the_pages_of_the_loaded_show_only():
     with c.websocket_connect("/ws/skeleton") as page:            # a page joining now is told it is muted
         assert json.loads(page.receive_text())["muted"] is True
 
+
+
+def test_the_load_carries_the_per_output_audio_leads_and_whether_skeletons_are_drawn():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as page:
+        c.post("/api/stage/show", json={"op": "load", "id": "s2", "videos": [], "beat": None,
+                                        "audio_leads_s": {"bt": 0.2}, "skeletons": True})
+        m = json.loads(page.receive_text())
+        assert m["audio_leads_s"] == {"bt": 0.2} and m["skeletons"] is True
+        c.post("/api/stage/show", json={"op": "load", "id": "s3", "videos": [], "beat": None})
+        m = json.loads(page.receive_text())
+        assert m["audio_leads_s"] == {} and m["skeletons"] is False      # an older runner: clean video, no table
+
+
+def test_a_page_reports_its_chosen_output_its_delay_and_the_lead_it_used():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as page:
+        page.send_text(json.dumps({"page": {"device": "stage-pi", "audio_output": "bt", "audio_setting": "bt",
+                                            "audio_latency_ms": 200, "audio_lead_ms": 225,
+                                            "audio_lead_from": "set for bt"}}))
+        page.send_text(json.dumps({"ping": 1.0}))
+        page.receive_text()
+        info = c.get("/api/stage").json()["pages_info"][0]
+    assert info["audio_output"] == "bt" and info["audio_setting"] == "bt" and info["audio_latency_ms"] == 200
+    assert info["audio_lead_ms"] == 225 and info["audio_lead_from"] == "set for bt"

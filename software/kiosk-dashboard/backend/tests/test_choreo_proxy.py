@@ -247,6 +247,8 @@ def test_the_stage_pis_own_leads_reach_the_runner_beside_the_casts():
         c = TestClient(app)
         c.post("/api/choreo/video/settings", json={"stage_audio_lead_s": 0.2, "stage_video_lead_s": 0.05, "x": 1})
         assert seen == [{"stage_audio_lead_s": 0.2, "stage_video_lead_s": 0.05}]
+        c.post("/api/choreo/video/settings", json={"stage_audio_leads_s": {"bt": 0.2}})   # per sound output
+        assert seen[-1] == {"stage_audio_leads_s": {"bt": 0.2}}
     finally:
         srv.shutdown()
 
