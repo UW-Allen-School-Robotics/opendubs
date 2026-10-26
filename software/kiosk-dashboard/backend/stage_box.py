@@ -12,6 +12,11 @@ at a time and reports each one's result by its id.
                                   | {"op": "volume", "output", "value": 0..1} | {"op": "scan"}
                                   | {"op": "pair", "addr"} | {"op": "forget"} | {"op": "test"}
 
+    GET  /api/stage/box/bundle/<file>  the box's own software, signed on the robot by the deploy
+                                  (software/stage-pi/release/publish-bundle.sh): manifest.json,
+                                  manifest.sig, stage-bundle.tar.gz, key.pem. The box pulls it and installs
+                                  it itself between shows (stage_update.py); read-only here.
+
 Refused while a show is loaded or playing on the stage pages (stage.hub.show): everything but the volume.
 The output and the test tone would be heard over the show, and pairing a speaker can move the sound to it.
 The box checks the same again before it acts.
@@ -20,10 +25,11 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import time
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from refusals import refuse
 
@@ -38,6 +44,9 @@ DURING_SHOW = ("volume",)         # the one command a running show may take
 box = {"report": None, "at": None, "from": None}
 pending: list[dict] = []          # {"id", "op", ..., "_at"}
 _ids = itertools.count(1)
+BUNDLE_DIR = os.environ.get("OPENDUBS_STAGE_BUNDLE_DIR") or "/var/lib/opendubs/stage"
+BUNDLE_FILES = {"manifest.json": "application/json", "manifest.sig": "application/octet-stream",
+                "stage-bundle.tar.gz": "application/gzip", "key.pem": "application/x-pem-file"}
 
 
 def show_running() -> bool:
@@ -93,6 +102,7 @@ def box_status() -> JSONResponse:
     r = box["report"] or {}
     return JSONResponse({"online": online(now), "age_s": None if box["at"] is None else round(now - box["at"], 1),
                          "name": r.get("name"), "sound": r.get("sound"), "results": r.get("results") or {},
+                         "software": r.get("software"),
                          "pending": [c["id"] for c in pending], "show_running": show_running()})
 
 
@@ -116,3 +126,14 @@ async def box_command(request: Request) -> JSONResponse:
     cmd.update(id=f"c{next(_ids)}-{int(time.time())}", _at=time.monotonic())
     pending.append(cmd)
     return JSONResponse({"ok": True, "id": cmd["id"]})
+
+
+@router.get("/api/stage/box/bundle/{name}")
+def box_bundle(name: str):
+    """One file of the box's signed software; only these four names, nothing else from the folder."""
+    if name not in BUNDLE_FILES:
+        return JSONResponse({"error": "not a bundle file"}, status_code=404)
+    path = os.path.join(BUNDLE_DIR, name)
+    if not os.path.isfile(path):
+        return JSONResponse({"error": "no bundle published on this robot"}, status_code=404)
+    return FileResponse(path, media_type=BUNDLE_FILES[name], headers={"Cache-Control": "no-store"})

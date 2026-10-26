@@ -117,14 +117,29 @@ so it still opens no port to the network.
 
 ## Updating
 
-The root is read-only, so turn the overlay off first, then update, then turn it back on:
+**The box updates itself.** Each deploy signs a copy of this folder on the robot, with the robot's project
+key (the one that signs the tablet's app), and publishes it (`release/publish-bundle.sh`). The box's agent
+looks for it every two minutes and installs it when all of these hold:
+
+- it is signed by the key the setup pinned, and the archive matches its signed checksum;
+- no show is loaded or playing (checked again just before the reboot);
+- the box already has every package `packages.txt` names (an update installs no packages: the robot's
+  network may have no internet).
+
+It writes the files to the real root beneath the read-only overlay (the same list `setup.sh` installs,
+`bin/stage-install`), and reboots. Anything else is refused, and the box keeps running what it has. The
+dashboard's **Stage box sound** card shows its software: what it runs, what the robot offers, and why it
+has not installed it yet.
+
+**By hand, only when `packages.txt` changes** (the card then says the update is waiting for the setup), or
+to set a box up again. The root is read-only, so turn the overlay off first:
 
 ```bash
 ssh <user>@opendubs<N>-stage.local sudo raspi-config nonint do_overlayfs 1
 ```
 
-Reboot, copy the new folder over and run `sudo ./stage-pi/setup.sh` again, then reboot. Nothing updates
-itself: the box stays as it was set up until someone does this.
+Reboot, copy the new folder over and run `sudo ./stage-pi/setup.sh` again, then reboot. The setup also pins
+the robot's signing key (from the robot this box points at; `--key-file` gives it a copy instead).
 
 ## When something is wrong
 
