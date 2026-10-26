@@ -540,6 +540,9 @@ app.include_router(_spoken_router)
 # projector's page out. The page itself is static: frontend/stage/.
 from stage import router as _stage_router  # noqa: E402
 app.include_router(_stage_router)
+# The wall tag test: hold the head, one back-camera frame, the AprilTags in it (tag_test.py).
+from tag_test import router as _tag_test_router  # noqa: E402
+app.include_router(_tag_test_router)
 # The stage box's sound: its output, Bluetooth speaker, volumes and test tone (stage_box.py).
 from stage_box import router as _stage_box_router  # noqa: E402
 app.include_router(_stage_box_router)

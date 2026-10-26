@@ -108,7 +108,14 @@ state = {"page": None, "rtt_ms": None, "published": 0, "dropped": 0, "last": {},
          "demand": {"at": None, "counts": None},              # the Thor's tablet_camera_demand node
          "tilt": None, "impacts": [], "thermal_at": None, "thermal_sent": None, "thermal_sent_at": 0.0,
          "camera": {c: {"mode": "auto", "subscribed": False, "on": False, "frames": 0, "dropped": 0,
-                        "busy": False, "error": None, "w": None, "h": None} for c in CAMERAS}}
+                        "busy": False, "error": None, "w": None, "h": None, "size": None} for c in CAMERAS},
+         # the cameras' optics, from the app's hello (cameraIntrinsics(), 0.7.0 on), or None
+         "intrinsics": None}
+
+# THE NEWEST FRAME of each camera, IN MEMORY ONLY: replaced by the next, never written anywhere. For a
+# reader on the robot that wants one frame rather than a topic (tag_test.py): {"jpeg", "w", "h", "t"},
+# t being when it was taken, on the robot's wall clock.
+latest: dict = {}
 
 
 def stamp(age_ms: float, rtt_ms: float | None, now: float | None = None) -> dict:
@@ -265,7 +272,8 @@ async def tell_page_cameras(force: bool = False) -> None:
         state["camera"][c]["on"] = want[c]
     if page is not None and (changed or force):
         try:
-            await page.send_json({"camera": {c: {"on": want[c], **CAMERA_DEFAULT} for c in CAMERAS}})
+            await page.send_json({"camera": {c: {"on": want[c], **CAMERA_DEFAULT, **(state["camera"][c].get("size") or {})}
+                                             for c in CAMERAS}})
         except Exception:                                   # noqa: BLE001
             pass
 
@@ -322,6 +330,10 @@ async def publish_frame(data: bytes) -> None:
         return
     h, jpeg = got
     c = state["camera"][h["cam"]]
+    if c["on"]:
+        age = _num(h.get("age_ms"), 0, 10_000) or 0.0
+        latest[h["cam"]] = {"jpeg": jpeg, "w": int(_num(h.get("w"), 1, 8192) or 0), "h": int(_num(h.get("h"), 1, 8192) or 0),
+                            "t": time.time() - age / 1000.0 - (state["rtt_ms"] or 0.0) / 2000.0}
     if not c["on"] or c["busy"]:                            # not asked for, or still sending the last one
         c["dropped"] += 1
         return
@@ -354,6 +366,8 @@ async def tablet_ws(socket: WebSocket) -> None:
         return
     old = state["page"]
     state["page"] = socket                                  # the newest kiosk page wins
+    i = hello["hello"].get("intrinsics")
+    state["intrinsics"] = i if isinstance(i, list) else None
     if old is not None:
         try:
             await old.close(code=4409)
@@ -624,3 +638,19 @@ async def camera_demand(request: Request) -> JSONResponse:
     _start_watcher()
     await tell_page_cameras()
     return JSONResponse({c: {"mode": state["camera"][c]["mode"], "on": state["camera"][c]["on"]} for c in CAMERAS})
+
+
+async def set_camera_size(cam: str, size: dict | None) -> None:
+    """Stream `cam` at `size` ({"w", "h", "fps", "q"}; None for the default). An open stream is closed and
+    reopened, since the page opens a camera at one size."""
+    c = state["camera"][cam]
+    if c.get("size") == size:
+        return
+    c["size"] = size
+    if c["on"] and state["page"] is not None:
+        try:
+            await state["page"].send_json({"camera": {cam: {"on": False}}})
+        except Exception:                                   # noqa: BLE001
+            pass
+        c["on"] = False
+    await tell_page_cameras(force=True)
