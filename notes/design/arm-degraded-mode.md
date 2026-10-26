@@ -2,6 +2,11 @@
 
 **Status: design, 2026-10-20. Not built.** One decision for the user is in §5.
 
+**opendubs2 is not degraded today.** Its left gripper was resoldered on 2026-10-19 and is back in
+service: `OPENARM_LEFT_HAND=true`, all 16 motors answer and enable, and id 8 is in use on both arm
+buses. The switch from #357 stays available for a future failure but is off. The incident below is
+why this design exists, not the robot's current state.
+
 ## Why
 
 On 2026-10-17 the left gripper's connector broke during an event. The gripper (arm_left motor id 8)
@@ -78,7 +83,7 @@ On the TELEOP page (`teleop.js`, Arms), in place of the activation failure:
 
 ## 5. Decision for the user: restart, or exclude at runtime?
 
-The left gripper is part of the arm model (`robot_description`) that the stack builds at launch.
+A gripper is part of the arm model (`robot_description`) that the stack builds at launch.
 
 - **A. Restart-based.** Reuse #357's switch. Approval sets it in the runtime entry, and `openarm-up`
   restarts the stack with the left side's gripper switched off.
