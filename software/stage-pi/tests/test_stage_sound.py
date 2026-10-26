@@ -85,3 +85,42 @@ def test_a_soft_blocked_bluetooth_radio_is_lifted_and_nothing_else(tmp_path):
     assert ss.adapter_state("Controller AA:BB\n\tPowered: no\n\tPowerState: off-blocked\n") == "blocked"
     assert ss.adapter_state("Controller AA:BB\n\tPowered: yes\n") == "on"
     assert ss.adapter_state("No default controller available\n") == "none"
+
+
+def _bt_fake(monkeypatch, paired_after_pair, known=""):
+    calls = []
+    def btctl(*args, timeout=10):
+        calls.append(args)
+        return known if args[:1] == ("devices",) else ""
+    state = {"paired": False}
+    def info(addr, text=None):
+        if any(c[-2:] == ("pair", addr) for c in calls):
+            state["paired"] = paired_after_pair
+        return {"addr": addr, "name": "Boom", "paired": state["paired"], "connected": state["paired"], "audio": True}
+    monkeypatch.setattr(ss, "_btctl", btctl)
+    monkeypatch.setattr(ss, "bt_info", info)
+    return calls
+
+
+def test_pairing_is_bondable_only_for_the_attempt_and_a_failed_one_is_forgotten(tmp_path, monkeypatch):
+    """BlueZ 5.82 kept no link key with pairable off: "Pairing successful", then Paired: no (2026-10-26).
+    And a failed attempt left the device trusted, so BlueZ kept retrying it (the Nebula projector)."""
+    calls = _bt_fake(monkeypatch, paired_after_pair=False)
+    snd = ss.Sound(str(tmp_path / "nomedia"), str(tmp_path), "auto")
+    calls.clear()
+    assert not snd._pair("00:7F:1D:F8:B1:9D")["ok"]
+    assert calls[0] == ("pairable", "on") and calls[-1] == ("pairable", "off")
+    assert ("trust", "00:7F:1D:F8:B1:9D") not in calls and ("remove", "00:7F:1D:F8:B1:9D") in calls
+    assert snd.settings["bt"] is None
+    calls = _bt_fake(monkeypatch, paired_after_pair=True)
+    r = snd._pair("00:7F:1D:F8:B1:9D")
+    assert r["ok"] and calls[-1] == ("pairable", "off") and ("trust", "00:7F:1D:F8:B1:9D") in calls
+    assert snd.settings["bt"]["addr"] == "00:7F:1D:F8:B1:9D"
+
+
+def test_on_start_only_the_kept_speaker_stays_known(tmp_path, monkeypatch):
+    known = "Device 00:7F:1D:4A:AB:6A Nebula\nDevice 00:7F:1D:F8:B1:9D soundcore Boom 2 Plus\n"
+    calls = _bt_fake(monkeypatch, paired_after_pair=True, known=known)
+    (tmp_path / "audio.json").write_text('{"bt": {"addr": "00:7F:1D:F8:B1:9D", "name": "Boom"}}')
+    ss.Sound(str(tmp_path / "nomedia"), str(tmp_path), "auto")
+    assert ("remove", "00:7F:1D:4A:AB:6A") in calls and ("remove", "00:7F:1D:F8:B1:9D") not in calls

@@ -337,6 +337,16 @@ class Sound:
         self.settings = load(os.path.join(self.dir, "audio.json"), default_output)
         self.last_reconnect = 0.0
         self.results: dict[str, dict] = {}
+        self._tidy()
+
+    def _tidy(self) -> None:
+        """One speaker: forget every device BlueZ knows as paired or trusted that is not the kept one, so
+        nothing else is retried in the background (a failed pairing used to leave its device trusted)."""
+        keep = (self.settings["bt"] or {}).get("addr")
+        for kind in ("Paired", "Trusted"):
+            for addr, _ in bt_devices(_btctl("devices", kind)):
+                if addr != keep:
+                    _btctl("remove", addr)
 
     def _save(self) -> None:
         try:
@@ -442,12 +452,23 @@ class Sound:
         old = self.settings["bt"]
         if old and old["addr"] != addr:
             _btctl("remove", old["addr"])                  # one speaker: the new one replaces the old
-        _btctl("--agent", "NoInputNoOutput", "--timeout", "25", "pair", addr, timeout=30)
-        _btctl("trust", addr)
-        _btctl("connect", addr, timeout=20)
-        d = bt_info(addr)
-        if not d["paired"]:
-            return {"ok": False, "text": "pairing failed: put the speaker in pairing mode and try again"}
+        # PAIRABLE (BlueZ's "bondable") only for this attempt: without it the speaker pairs, but no link key
+        # is kept and it reads Paired: no at once (found 2026-10-26, BlueZ 5.82). Off again whatever happens;
+        # the box is never discoverable either way.
+        _btctl("pairable", "on")
+        try:
+            _btctl("--agent", "NoInputNoOutput", "--timeout", "25", "pair", addr, timeout=30)
+            d = bt_info(addr)
+            if not d["paired"]:
+                # Not trusted, and forgotten: a device left trusted is one BlueZ keeps trying to reconnect
+                # (the Nebula projector, retried every ~40 s after a failed attempt).
+                _btctl("remove", addr)
+                return {"ok": False, "text": "pairing failed: put the speaker in pairing mode and try again"}
+            _btctl("trust", addr)
+            _btctl("connect", addr, timeout=20)
+            d = bt_info(addr)
+        finally:
+            _btctl("pairable", "off")
         self.settings["bt"] = {"addr": addr, "name": d["name"] or addr}
         self._save()
         kept = "" if self.kept else " (not kept after a reboot: no media stick)"
