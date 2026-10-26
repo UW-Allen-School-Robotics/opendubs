@@ -127,6 +127,20 @@ Add `--dry-run` to see what would happen without sending anything. The push refu
 does not pass its checks, or that plays music or sounds the robot's library does not have; music
 must come from the show library, not a file beside the show.
 
+### Palette requirements for deployment
+
+The robot dashboard's **Shows — routines** page only lists shows registered with a `palette:` block. Because an operator can trigger routines in any order, the push validator enforces that every palette routine must end in the safe rejoin state:
+
+1. **`palette:` block**: Add a button label and sort order at the top of the show YAML:
+   ```yaml
+   palette: { label: "My Show", order: 50 }
+   ```
+2. **Return to rest**: Any arm moved by the show must end with a `pose: rest` keyframe:
+   ```yaml
+     - { t: 8.0, slot: ARM_R, pose: rest }
+   ```
+   If the head moved, it must end centred (`pan 90, tilt 90`), and any state light must be released (`do: release`).
+
 On the dashboard, open **Shows — routines** and tap the routine. Shows need **CH5 in AUTO**. **Start**
 sets how a run begins: **wait for the deadman** arms the run, then counts down when you press the
 deadman; **count down now** needs the deadman already held; **now** starts at once. On the

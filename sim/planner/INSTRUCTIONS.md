@@ -80,6 +80,15 @@ Physical robot execution and show deployment are documented in the composer guid
 - [docs/composer/quickstart.md](../../docs/composer/quickstart.md) ("Run it live"): Live execution with the show runner (`software/choreo/runner.py`), RC authority (`AUTO`), and deadman switch gating.
 - [docs/composer/making-a-show.md](../../docs/composer/making-a-show.md) ("Sending a show to the robot"): Shows are transferred to the robot (`/var/lib/opendubs/shows`) using `python3 software/choreo/show_sync.py push <robot> path/to/<show>.yaml` (e.g. `~/.local/share/opendubs-studio/shows/<show>.yaml`).
 
+### Palette requirements for deployment
+
+Shows deployed to the robot's **Shows — routines** dashboard must be marked as palette routines:
+1. **`palette:` block**: Add button label and sort order at the top of the YAML:
+   ```yaml
+   palette: { label: "My Show", order: 50 }
+   ```
+2. **Safe rejoin state**: The show must return any moved arm to `pose: rest` (e.g. `- { t: 8.0, slot: ARM_R, pose: rest }`) and centre the head so routines can be triggered in any order.
+
 Before running arm shows, the arms must be energized and active (via the dashboard's Teleop page or `openarm-up activate` on the robot).
 
 ---
