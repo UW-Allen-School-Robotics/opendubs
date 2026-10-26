@@ -46,6 +46,7 @@ MAX_VOLUME = 1.0                       # no boost past the sink's own 100 %
 USER = "stage"
 RECONNECT_EVERY_S = 20
 SCAN_S = 15
+REFIND_S, REFIND_TRIES = 3, 4            # a speaker BlueZ forgot since the scan: look again, up to ~12 s
 
 lock = threading.Lock()
 live = {"sinks": {}, "actual": None, "why": None, "playing": [], "bt": None, "found": [],
@@ -242,9 +243,11 @@ def _btctl(*args: str, timeout: float = 10) -> str:
 
 
 def bt_info(addr: str, text: str | None = None) -> dict:
-    """`bluetoothctl info ADDR`, as {name, addr, paired, connected, audio}."""
+    """`bluetoothctl info ADDR`, as {name, addr, paired, connected, audio, known}. `known`: BlueZ still has
+    the device (it drops one it discovered but never paired ~30 s after discovery stops)."""
     text = _btctl("info", addr) if text is None else text
-    d = {"addr": addr, "name": None, "paired": False, "connected": False, "audio": False}
+    d = {"addr": addr, "name": None, "paired": False, "connected": False, "audio": False,
+         "known": text.lstrip().startswith("Device ") and "not available" not in text}
     for line in text.splitlines():
         k, _, v = line.strip().partition(": ")
         if k in ("Name", "Alias") and not d["name"]:
@@ -457,6 +460,17 @@ class Sound:
         # the box is never discoverable either way.
         _btctl("pairable", "on")
         try:
+            # A person picks from the list after the scan has ended, and BlueZ forgets a device it found but
+            # never paired ~30 s after that: then `pair` answers "not available" (2026-10-26). So find it
+            # again first, in short rounds, and pair the moment it is back.
+            for _ in range(REFIND_TRIES):
+                if bt_info(addr)["known"]:
+                    break
+                _btctl("--timeout", str(REFIND_S), "scan", "on", timeout=REFIND_S + 5)
+            else:
+                if not bt_info(addr)["known"]:
+                    return {"ok": False, "text": "the speaker is not in range any more: put it in pairing mode, "
+                                                 "then press PAIR SPEAKER again"}
             _btctl("--agent", "NoInputNoOutput", "--timeout", "25", "pair", addr, timeout=30)
             d = bt_info(addr)
             if not d["paired"]:

@@ -87,7 +87,7 @@ def test_a_soft_blocked_bluetooth_radio_is_lifted_and_nothing_else(tmp_path):
     assert ss.adapter_state("No default controller available\n") == "none"
 
 
-def _bt_fake(monkeypatch, paired_after_pair, known=""):
+def _bt_fake(monkeypatch, paired_after_pair, known="", known_after_scans=0):
     calls = []
     def btctl(*args, timeout=10):
         calls.append(args)
@@ -96,7 +96,9 @@ def _bt_fake(monkeypatch, paired_after_pair, known=""):
     def info(addr, text=None):
         if any(c[-2:] == ("pair", addr) for c in calls):
             state["paired"] = paired_after_pair
-        return {"addr": addr, "name": "Boom", "paired": state["paired"], "connected": state["paired"], "audio": True}
+        known = sum(c[-2:] == ("scan", "on") for c in calls) >= known_after_scans
+        return {"addr": addr, "name": "Boom", "paired": state["paired"], "connected": state["paired"], "audio": True,
+                "known": known}
     monkeypatch.setattr(ss, "_btctl", btctl)
     monkeypatch.setattr(ss, "bt_info", info)
     return calls
@@ -124,3 +126,23 @@ def test_on_start_only_the_kept_speaker_stays_known(tmp_path, monkeypatch):
     (tmp_path / "audio.json").write_text('{"bt": {"addr": "00:7F:1D:F8:B1:9D", "name": "Boom"}}')
     ss.Sound(str(tmp_path / "nomedia"), str(tmp_path), "auto")
     assert ("remove", "00:7F:1D:4A:AB:6A") in calls and ("remove", "00:7F:1D:F8:B1:9D") not in calls
+
+
+def test_a_speaker_forgotten_since_the_scan_is_found_again_before_pairing(tmp_path, monkeypatch):
+    """BlueZ dropped the speaker ~30 s after the scan, before the user picked it: pair said "not available"."""
+    calls = _bt_fake(monkeypatch, paired_after_pair=True, known_after_scans=2)
+    snd = ss.Sound(str(tmp_path / "nomedia"), str(tmp_path), "auto")
+    calls.clear()
+    assert snd._pair("00:7F:1D:F8:B1:9D")["ok"]
+    scans = [i for i, c in enumerate(calls) if c[-2:] == ("scan", "on")]
+    pair = next(i for i, c in enumerate(calls) if c[-2:] == ("pair", "00:7F:1D:F8:B1:9D"))
+    assert len(scans) == 2 and scans[-1] < pair                              # found again, then paired
+    calls = _bt_fake(monkeypatch, paired_after_pair=True, known_after_scans=99)   # gone for good
+    r = snd._pair("00:7F:1D:F8:B1:9D")
+    assert not r["ok"] and "not in range" in r["text"] and calls[-1] == ("pairable", "off")
+    assert not any(c[-2:] == ("pair", "00:7F:1D:F8:B1:9D") for c in calls)
+
+
+def test_bluetoothctl_info_says_whether_bluez_still_knows_a_device():
+    assert ss.bt_info("x", "Device 00:7F:1D:F8:B1:9D not available\n")["known"] is False
+    assert ss.bt_info("x", "Device 00:7F:1D:F8:B1:9D (public)\n\tName: Boom\n")["known"] is True
