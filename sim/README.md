@@ -41,6 +41,10 @@ at runtime. Planners are *consumers* of this description, not owners of it:
   executes multi-arm trajectories. It moves **the arms and grippers, and nothing else** — not
   the lift, the head, the base, sound, the face or the lights. Those are ours whatever planner
   is in use.
+- **OpenArm Simulation Motion Planning (`sim/planner/`)**: Modular testbed supporting **CBiRRT + SSIK**
+  and **NVIDIA cuRobo GPU** motion planning, statistical benchmarking (`sim/planner/benchmark.py`),
+  and Choreo Composer integration (`software/choreo/composer/`). See [`sim/planner/README.md`](planner/README.md)
+  and [`docs/motion-planning.md`](../docs/motion-planning.md).
 - **Direct joint trajectories** through `ros2_control`, which is what the hand-written demos do
   today, and which needs no planner at all.
 - **A full-body planner** is on the roadmap. It will consume the same description.

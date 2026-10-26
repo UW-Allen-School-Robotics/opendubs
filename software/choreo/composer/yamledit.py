@@ -171,7 +171,47 @@ def _delete_cue(text, seq, index):
     ls, le = _line_bounds(text, s, e)
     if text[ls:s].strip() != "-":
         raise EditError("can only delete a cue that starts its own line (`- ...`)")
+    if len(seq.value) == 1:
+        prev_text = text[:ls].rstrip(" \t\r\n")
+        if prev_text.endswith("cues:"):
+            kls = text.rfind("\n", 0, prev_text.rfind("cues:")) + 1
+            indent = text[kls:prev_text.rfind("cues:")]
+            return text[:kls] + f"{indent}cues: []\n" + text[le:]
     return text[:ls] + text[le:]
+
+
+def _clear_cues(text, clip=None, slots=None):
+    root = _root(text)
+    target_node = root
+    where = "cues:"
+    if clip is not None:
+        _, clips = _key(root, "clips")
+        _, body = _key(clips, clip) if isinstance(clips, yaml.MappingNode) else (None, None)
+        if not isinstance(body, yaml.MappingNode):
+            raise EditError(f"no clip {clip!r}")
+        target_node = body
+        where = f"clip {clip}'s cues:"
+    kc, seq = _key(target_node, "cues")
+    if kc is None or seq is None:
+        return text
+
+    if slots:
+        target_slots = set([slots] if isinstance(slots, str) else slots)
+        doc = yaml.safe_load(text) or {}
+        cues_list = (doc.get("clips", {}).get(clip, {}).get("cues") if clip else doc.get("cues")) or []
+        del_indices = [i for i, c in enumerate(cues_list) if isinstance(c, dict) and c.get("slot") in target_slots]
+        if not del_indices:
+            return text
+        if len(del_indices) < len(cues_list):
+            for idx in reversed(del_indices):
+                text = _delete_cue(text, cue_nodes(text, clip), idx)
+            return text
+
+    ls = text.rfind("\n", 0, kc.start_mark.index) + 1
+    le = _end(seq)
+    _, le = _line_bounds(text, ls, le)
+    indent = text[ls:kc.start_mark.index]
+    return text[:ls] + f"{indent}cues: []\n" + text[le:]
 
 
 def _add_cue(text, seq, cue):
@@ -199,6 +239,21 @@ def _add_cue(text, seq, cue):
     if le == len(text) and not text.endswith("\n"):
         insert = "\n" + insert
     return text[:le] + insert + text[le:]
+
+
+def _insert_cue(text, seq, index, cue):
+    if not isinstance(cue, dict) or not cue:
+        raise EditError("a cue must be a non-empty mapping")
+    if not seq.value or index >= len(seq.value):
+        return _add_cue(text, seq, cue)
+    if index < 0:
+        index = max(0, len(seq.value) + index)
+    node = seq.value[index]
+    s, e = node.start_mark.index, _end(node)
+    ls, _ = _line_bounds(text, s, e)
+    prefix = text[ls:s]
+    line = f"{prefix}{fmt({str(k): v for k, v in cue.items()})}\n"
+    return text[:ls] + line + text[ls:]
 
 
 def _set_music(text, key, value):
@@ -449,15 +504,20 @@ def apply(text: str, edits: list) -> str:
             text = _delete_cue(text, _notes_seq(text), _note_index(text, ed.get("id")))
         elif op == "clip_set":
             text = _clip_set(text, ed.get("name"), ed.get("clip"))
-        elif op in ("set", "delete", "add"):
+        elif op in ("set", "delete", "add", "insert", "clear"):
             clip = ed.get("clip_name")                 # a clip's own cues, when editing inside it
-            seq = cue_nodes(text, clip)
-            if op == "set":
-                text = _set_cue(text, seq, int(ed["index"]), ed.get("cue"), _cues_path(clip))
-            elif op == "delete":
-                text = _delete_cue(text, seq, int(ed["index"]))
+            if op == "clear":
+                text = _clear_cues(text, clip, slots=ed.get("slots") or ed.get("slot"))
             else:
-                text = _add_cue(text, seq, ed.get("cue"))
+                seq = cue_nodes(text, clip)
+                if op == "set":
+                    text = _set_cue(text, seq, int(ed["index"]), ed.get("cue"), _cues_path(clip))
+                elif op == "delete":
+                    text = _delete_cue(text, seq, int(ed["index"]))
+                elif op == "insert":
+                    text = _insert_cue(text, seq, int(ed["index"]), ed.get("cue"))
+                else:
+                    text = _add_cue(text, seq, ed.get("cue"))
         else:
             raise EditError(f"unknown edit op {op!r}")
         try:
