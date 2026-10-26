@@ -1,15 +1,16 @@
 """The stage box updates itself (the user's go, 2026-10-26): no one types sudo on it again.
 
-Each deploy publishes a SIGNED copy of software/stage-pi on the robot (release/publish-bundle.sh, with the
-robot's project key, the one that signs the tablet's app). The box's agent PULLS it, as it pulls the media,
-so the box still opens no port:
+Each deploy publishes a SIGNED copy of software/stage-pi on the robot (release/publish-bundle.sh), signed
+by the project's firmware-signing step, the one every board's update uses, for the target "stage". The
+box's agent PULLS it, as it pulls the media, so the box still opens no port:
 
-    GET <robot>/api/stage/box/bundle/manifest.json   {"version", "sha256", "bytes", "built"}
-    GET <robot>/api/stage/box/bundle/manifest.sig    RSA-SHA256 of manifest.json, by the project key
+    GET <robot>/api/stage/box/bundle/manifest.json       {"version" (the folder's content), "sha256", ...}
+    GET <robot>/api/stage/box/bundle/manifest.json.sig   ECDSA P-256 over "OPENDUBS-FW-SIG-1" \0 stage \0 manifest
     GET <robot>/api/stage/box/bundle/stage-bundle.tar.gz
 
 and installs it only when ALL of these hold, else keeps running what it has and says why:
-  - the manifest is signed by the key setup.sh pinned (bundle-key.pem) and the archive's SHA-256 matches;
+  - the manifest is signed by a key setup.sh pinned (keys/, the firmware-signing keys' public halves, as
+    every board trusts them) and the archive's SHA-256 matches;
   - its version is not the one installed;
   - no show is armed or playing (the media sync's rule), checked again just before the reboot;
   - every path in it stays inside it (no absolute path, no .., no link);
@@ -21,6 +22,9 @@ the next boot. The real root sits beneath it (the overlay's lowerdir, e.g. /medi
 read-write, the bundle's own bin/stage-install puts the files in place there (the same list setup.sh
 installs), the version is written beside them, it is synced and remounted read-only, and the box reboots.
 A box with no overlay (set up with --no-overlay) installs into / itself.
+
+KNOWN LIMIT, as for the boards' firmware: no version floor. Something on the robot's network could offer an
+OLDER bundle that was genuinely signed, and the box would install it.
 """
 from __future__ import annotations
 
@@ -35,7 +39,8 @@ import time
 import urllib.request
 
 LIB = "/usr/local/lib/stage"
-KEY = f"{LIB}/bundle-key.pem"
+KEYS = f"{LIB}/keys"                 # PEM public keys, pinned by setup.sh; any one of them may sign
+PREFIX = b"OPENDUBS-FW-SIG-1\0stage\0"  # sign-firmware.sh's message for the target "stage"
 MARK = "BUNDLE"                      # {LIB}/BUNDLE: the installed bundle's manifest
 MAX_BYTES = 32 << 20                 # a bundle is a folder of scripts: far below this
 PATH = "/api/stage/box/bundle/"
@@ -51,17 +56,18 @@ def installed(root: str = "/") -> str | None:
         return None
 
 
-def verify(manifest: bytes, sig: bytes, key: str = KEY) -> bool:
-    """The manifest is signed by the pinned key (openssl, which the box has)."""
-    if not os.path.exists(key):
+def verify(manifest: bytes, sig: bytes, keys: str = KEYS) -> bool:
+    """The manifest is signed, for "stage", by one of the pinned keys (openssl, which the box has)."""
+    try:
+        pems = sorted(os.path.join(keys, k) for k in os.listdir(keys) if k.endswith(".pem"))
+    except OSError:
         return False
     with tempfile.TemporaryDirectory() as d:
         m, s = os.path.join(d, "m"), os.path.join(d, "s")
-        open(m, "wb").write(manifest)
+        open(m, "wb").write(PREFIX + manifest)
         open(s, "wb").write(sig)
-        r = subprocess.run(["openssl", "dgst", "-sha256", "-verify", key, "-signature", s, m],
-                           capture_output=True, timeout=20)
-    return r.returncode == 0
+        return any(subprocess.run(["openssl", "dgst", "-sha256", "-verify", k, "-signature", s, m],
+                                  capture_output=True, timeout=20).returncode == 0 for k in pems)
 
 
 def safe_extract(blob: bytes, into: str) -> None:
@@ -113,7 +119,7 @@ def _get(url: str, limit: int, timeout: float = 20) -> bytes:
     return data
 
 
-def check_once(origins, busy, get=_get, apply=None, key: str = KEY, root: str = "/") -> dict:
+def check_once(origins, busy, get=_get, apply=None, keys: str = KEYS, root: str = "/") -> dict:
     """One look at the robot's bundle; installs it (and reboots) when everything holds. Returns the status."""
     status.update(installed=installed(root), at=time.time())
     origin = next(iter(origins), None)
@@ -134,9 +140,9 @@ def check_once(origins, busy, get=_get, apply=None, key: str = KEY, root: str = 
         status.update(state="waiting: a show is loaded or playing")
         return status
     try:
-        sig = get(origin + PATH + "manifest.sig", 4096)
-        if not verify(manifest, sig, key):
-            status.update(state="REFUSED: the bundle is not signed by the pinned key")
+        sig = get(origin + PATH + "manifest.json.sig", 4096)
+        if not verify(manifest, sig, keys):
+            status.update(state="REFUSED: the bundle is not signed by a pinned key")
             return status
         blob = get(origin + PATH + "stage-bundle.tar.gz", MAX_BYTES, timeout=120)
         if hashlib.sha256(blob).hexdigest() != m.get("sha256"):

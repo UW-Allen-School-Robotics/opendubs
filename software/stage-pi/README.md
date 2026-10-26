@@ -117,11 +117,12 @@ so it still opens no port to the network.
 
 ## Updating
 
-**The box updates itself.** Each deploy signs a copy of this folder on the robot, with the robot's project
-key (the one that signs the tablet's app), and publishes it (`release/publish-bundle.sh`). The box's agent
+**The box updates itself.** Each deploy signs a copy of this folder on the robot, with the project's
+firmware-signing step (the one every board's update uses), and publishes it (`release/publish-bundle.sh`). The box's agent
 looks for it every two minutes and installs it when all of these hold:
 
-- it is signed by the key the setup pinned, and the archive matches its signed checksum;
+- it is signed by the project's firmware-signing key (the one every board's update uses; its public half is
+  in `keys/`, pinned by the setup), and the archive matches its signed checksum;
 - no show is loaded or playing (checked again just before the reboot);
 - the box already has every package `packages.txt` names (an update installs no packages: the robot's
   network may have no internet).
@@ -139,7 +140,11 @@ ssh <user>@opendubs<N>-stage.local sudo raspi-config nonint do_overlayfs 1
 ```
 
 Reboot, copy the new folder over and run `sudo ./stage-pi/setup.sh` again, then reboot. The setup also pins
-the robot's signing key (from the robot this box points at; `--key-file` gives it a copy instead).
+the signing keys in `keys/`; an update never changes them.
+
+A deploy that does not change this folder publishes the same version, so the box neither reinstalls nor
+reboots. **Known limit**, as for the boards' firmware: there is no version floor, so something on the robot's
+network could offer an older bundle that was genuinely signed, and the box would install it.
 
 ## When something is wrong
 

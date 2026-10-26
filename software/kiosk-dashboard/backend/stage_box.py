@@ -14,7 +14,7 @@ at a time and reports each one's result by its id.
 
     GET  /api/stage/box/bundle/<file>  the box's own software, signed on the robot by the deploy
                                   (software/stage-pi/release/publish-bundle.sh): manifest.json,
-                                  manifest.sig, stage-bundle.tar.gz, key.pem. The box pulls it and installs
+                                  manifest.json.sig, stage-bundle.tar.gz. The box pulls it and installs
                                   it itself between shows (stage_update.py); read-only here.
 
 Refused while a show is loaded or playing on the stage pages (stage.hub.show): everything but the volume.
@@ -45,8 +45,8 @@ box = {"report": None, "at": None, "from": None}
 pending: list[dict] = []          # {"id", "op", ..., "_at"}
 _ids = itertools.count(1)
 BUNDLE_DIR = os.environ.get("OPENDUBS_STAGE_BUNDLE_DIR") or "/var/lib/opendubs/stage"
-BUNDLE_FILES = {"manifest.json": "application/json", "manifest.sig": "application/octet-stream",
-                "stage-bundle.tar.gz": "application/gzip", "key.pem": "application/x-pem-file"}
+BUNDLE_FILES = {"manifest.json": "application/json", "manifest.json.sig": "application/octet-stream",
+                "stage-bundle.tar.gz": "application/gzip"}
 
 
 def show_running() -> bool:
@@ -130,7 +130,7 @@ async def box_command(request: Request) -> JSONResponse:
 
 @router.get("/api/stage/box/bundle/{name}")
 def box_bundle(name: str):
-    """One file of the box's signed software; only these four names, nothing else from the folder."""
+    """One file of the box's signed software; only these names, nothing else from the folder."""
     if name not in BUNDLE_FILES:
         return JSONResponse({"error": "not a bundle file"}, status_code=404)
     path = os.path.join(BUNDLE_DIR, name)

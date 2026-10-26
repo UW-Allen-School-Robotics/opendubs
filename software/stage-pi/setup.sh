@@ -18,14 +18,13 @@
 # image has is kept; only an image still called "raspberrypi" is refused.
 set -euo pipefail
 cd "$(dirname "$0")"
-overlay=1; media=""; erase=0; name=""; keyfile=""
+overlay=1; media=""; erase=0; name=""
 while [ $# -gt 0 ]; do
     case $1 in
         --no-overlay) overlay=0 ;;
         --media) media=${2:-}; shift ;;
         --erase-media) erase=1 ;;
         --name) name=${2:-}; shift ;;
-        --key-file) keyfile=${2:-}; shift ;;
         *) echo "setup: unknown option $1" >&2; exit 1 ;;
     esac
     shift
@@ -81,18 +80,15 @@ echo "== the box's own programs (the same list a self-update installs)"
 bash bin/stage-install
 [ -e /boot/firmware/stage.conf ] || install -m 0644 stage.conf.example /boot/firmware/stage.conf
 
-echo "== the robot's signing key, for the self-update"
-# Pinned NOW, while someone set this box up on the robot's own network: every update after this must be
-# signed by it. Taken from the robot this box points at; --key-file uses a copy instead.
-key=/usr/local/lib/stage/bundle-key.pem
-if [ -n "$keyfile" ]; then
-    install -m 0644 "$keyfile" "$key"
-else
-    origin=$(bin/stage-conf ROBOT_URL http://opendubs2.local:8080/stage/ | sed -E 's#^(https?://[^/]+).*#\1#')
-    if curl -fsS --max-time 5 -o "$key.new" "$origin/api/stage/box/bundle/key.pem"; then mv -f "$key.new" "$key"
-    else rm -f "$key.new"; echo "!! no key from $origin: the box will not update itself until setup.sh runs again with the robot up"; fi
-fi
-[ -s "$key" ] && echo "   pinned: $(openssl pkey -pubin -in "$key" -outform DER 2>/dev/null | openssl dgst -sha256 -r | cut -d' ' -f1)"
+echo "== the signing keys the self-update trusts"
+# The project's firmware-signing keys, public halves (keys/, the same files as firmware/common/ota_verify/keys,
+# which every board trusts). Pinned here, by hand: an update never changes them.
+install -d -m 0755 /usr/local/lib/stage/keys
+rm -f /usr/local/lib/stage/keys/*.pem
+for k in keys/*.der; do
+    openssl pkey -pubin -inform DER -in "$k" -out "/usr/local/lib/stage/keys/$(basename "$k" .der).pem"
+    echo "   trusts $(basename "$k" .der)"
+done
 
 if [ -n "$media" ]; then
     echo "== the media partition: ERASING $media for the box's copies of the show videos"
