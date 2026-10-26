@@ -318,14 +318,16 @@ FACE_EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
 # `CFG <url>` verb, so the validator cannot know them — a show lists the ones it uses under
 # `themes:` (plan 1.10), exactly as it lists local sound files under `sounds:`.
 FACE_THEMES = ("plain", "none", "halloween")
-# Eye skins (plan 4.6, head protocol v2 `SKIN <name>`). The skins the face draws in CODE — one name
-# each; `default` is the standard eyes and an ordinary SKIN argument. The single source is CODE_SKINS
-# in software/face-web/engine/skins/index.js (the tablet lane); a test keeps this in step. Any other
-# skin is a LIBRARY item (library.py), checked against the library index on this machine. A Tab5
-# answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
-# reserved robot state (DEGRADED, E_STOP) always shows `default`.
-CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
-              "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
+# Eye skins (plan 4.6, head protocol v2 `SKIN <name>`). CODE skins are drawn by code — one name each;
+# `default` is the standard eyes and an ordinary SKIN argument. CODE_SKINS are the face ENGINE's own
+# (head_protocol.CODE_SKINS, kept in step with software/face-web/engine/skins/index.js by a test);
+# code_skins() adds the content folder's (face/skins/, through the head protocol's looks.py), such as a
+# seasonal skin that left the core. Any other skin is a picture LIBRARY item (library.py), checked
+# against the library index on this machine. The tablet face falls back to `default` for a name it
+# lacks, and a reserved robot state (DEGRADED, E_STOP) always shows `default`.
+import face_looks  # noqa: E402
+CODE_SKINS = face_looks.builtin_code_skins()
+code_skins = face_looks.code_skins
 # `IDLE` is the head's own word for "the robot's idle skin / theme" (head protocol v5: every show end
 # sends SKIN IDLE and THEME IDLE), so no skin or theme may be called `idle`, and a show never names it.
 IDLE_NAME = "idle"
@@ -2056,7 +2058,7 @@ class Show:
                 if e["t"] < lead - 1e-9:
                     out.append(f"face move {c['name']} at t={e['t']:.2f}s cannot be sent {lead:.3f}s early: "
                                "it is sent at the start and peaks late")
-                if c["name"] == "sparkle" and skin not in CODE_SKINS:
+                if c["name"] == "sparkle" and skin not in code_skins():
                     out.append(f"face move sparkle at t={e['t']:.2f}s falls on the picture skin {skin!r}, "
                                "which cannot draw it: nothing shows")
         return out
@@ -2069,7 +2071,8 @@ class Show:
             if name.lower() == IDLE_NAME:
                 return [f"{where}: `idle` is reserved — every show end sends SKIN IDLE itself, the robot's "
                         "idle skin back; name the skin the show wants"]
-            if name in CODE_SKINS:
+            known = code_skins()
+            if name in known:
                 return []
             idx = self._library()
             if idx is None:
@@ -2077,8 +2080,9 @@ class Show:
                 return []
             e = idx.get(name)
             if e is None or e.get("kind") != "skin":
-                return [f"{where}: face skin {name!r} is neither drawn by the face "
-                        f"({', '.join(CODE_SKINS)}) nor a skin in the library at {library.root()}"]
+                return [f"{where}: face skin {name!r} is neither drawn by the face in code "
+                        f"({', '.join(sorted(known))}: the engine's, or the content folder's face/skins) "
+                        f"nor a skin in the library at {library.root()}"]
             self._skin_assets[name] = e.get("sha256")
             return []
         if do == "theme":
@@ -2355,7 +2359,7 @@ def describe(limits: dict) -> str:
     w(f"SOUND: do play, sound: a head earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
-    w(f"FACE: do skin, name {CODE_SKINS} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
+    w(f"FACE: do skin, name {tuple(sorted(code_skins()))} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
       "under themes: (installed on the head by CFG). A skin and a theme last until the show ends: every end sends SKIN IDLE, THEME IDLE and EMOTE AUTO; `idle` is reserved")
     w(f"FACE: do move, name {tuple(FACE_MOVES)} — a one-shot gesture over the held emote; the cue's time is "
       "its PEAK (sent early by the face's measured offset); sparkle may not show on a picture skin")

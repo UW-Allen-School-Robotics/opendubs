@@ -72,7 +72,7 @@ def library_ids(show, tl: dict) -> list:
         ids.append(music["song"])
     for e in (tl.get("tracks") or {}).get("FACE", []):
         c = e.get("cue") or {}
-        if c.get("do") == "skin" and c.get("name") and c["name"] not in cue.CODE_SKINS and c["name"] not in ids:
+        if c.get("do") == "skin" and c.get("name") and c["name"] not in cue.code_skins() and c["name"] not in ids:
             ids.append(c["name"])
     for e in (tl.get("tracks") or {}).get("VIDEO", []):        # projector videos (kind `video`)
         v = (e.get("cue") or {}).get("video")
