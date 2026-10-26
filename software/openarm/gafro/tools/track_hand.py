@@ -34,7 +34,9 @@ import engage  # noqa: E402
 import goto_hand  # noqa: E402
 import guards  # noqa: E402
 import hand_plan  # noqa: E402
+import limits as robot_limits  # noqa: E402
 import motion_plan  # noqa: E402
+import position_play  # noqa: E402
 
 KNOTS = 40
 
@@ -106,12 +108,44 @@ def velocity_report(t: np.ndarray, hand_mm: np.ndarray, goal_mm: np.ndarray, dur
            f"  peak lag behind the reference while it runs: {float(lag[moving].max()):.1f} mm at {float(t[moving][lag[moving].argmax()]):.2f} s",
            f"  end: {float(progress[-1]):.1f} mm along the move, {float(progress[-1] - length):+.1f} mm from the goal; overshoot {max(0.0, float(progress.max() - length)):.1f} mm",
            "  joints, peak speed rad/s | peak measured torque N m: " + "  ".join(f"{j + 1}: {np.abs(speed[:, j]).max():.2f}|{np.abs(torque[:, j]).max():.1f}" for j in range(speed.shape[1]))]
+    fast = [f"j{j + 1} {np.abs(speed[:, j]).max():.2f}" for j in range(speed.shape[1]) if np.abs(speed[:, j]).max() > VIBRATION_SPEED]
+    out.append(f"  VIBRATION: joint speeds over {VIBRATION_SPEED:g} rad/s ({', '.join(fast)}): a joint was shaking, whatever the hand did" if fast
+               else f"  no joint went over {VIBRATION_SPEED:g} rad/s (no vibration)")
     return "\n".join(out)
+
+
+VIBRATION_SPEED = 1.0       # rad/s: no joint of a 4 cm hand move goes this fast (the runs that worked peaked at 0.25); the gain-12 run reached 3.9 on the wrist
+VIBRATION_SAMPLES = 6     # consecutive samples (~12 ms) over --max-joint-speed before the guard stops the run
+STALL_LAG_MM = 15.0       # the hand this far behind the reference
+STALL_ADVANCE_MM = 2.0    # and advanced less than this in the last second
+STALL_TORQUE = 0.8        # N m measured on some joint: pushing, not coasting. Forward runs peaked at 1.0 only while the hand kept up (lag < 10 mm)
+
+
+def stall_reason(ideal_mm: float, progress_now_mm: float, progress_then_mm: float, torque_peak: float) -> str | None:
+    """Why a run should stop pushing, or None. All three at once: the hand far behind its reference, not advancing, and a joint drawing real torque. That is a joint held by
+    something (friction it cannot overcome, or an obstruction the model does not have, such as the cables behind the arm), and more of the same command only pushes harder."""
+    lag, advanced = ideal_mm - progress_now_mm, progress_now_mm - progress_then_mm
+    if lag > STALL_LAG_MM and abs(advanced) < STALL_ADVANCE_MM and torque_peak >= STALL_TORQUE:
+        return (f"STALL: the hand is {lag:.0f} mm behind its reference and moved {advanced:+.1f} mm in the last second while a joint draws {torque_peak:.1f} N m: "
+                "something is holding the arm (an obstruction the model does not have?). The permit is no longer renewed; the arm holds where it is.")
+    return None
+
+
+STUCK_ERROR = 0.03        # rad: a joint this far from its planned angle
+STUCK_MOVED = 0.003       # rad: and moved less than this in the last second
+
+
+def stuck_joints(target: np.ndarray, q_now: np.ndarray, q_then: np.ndarray, torque_peak: np.ndarray) -> list:
+    """The joints (numbered from 1) held by something: far from their planned angle, not moving, and drawing real torque. More precise than the hand-level check, since it does
+    not wait for every other joint to stop (in the blocked runs joint 7 kept the hand moving for 1.5 s while joint 1 was already pushing at 1 N m against the cables)."""
+    held = (np.abs(target - q_now) > STUCK_ERROR) & (np.abs(q_now - q_then) < STUCK_MOVED) & (np.abs(torque_peak) >= STALL_TORQUE)
+    return [int(j) + 1 for j in np.where(held)[0]]
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--controller", choices=("velocity", "track"), default="velocity", help="`velocity` is built here; `track` is the torque controller of controllers.yaml")
+    p.add_argument("--controller", choices=("velocity", "track", "position"), default="velocity", help="`velocity` is built here; `track` is the torque controller of controllers.yaml; "
+                   "`position` is built here too: a posture controller that plays the planned path (not a straight line) in the driver's POSITION mode, the rate along it fed forward")
     p.add_argument("--side", choices=("left", "right"), required=True)
     p.add_argument("--model", required=True)
     p.add_argument("--backend", choices=("hardware", "mujoco"), default="hardware")
@@ -126,8 +160,20 @@ def main(argv=None) -> int:
     p.add_argument("--integral-limit", type=float, default=0.02, help="velocity controller: bound of the integral of the pose error (m s)")
     p.add_argument("--lead", type=float, default=0.0, help="seconds the pose reference runs ahead of its own clock. A proportional law on a ramp lags by speed/gain; shown the reference "
                    "1/gain ahead it has no steady lag on a ramp. 0 is the plain reference")
+    p.add_argument("--position-gain", type=float, default=20.0, help="position controller: the posture error to speed, 1/s, on the controller's own anchor. High is fine: there is no actuator in that loop "
+                   "(without the rate fed forward the anchor lags the plan by speed / gain)")
+    p.add_argument("--max-lead", type=float, default=0.02, help="position controller: how far, rad per joint, the offset may take the command from the anchor. The offset integrates the anchor's distance "
+                   "from the measurement so a joint held by friction is still asked to move; the motor's PD turns it into torque (kp * lead). It must exceed friction / kp or the joint never "
+                   "breaks away; the offset hunts against friction by about the lead when --offset-gain is high")
+    p.add_argument("--leash", type=float, default=0.15, help="position controller: how far, rad per joint, the anchor may get from the measured position. A held joint (a cable, a collision) is "
+                   "never asked for more than kp * leash beyond the plan, and the anchor does not run away from an arm that has stopped; it must exceed the tracking error the plan needs")
+    p.add_argument("--offset-gain", type=float, default=2.0, help="position controller: gain of the offset on the anchor's distance from the measurement, 1/s. Low: a high gain hunts against friction")
+    p.add_argument("--max-command-speed", type=float, default=0.5, help="position controller: cap, rad/s, on the speed its feedback asks for (the rate fed forward is the plan's own)")
+    p.add_argument("--no-feedforward", action="store_true", help="position controller: do not feed the planned rates forward (the arm then follows rate / gain behind the plan)")
+    p.add_argument("--max-joint-speed", type=float, default=1.5, help="rad/s: if any joint stays faster than this for ~12 ms the run stops renewing the permit (the arm holds): a joint that fast during a 4 cm hand move is vibrating")
     p.add_argument("--csv", default=None, help="the raw samples (default ~/track_hand-<time>.csv)")
     p.add_argument("--weight", type=int, default=10)
+    p.add_argument("--limits", default=None, help="this robot's joint limits (default $OPENDUBS_ARM_LIMITS or /etc/opendubs/arm-limits/joint_limits.yaml): narrows the model's ranges, never widens them")
     p.add_argument("--max-offset-cm", type=float, default=6.0)
     p.add_argument("--max-joint-deg", type=float, default=15.0)
     p.add_argument("--max-bend-deg", type=float, default=1.0)
@@ -175,14 +221,26 @@ def main(argv=None) -> int:
                 raise guards.Refused(str(error)) from None
             lower = np.asarray(system.get_joint_limits_min().coefficients())[indices]
             upper = np.asarray(system.get_joint_limits_max().coefficients())[indices]
-            goto_hand.check_plan(plan, lower, upper, args.max_bend_deg, args.max_joint_deg, args.max_offset_cm, offset)
+            lower, upper, limits_note = robot_limits.apply(args.side, lower, upper, args.limits)
+            goto_hand.check_plan(plan, lower, upper, 180.0 if args.controller == "position" else args.max_bend_deg, args.max_joint_deg, args.max_offset_cm, offset)
             closest = None
             if not args.skip_clearance:
                 clearance_of = motion_plan.twin_clearance(args.side, args.assets, args.sim_dir or os.environ.get("OPENDUBS_SIM_DIR"))
-                closest = motion_plan.require_clearance(motion_plan.line_poses(plan["states"][:, 0], plan["states"][:, -1]), clearance_of, args.min_clearance_mm)
+                poses = (motion_plan.path_poses(plan["states"]) if args.controller == "position"
+                         else motion_plan.line_poses(plan["states"][:, 0], plan["states"][:, -1]))       # the path the controller follows, not the line between its ends
+                closest = motion_plan.require_clearance(poses, clearance_of, args.min_clearance_mm)
             duration = duration_for_path(plan["states"], args.speed)
+            print(limits_note)
             print(goto_hand.plan_text(args.side, plan, args.speed, closest, args.min_clearance_mm).split("\nDriven in position mode")[0])
-            print(f"Run by the `{args.controller}` controller (a spec-built, pose -> velocity controller in the driver's VELOCITY mode: kp = 0, the command under kd), its pose reference "
+            if args.controller == "position":
+                print(f"Run by the `position` controller (a spec-built posture controller in the driver's POSITION mode: the motor's own PD and the driver's gravity feed-forward), "
+                      f"playing iLQR's planned path (not a straight line) timed by minimum jerk over {duration:.1f} s: anchor gain {args.position_gain:g} /s, command speed cap "
+                      f"{args.max_command_speed:g} rad/s, anchor within {args.leash:g} rad of the arm, offset gain {args.offset_gain:g} /s up to {args.max_lead:g} rad, "
+                      f"{'planned rate fed forward' if not args.no_feedforward else 'no rate feed-forward (follows rate / gain behind the plan)'}.\n"
+                      "The head and the camera mount are not in the model: head tracking must be OFF with the neck centred, and you judge the path by eye.\n"
+                      "Hold CH6 from when you type `hand` until it ends; letting go stops it within about half a second and the arm holds where it is.")
+            else:
+                print(f"Run by the `{args.controller}` controller (a spec-built, pose -> velocity controller in the driver's VELOCITY mode: kp = 0, the command under kd), its pose reference "
                   f"timed by minimum jerk over {duration:.1f} s, gain {args.gain:g} /s, hand speed cap {args.hand_speed:g} m/s"
                   f"{f', integral {args.integral:g} /s^2 (bound {args.integral_limit:g} m s)' if args.integral > 0 else ''}"
                   f"{f', reference shown {args.lead:g} s ahead' if args.lead > 0 else ''}. It may stall short if kd is too low for the joint friction.\n"
@@ -209,7 +267,12 @@ def main(argv=None) -> int:
         reference.prime(2)
 
         keeper.start()
-        robot.control(engage.build(args.controller, controllers, system, args.side, start_all, pose0, reference, posture), False)
+        rates = None
+        if args.controller == "position":
+            posture, rates = position_play.start(robot, system, args.side, start_all, pose0, args.position_gain, args.max_lead, args.max_command_speed, not args.no_feedforward,
+                                                  args.leash, args.offset_gain)
+        else:
+            robot.control(engage.build(args.controller, controllers, system, args.side, start_all, pose0, reference, posture), False)
         time.sleep(0.5)                                          # holding where it is before anything moves
 
         q_ref = reference_knots(plan["states"], duration)
@@ -221,23 +284,58 @@ def main(argv=None) -> int:
             joints.append(full)
         samples, recording = [], threading.Event()
 
+        vibrating = {"run": 0, "joints": []}
+
         def record():
             while not recording.is_set():
                 s = robot.get_state()
-                samples.append((time.time(), np.asarray(s.get_position(), dtype=float)[indices], np.asarray(s.get_velocity(), dtype=float)[indices],
-                                np.asarray(s.get_torque(), dtype=float)[indices]))
+                v = np.asarray(s.get_velocity(), dtype=float)[indices]
+                samples.append((time.time(), np.asarray(s.get_position(), dtype=float)[indices], v, np.asarray(s.get_torque(), dtype=float)[indices]))
+                over = np.abs(v) > args.max_joint_speed
+                vibrating["run"] = vibrating["run"] + 1 if over.any() else 0
+                if vibrating["run"] >= VIBRATION_SAMPLES and not vibrating["joints"]:
+                    vibrating["joints"] = [int(j) + 1 for j in np.where(over)[0]]
+                    keeper.stop()                                        # idempotent; the arm holds from the next cycle
                 time.sleep(0.002)
 
         began = time.time()
         now = control.monotonic_now() - args.lead                # a lead starts the chunk in the past: the controller is shown the reference `lead` seconds ahead
         threading.Thread(target=record, daemon=True).start()
-        reference.publish(control.MotorReferenceChunk(now, duration / KNOTS, motors))     # the spacing between knots, not the length of the chunk
-        posture.publish(control.JointReferenceChunk(now, duration / KNOTS, joints))
+        if args.controller == "position":
+            position_play.publish(posture, rates, now, duration / KNOTS, joints, position_play.rates_from_knots(np.array(q_ref), duration / KNOTS))
+        else:
+            reference.publish(control.MotorReferenceChunk(now, duration / KNOTS, motors))     # the spacing between knots, not the length of the chunk
+            posture.publish(control.JointReferenceChunk(now, duration / KNOTS, joints))
+        move_mm = (plan["goal"][:3] - plan["start"][:3]) * 1000
+        direction = move_mm / np.linalg.norm(move_mm)
+        stalled = None
         while time.time() - began < duration + 1.5:
             time.sleep(0.5)
             hand = hand_plan.hand_pose(task, state()[indices])
-            print(f"  [+{time.time() - began:4.1f}] hand from start {np.round((hand[:3] - plan['start'][:3]) * 1000, 1)} mm | farthest joint from its target "
+            elapsed = time.time() - began
+            print(f"  [+{elapsed:4.1f}] hand from start {np.round((hand[:3] - plan['start'][:3]) * 1000, 1)} mm | farthest joint from its target "
                   f"{np.abs(state()[indices] - plan['states'][:, -1]).max():.3f} rad", flush=True)
+            if vibrating["joints"] and not stalled:
+                stalled = (f"VIBRATION: joint(s) {vibrating['joints']} exceeded {args.max_joint_speed:g} rad/s for ~{VIBRATION_SAMPLES * 2} ms. The permit is no longer renewed; the arm holds where it is. "
+                           "Lower the gain or the wrist kd and try again.")
+                print(stalled, flush=True)
+                break
+            recent = [x for x in list(samples) if x[0] - began > elapsed - 1.0]
+            if len(recent) > 50:
+                now_mm = float((hand[:3] - plan["start"][:3]) * 1000 @ direction)
+                then_mm = float((hand_plan.hand_pose(task, recent[0][1])[:3] - plan["start"][:3]) * 1000 @ direction)
+                ideal_mm = float(np.linalg.norm(move_mm) * engage.minimum_jerk(min(max(elapsed / duration, 0.0), 1.0)))
+                stalled = stall_reason(ideal_mm, now_mm, then_mm, max(float(np.abs(x[3]).max()) for x in recent))
+                held = stuck_joints(plan["states"][:, -1], recent[-1][1], recent[0][1], np.abs(np.array([x[3] for x in recent])).max(axis=0))
+                if held and not stalled:
+                    target_q = plan["states"][:, -1]
+                    gaps = ", ".join("%.2f" % abs(target_q[j - 1] - recent[-1][1][j - 1]) for j in held)
+                    stalled = (f"STALL: joint(s) {held} are held {gaps} rad from their planned angle, not moving, and drawing torque: something is holding the arm "
+                               "(an obstruction the model does not have?). The permit is no longer renewed; the arm holds where it is.")
+                if stalled:
+                    print(stalled, flush=True)
+                    keeper.stop()
+                    break
         recording.set()
         time.sleep(0.02)
         end_q = state()[indices]
@@ -260,7 +358,9 @@ def main(argv=None) -> int:
                 for k in range(len(ts)):
                     writer.writerow([f"{ts[k]:.4f}"] + [f"{x:.3f}" for x in hand_mm[k]] + [f"{x:.5f}" for x in np.r_[qs[k], speeds[k], torques[k]]])
             print(f"raw samples: {path}\n")
-        ok = np.linalg.norm(error) <= goto_hand.HAND_TOLERANCE_MM and joint_error <= goto_hand.JOINT_TOLERANCE
+        ok = np.linalg.norm(error) <= goto_hand.HAND_TOLERANCE_MM and joint_error <= goto_hand.JOINT_TOLERANCE and not vibrating["joints"] and not stalled
+        if vibrating["joints"] or stalled:
+            return bringup.verdict(False, "the run was stopped: " + (stalled or "vibration").split(":")[0].lower() + " (see above)")
         return bringup.verdict(ok, "hand within tolerance under the velocity controller" if ok else
                                f"hand {np.linalg.norm(error):.1f} mm from the target, joints {joint_error:.3f} rad from the plan (a stall: kd too low for the friction, or CH6 released, or a trip)")
     finally:

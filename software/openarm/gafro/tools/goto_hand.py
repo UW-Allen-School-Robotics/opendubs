@@ -29,6 +29,7 @@ sys.path.insert(0, HERE)
 import bringup  # noqa: E402
 import guards  # noqa: E402
 import hand_plan  # noqa: E402
+import limits as robot_limits  # noqa: E402
 import motion_plan  # noqa: E402
 
 HAND_TOLERANCE_MM = 15.0      # the joints stop up to ~0.01 rad short by friction, which is 5 to 10 mm at the hand
@@ -75,6 +76,12 @@ def plan_text(side, plan, speed, closest, minimum_mm) -> str:
             "Hold CH6 from when you type `hand` until it ends; letting go stops it within about half a second and the arm holds where it is.")
 
 
+def over_torque(torque_peak: np.ndarray, limit: float) -> list:
+    """The joints (numbered from 1) whose measured torque reached `limit` N m. In position mode the torque is kp times the lag behind the target, so a joint held by something
+    the model does not have (the cables behind the right arm) draws more the further it is pushed: a cap says how hard this run may push."""
+    return [int(j) + 1 for j in np.where(np.abs(torque_peak) >= limit)[0]]
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--side", choices=("left", "right"), required=True)
@@ -86,6 +93,9 @@ def main(argv=None) -> int:
     p.add_argument("--offset-cm", required=True, help="dx,dy,dz in centimetres, model frame: +x forward, +y left, +z up")
     p.add_argument("--speed", type=float, default=0.05, help="rad/s of the largest joint (at most 0.2)")
     p.add_argument("--weight", type=int, default=10, help="terminal pose weight (the same term added this many times)")
+    p.add_argument("--limits", default=None, help="this robot's joint limits (default $OPENDUBS_ARM_LIMITS or /etc/opendubs/arm-limits/joint_limits.yaml): narrows the model's ranges, never widens them")
+    p.add_argument("--max-torque", type=float, default=12.0, help="N m: stop renewing the permit (the arm holds) if any joint's measured torque reaches this. In position mode it is "
+                   "kp times the lag behind the target (kp 120 on joint 1: 0.09 rad is 10.8 N m); stiffer gains need a higher cap, on purpose. The driver's own trip is 27 N m on joint 1")
     p.add_argument("--max-offset-cm", type=float, default=6.0)
     p.add_argument("--max-joint-deg", type=float, default=15.0)
     p.add_argument("--max-bend-deg", type=float, default=1.0)
@@ -122,11 +132,13 @@ def main(argv=None) -> int:
                 raise guards.Refused(str(error)) from None
             lower = np.asarray(system.get_joint_limits_min().coefficients())[np.asarray(task.get_joint_indices())]
             upper = np.asarray(system.get_joint_limits_max().coefficients())[np.asarray(task.get_joint_indices())]
+            lower, upper, limits_note = robot_limits.apply(args.side, lower, upper, args.limits)
             check_plan(plan, lower, upper, args.max_bend_deg, args.max_joint_deg, args.max_offset_cm, offset)
             closest = None
             if not args.skip_clearance:
                 clearance_of = motion_plan.twin_clearance(args.side, args.assets, args.sim_dir or os.environ.get("OPENDUBS_SIM_DIR"))
                 closest = motion_plan.require_clearance(motion_plan.line_poses(plan["states"][:, 0], plan["states"][:, -1]), clearance_of, args.min_clearance_mm)
+            print(limits_note)
             print(plan_text(args.side, plan, args.speed, closest, args.min_clearance_mm))
             typed = args.confirm if args.confirm is not None else input("Is the arm clear for that? Type `hand` to move, anything else to stop: ").strip()
             if typed != "hand":
@@ -140,9 +152,18 @@ def main(argv=None) -> int:
 
         target_q = plan["states"][:, -1]
         finished = threading.Event()
+        samples, recording = [], threading.Event()
+
+        def record():
+            while not recording.is_set():
+                samples.append((time.time(), np.asarray(robot.get_state().get_torque(), dtype=float)[indices]))
+                time.sleep(0.004)
+
         keeper.start()
+        threading.Thread(target=record, daemon=True).start()
         threading.Thread(target=bringup.go_to, args=(robot, args.side, target_q, args.speed, finished), daemon=True).start()
         began = time.time()
+        forced = None
         limit = 2 * np.abs(target_q - start).max() / args.speed + 5
         settled_since, last = None, position().copy()
         while not finished.wait(0.5) and time.time() - began < limit:
@@ -150,13 +171,28 @@ def main(argv=None) -> int:
             moving = float(np.abs(q - last).max()) > 0.002
             last = q.copy()
             hand = hand_plan.hand_pose(task, q)
-            print(f"  [+{time.time() - began:4.1f}] hand from start {np.round((hand[:3] - plan['start'][:3]) * 1000, 1)} mm | farthest joint from its target {np.abs(q - target_q).max():.3f} rad", flush=True)
+            recent = [x[1] for x in list(samples) if x[0] > time.time() - 0.5]
+            peak = np.abs(np.array(recent)).max(axis=0) if recent else np.zeros(len(indices))
+            print(f"  [+{time.time() - began:4.1f}] hand from start {np.round((hand[:3] - plan['start'][:3]) * 1000, 1)} mm | farthest joint from its target {np.abs(q - target_q).max():.3f} rad "
+                  f"| largest torque {peak.max():.1f} N m (joint {int(peak.argmax()) + 1})", flush=True)
+            over = over_torque(peak, args.max_torque)
+            if over:
+                forced = (f"FORCE LIMIT: joint(s) {over} reached {args.max_torque:g} N m (--max-torque). The permit is no longer renewed; the arm holds where it is. "
+                          "If something holds the arm and you mean to push harder, raise --max-torque and the gains on purpose.")
+                print(forced, flush=True)
+                keeper.stop()
+                break
             if not moving and np.abs(q - target_q).max() <= JOINT_TOLERANCE:
                 settled_since = settled_since or time.time()
                 if time.time() - settled_since > 1.0:
                     break
             else:
                 settled_since = None
+        recording.set()
+        time.sleep(0.02)
+        if samples:
+            torques = np.abs(np.array([x[1] for x in list(samples)]))
+            print("peak measured torque per joint (N m): " + "  ".join(f"{j + 1}: {torques[:, j].max():.1f}" for j in range(torques.shape[1])))
         end_q = position()
         hand = hand_plan.hand_pose(task, end_q)
         error = (hand[:3] - plan["goal"][:3]) * 1000

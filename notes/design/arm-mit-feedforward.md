@@ -1,6 +1,6 @@
 # The torque controller as a feed-forward around the motor's PD
 
-**Status:** proposal, written 2026-10-23 from the right-arm bring-up on opendubs2. Not built; nothing here changes behaviour. **Decision wanted from:** the Arms lane and
+**Status:** proposal, written 2026-10-23 from the right-arm bring-up on opendubs2. Not built; nothing here changes behaviour. **Not pursued for position mode** (decision 2026-10-23): in position mode the trajectory is already planned and the motor's PD closes the error, so a planned path is played by a position controller that is given the whole path and its rate (`tools/position_play.py`; `PositionIntegratorController` in gafro) with no new command type. This note stays as the record of why the torque path was left, and for a controller that needs torque-level control. **Decision wanted from:** the Arms lane and
 the owner of `openarm-driver` and gafro's `ControllerBase`, because it adds a command type that crosses all three.
 
 ## What was measured
