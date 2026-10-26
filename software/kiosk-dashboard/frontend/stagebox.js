@@ -90,7 +90,10 @@
         <button class="iobtn" data-vol="${k}" data-d="${STEP}">+</button></div>`).join("");
     // The speaker.
     const bt = s.bt;
-    $("sbBt").textContent = !on ? "—" : s.busy === "scanning" ? "looking for speakers…" : s.busy === "pairing" ? "pairing…"
+    const ADAPTER = { blocked: "the box's Bluetooth is blocked (rfkill): it lifts it itself within seconds",
+                      off: "the box's Bluetooth is off: turning it on", none: "the box has no Bluetooth adapter" };
+    $("sbBt").textContent = !on ? "—" : ADAPTER[s.adapter] ? ADAPTER[s.adapter]
+      : s.busy === "scanning" ? "looking for speakers…" : s.busy === "pairing" ? "pairing…"
       : bt ? `${bt.name || bt.addr}: ${bt.connected ? "connected" : bt.paired ? "paired, not connected (is it on?)" : "not paired"}`
       : "no speaker paired";
     $("sbForget").hidden = !bt;

@@ -67,3 +67,21 @@ def test_kept_settings_survive_junk(tmp_path):
     assert s["output"] == "bt" and s["volumes"]["usb"] == 1.0 and s["volumes"]["bt"] == ss.DEFAULT_VOLUME and s["bt"] is None
     ss.save(str(path), {**s, "bt": {"addr": "aa:bb:cc:dd:ee:ff", "name": "x"}})
     assert ss.load(str(path), "auto")["bt"] == {"addr": "AA:BB:CC:DD:EE:FF", "name": "x"}
+
+
+def test_a_soft_blocked_bluetooth_radio_is_lifted_and_nothing_else(tmp_path):
+    """The box came up with Bluetooth soft-blocked at every boot (2026-10-26): Powered no, pairing failed."""
+    for name, kind, soft, hard in (("rfkill0", "bluetooth", "1", "0"), ("rfkill1", "wlan", "1", "0"),
+                                   ("rfkill2", "bluetooth", "0", "1")):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "type").write_text(kind + "\n")
+        (d / "soft").write_text(soft + "\n")
+        (d / "hard").write_text(hard + "\n")
+    assert ss.rfkill_unblock(str(tmp_path)) == ["rfkill0"]
+    assert (tmp_path / "rfkill0/soft").read_text() == "0"
+    assert (tmp_path / "rfkill1/soft").read_text().strip() == "1"          # the Wi-Fi is not ours
+    assert ss.rfkill_unblock(str(tmp_path)) == []                           # already lifted: nothing to do
+    assert ss.adapter_state("Controller AA:BB\n\tPowered: no\n\tPowerState: off-blocked\n") == "blocked"
+    assert ss.adapter_state("Controller AA:BB\n\tPowered: yes\n") == "on"
+    assert ss.adapter_state("No default controller available\n") == "none"
