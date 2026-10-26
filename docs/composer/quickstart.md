@@ -61,7 +61,10 @@ them, but the robot refuses to run them.
 There are three ways to write a show, and you can mix them.
 
 - **By hand.** Each lane's **+** adds a cue at the playhead. Drag a cue to move it in time, and tap
-  it to change it in the **Cue** panel. **save** (Ctrl- or Cmd-S) writes the file.
+  it to change it in the **Cue** panel. **save** (Ctrl- or Cmd-S) writes the file. For an arm cue,
+  the Arm Inspector lets you adjust joint angles with sliders, solve Cartesian reach targets with SSIK,
+  or click **Rest** to set `pose: rest` directly. Clicking **Plan Path** routes a collision-free path
+  around obstacles using CBiRRT or cuRobo, preserving `pose: rest` when moving to or from rest.
 - **With notes and an agent.** On the **NOTES** lane, **+** adds a note at the playhead: say what
   should happen there, in plain words. Then **⧉** copies the open notes as a prompt for a coding
   agent, such as Claude Code, which writes the cues into the file. Save first: the agent works on
@@ -123,9 +126,14 @@ For example, with the default Linux shows folder:
 ```bash
 python3 software/choreo/show_sync.py push opendubs2 ~/.local/share/opendubs-studio/shows/my-show.yaml
 ```
-Add `--dry-run` to see what would happen without sending anything. The push refuses a show that
-does not pass its checks, or that plays music or sounds the robot's library does not have; music
-must come from the show library, not a file beside the show.
+Add `--dry-run` to see what would happen without sending anything. The `<robot>` destination
+is reached over SSH (such as `opendubs2.local` via mDNS, an IP address, or a hostname configured
+in `~/.ssh/config`). If connecting to a freshly provisioned robot whose shows directory
+(`/var/lib/opendubs/shows`) does not yet exist, pass `--create` on your first push. If SSH cannot
+connect, `show_sync` reports the connection failure directly.
+
+The push refuses a show that does not pass its checks, or that plays music or sounds the robot's
+library does not have; music must come from the show library, not a file beside the show.
 
 ### Palette requirements for deployment
 
@@ -139,6 +147,7 @@ The robot dashboard's **Shows — routines** page only lists shows registered wi
    ```yaml
      - { t: 8.0, slot: ARM_R, pose: rest }
    ```
+   Always use `pose: rest` (or click **Rest** in the composer) rather than explicit joint angles. `pose: rest` dynamically evaluates against the robot's physical stop without penalty, whereas explicit joint angles are checked with a 5° margin that fails the rest check.
    If the head moved, it must end centred (`pan 90, tilt 90`), and any state light must be released (`do: release`).
 
 On the dashboard, open **Shows — routines** and tap the routine. Shows need **CH5 in AUTO**. **Start**

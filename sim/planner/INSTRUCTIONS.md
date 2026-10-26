@@ -47,6 +47,7 @@ To stop the background server when done, run `software/choreo/studio-down.sh` or
 
 3. **Posing the Arm**:
    - **Joint Sliders (J1–J7)**: Drag sliders to adjust outward joint angles interactively. The 3D ghost arm updates in real time to show the target pose.
+   - **Rest Button**: Click **Rest** to set `pose: rest` directly. This returns the arm to its canonical physical rest stop as defined by the robot's hardware limits. Always use `pose: rest` rather than typing explicit joint angles for the rest position, as explicit angles are checked against a 5° margin that fails the palette rest check.
    - **SSIK Cartesian Reach Solver**: In the *Solve Target Reach* section, enter Cartesian coordinates (e.g. `[0.45, 0.10, 0.25]` in meters relative to arm base) or a named target (e.g. `head_screen`), then click **Solve Reach**. Analytical IK resolves the target into joint angles in under 0.2 ms.
 
 4. **Select Motion Planner Backend**:
@@ -60,7 +61,7 @@ To stop the background server when done, run `software/choreo/studio-down.sh` or
    - The composer computes the trajectory and opens the **Plan Preview Card**:
      - **Validation Verdict**: Displays `PASS` (green) or `FAIL` (red) based on validator speed caps (180 deg/s) and joint limits.
      - **Planner Clearance**: Reports the minimum clearance along the planner's own waypoints.
-     - **Clamping Notification**: Warns if any target or waypoint joint angle was clamped to stay within the usable range (5 deg margin inside hardware limits).
+     - **Clamping Notification**: Warns if any target or waypoint joint angle was clamped to stay within the usable range (5 deg margin inside hardware limits). When planning to or from a canonical `pose: rest`, the planner preserves the rest pose without clamping so the arrival cue remains `pose: rest`.
    - Click **Apply Planned Path** (or **Apply Anyway**) to insert avoidance waypoints and the arrival cue into the show, or click **Discard** to cancel.
 
 6. **Save the Show**:
@@ -80,6 +81,8 @@ Physical robot execution and show deployment are documented in the composer guid
 - [docs/composer/quickstart.md](../../docs/composer/quickstart.md) ("Run it live"): Live execution with the show runner (`software/choreo/runner.py`), RC authority (`AUTO`), and deadman switch gating.
 - [docs/composer/making-a-show.md](../../docs/composer/making-a-show.md) ("Sending a show to the robot"): Shows are transferred to the robot (`/var/lib/opendubs/shows`) using `python3 software/choreo/show_sync.py push <robot> path/to/<show>.yaml` (e.g. `~/.local/share/opendubs-studio/shows/<show>.yaml`).
 
+The `<robot>` target is reached over SSH (such as `opendubs2.local` via mDNS, an IP address, or configured in `~/.ssh/config`). If deploying to a newly provisioned robot whose `/var/lib/opendubs/shows` directory has not been created yet, pass `--create` on the first push.
+
 ### Palette requirements for deployment
 
 Shows deployed to the robot's **Shows — routines** dashboard must be marked as palette routines:
@@ -87,7 +90,7 @@ Shows deployed to the robot's **Shows — routines** dashboard must be marked as
    ```yaml
    palette: { label: "My Show", order: 50 }
    ```
-2. **Safe rejoin state**: The show must return any moved arm to `pose: rest` (e.g. `- { t: 8.0, slot: ARM_R, pose: rest }`) and centre the head so routines can be triggered in any order.
+2. **Safe rejoin state**: The show must return any moved arm to `pose: rest` (e.g. `- { t: 8.0, slot: ARM_R, pose: rest }`) and centre the head so routines can be triggered in any order. Always use `pose: rest` rather than explicit joint angles.
 
 Before running arm shows, the arms must be energized and active (via the dashboard's Teleop page or `openarm-up activate` on the robot).
 
