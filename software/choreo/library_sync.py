@@ -241,10 +241,10 @@ class Target:
         return out
 
     def install_tool(self) -> None:
-        """This file and library.py, into <root>/.tool/: both ends run the same code."""
+        """This file, library.py and face_looks.py, into <root>/.tool/: both ends run the same code."""
         q = shlex.quote
         d = os.path.join(self.root, TOOL_DIR)
-        for name in ("library.py", "library_sync.py"):
+        for name in ("library.py", "library_sync.py", "face_looks.py"):   # library.py reads the code skins
             with open(os.path.join(HERE, name), "rb") as fh:
                 p = self.run(f"mkdir -p {q(d)} && cat > {q(os.path.join(d, name))}", fh.read())
             if p.returncode != 0:

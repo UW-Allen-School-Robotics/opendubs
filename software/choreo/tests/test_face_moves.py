@@ -61,6 +61,23 @@ check("a sparkle on a picture skin is a notice (the face answers OK and draws no
       any("sparkle" in n and "cannot draw" in n for n in a["notices"]), a["notices"])
 a = show("  - { t: 2.0, slot: FACE, do: move, name: sparkle }\n").analyse(LIMITS)
 check("... and on the standard eyes it is not", not any("sparkle" in n for n in a["notices"]), a["notices"])
+# A CONTENT code skin (the content folder's face/skins/, through the head protocol's looks.py): a fixture
+# folder here, never the content repository
+_was = os.environ.get("OPENDUBS_SHOWS_DIR")
+os.environ["OPENDUBS_SHOWS_DIR"] = os.path.join(HERE, "fixtures", "content")
+try:
+    a = show("  - { t: 1.0, slot: FACE, do: skin, name: fixture_skin }\n"
+             "  - { t: 2.0, slot: FACE, do: move, name: sparkle }\n").analyse(LIMITS)
+    check("a content code skin is a skin the face draws: valid with no library, and a sparkle on it is drawn",
+          not a["problems"] and not any("sparkle" in n for n in a["notices"])
+          and not any("fixture_skin" in n for n in a["notices"]), ([q.msg for q in a["problems"]], a["notices"]))
+    check("... and it is not a library item to send to the robot",
+          "fixture_skin" in cue.code_skins() and "fixture_skin" not in cue.CODE_SKINS)
+finally:
+    if _was is None:
+        os.environ.pop("OPENDUBS_SHOWS_DIR", None)
+    else:
+        os.environ["OPENDUBS_SHOWS_DIR"] = _was
 
 print("\nmoves: the face bridge")
 tl = show("  - { t: 1.0, slot: FACE, do: emote, name: SOFT }\n"
