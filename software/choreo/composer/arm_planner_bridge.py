@@ -263,7 +263,7 @@ def plan_arm_move(
         goal_deg = clamp_to_usable_limits(c["joints"], side, limits, report=goal_clamped, fallback_deg=q_prev_deg, prefix="goal")
         q_goal_rad = choreo_to_model_rad(side, goal_deg, fallback_deg=q_prev_deg)
     elif "pose" in c and c["pose"] == "rest":
-        goal_deg = clamp_to_usable_limits(cue.rest_pose(limits, side), side, limits, report=goal_clamped, fallback_deg=q_prev_deg, prefix="goal")
+        goal_deg = cue.rest_pose(limits, side)
         q_goal_rad = choreo_to_model_rad(side, goal_deg, fallback_deg=q_prev_deg)
     elif "reach" in c:
         if kin is None:
@@ -288,6 +288,12 @@ def plan_arm_move(
         if "reach" in c:
             c.pop("joints", None)
             c.pop("pose", None)
+        elif "pose" in c and c["pose"] == "rest":
+            c.pop("joints", None)
+            c.pop("reach", None)
+            c.pop("solved", None)
+            c.pop("solved_for", None)
+            c["pose"] = "rest"
         elif goal_deg and "joints" in c:
             c["joints"] = {str(k): float(v) for k, v in goal_deg.items()}
         edits = [{"op": "set", "index": index, "cue": c}]
@@ -345,19 +351,30 @@ def plan_arm_move(
     # Update arrival cue
     final_cue = copy.deepcopy(c)
     final_cue.pop("planner", None)
-    goal_outward = clamp_to_usable_limits(
-        model_rad_to_choreo(side, traj.positions[-1]),
-        side,
-        limits,
-        report=goal_clamped,
-        fallback_deg=q_prev_deg,
-        prefix="goal",
-    )
+    is_rest_goal = ("pose" in c and c["pose"] == "rest")
+    if not is_rest_goal:
+        goal_outward = clamp_to_usable_limits(
+            model_rad_to_choreo(side, traj.positions[-1]),
+            side,
+            limits,
+            report=goal_clamped,
+            fallback_deg=q_prev_deg,
+            prefix="goal",
+        )
+    else:
+        goal_outward = cue.rest_pose(limits, side)
+
     if "reach" in final_cue:
         final_cue.pop("joints", None)
         final_cue.pop("pose", None)
         final_cue["solved"] = goal_outward
         final_cue["solved_for"] = f"reach:{final_cue['reach']}@{kin.sig if kin else 'unknown'}"
+    elif is_rest_goal:
+        final_cue.pop("joints", None)
+        final_cue.pop("reach", None)
+        final_cue.pop("solved", None)
+        final_cue.pop("solved_for", None)
+        final_cue["pose"] = "rest"
     else:
         final_cue["joints"] = goal_outward
         final_cue.pop("reach", None)

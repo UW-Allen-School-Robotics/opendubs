@@ -1069,13 +1069,13 @@ function renderInspector() {
 
     let problemsHtml = "";
     if (problems.length > 0) {
-      problemsHtml = `<ul class="problems-list">${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul>`;
+      problemsHtml = `<ul class="problems-list">${problems.map(p => `<li>${esc(typeof p === "string" ? p : (p.msg || JSON.stringify(p)))}</li>`).join("")}</ul>`;
     }
 
     container.innerHTML = `
       <div class="plan-preview-box ${isFail ? 'fail' : 'pass'}">
         <div class="verdict-banner ${isFail ? 'fail' : 'pass'}">
-          ${isFail ? '⚠️ Validation FAIL (Speed cap or limit exceeded)' : `✅ Validation PASS (Planner clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
+          ${isFail ? '⚠️ Validation FAIL (Show contains validation problems)' : `✅ Validation PASS (Planner clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
         </div>
         ${problemsHtml}
         <div class="plan-msg">${esc(resp.message || "")}</div>
