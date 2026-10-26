@@ -863,8 +863,21 @@ A sound sent to the robot plays on its own speaker. It is refused while a show h
 
 Check in this order:
 
-1. [A sound sent to the robot was refused because a show has the speaker](#show-audio-busy)
-2. [A sound sent to the robot was refused because no speaker is connected](#show-audio-no-device)
+1. [The stage box is not reporting](#link-stage-box-offline)
+2. [A sound sent to the robot was refused because a show has the speaker](#show-audio-busy)
+3. [A sound sent to the robot was refused because no speaker is connected](#show-audio-no-device)
+4. [The stage box's sound won't change during a show](#show-stage-sound-busy)
+
+### The stage box is not reporting {#link-stage-box-offline}
+
+`LINK_STAGE_BOX_OFFLINE` · Refused action · seen on the dashboard
+
+The stage box (the small computer that shows the stage page on a projector or a TV, and plays the show's music) reports its sound to the robot every 2 seconds. The dashboard has heard nothing from it for a while, so it cannot pass it a sound setting, a pairing or a test tone.
+
+**What to do**
+
+1. Check that the box is powered (its red light) and within range of the robot's Wi-Fi.
+2. Wait a minute after powering it on; the card on the Shows page shows it once it reports.
 
 ### A sound sent to the robot was refused because a show has the speaker {#show-audio-busy}
 
@@ -886,6 +899,17 @@ The robot plays shows, ambient music and sounds sent from a phone through one de
 
 1. Check that the head's tablet is on and showing the dashboard or the face.
 2. On the dashboard's Shows page, use "Play show audio here" on the device that should play.
+
+### The stage box's sound won't change during a show {#show-stage-sound-busy}
+
+`SHOW_STAGE_SOUND_BUSY` · Refused action · seen on the dashboard
+
+While a show is loaded or playing, the stage box's sound output, its test tone and pairing a Bluetooth speaker are refused: the audience would hear the first two, and a newly connected speaker can take the sound. Its volume can still be changed.
+
+**What to do**
+
+1. Stop the show on the Shows page, then change the output, pair or play the test tone.
+2. Set up the sound before the show is loaded.
 
 ## The robot won't listen or talk {#voice-quiet}
 

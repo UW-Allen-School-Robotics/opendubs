@@ -539,6 +539,9 @@ app.include_router(_spoken_router)
 # projector's page out. The page itself is static: frontend/stage/.
 from stage import router as _stage_router  # noqa: E402
 app.include_router(_stage_router)
+# The stage box's sound: its output, Bluetooth speaker, volumes and test tone (stage_box.py).
+from stage_box import router as _stage_box_router  # noqa: E402
+app.include_router(_stage_box_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")
