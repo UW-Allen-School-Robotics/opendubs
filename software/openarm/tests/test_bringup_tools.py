@@ -26,6 +26,9 @@ if importlib.util.find_spec("gafro") is None:
 import goto_hand  # noqa: E402
 import goto_stow  # noqa: E402
 import make_config  # noqa: E402
+import motion_plan  # noqa: E402
+import play_show  # noqa: E402
+import position_play  # noqa: E402
 import torque_probe  # noqa: E402
 import track_hand  # noqa: E402
 
@@ -82,6 +85,9 @@ check("goto_hand: a bad offset refuses", run(goto_hand.main, *base, "--offset-cm
 check("goto_hand: gate, connect, plan, checks, clearance, typed `hand`, deadman, first permit",
       in_order(goto_hand.main, "bringup.gate(", "bringup.connect(", "hand_plan.plan_hand(", "check_plan(", "require_clearance(", 'typed != "hand"', "bringup.deadman_held(", "keeper.start()"), True)
 
+check("goto_hand: the force cap names the joints that reached it, and only those", [goto_hand.over_torque(np.array([12.0, 3.0, 0, 0, 0, 0, 12.5]), 12.0), goto_hand.over_torque(np.array([10.8, 3.0, 0, 0, 0, 0, 1.0]), 12.0)], [[1, 7], []])
+check("goto_hand: a pull in either direction counts (the cap is on the magnitude)", goto_hand.over_torque(np.array([-13.0, 0, 0, 0, 0, 0, 0]), 12.0), [1])
+
 # -- track_hand --------------------------------------------------------------------------------------------------------------------------------
 code, text = run(track_hand.main, *base, "--offset-cm", "3,0,0", "--controller", "track")
 check("track_hand: the torque `track` controller is refused, saying why", [code, "kicked" in text], [1, True])
@@ -107,6 +113,50 @@ check("track_hand: the report finds a 14 mm overshoot", "overshoot 13.9 mm" in r
 stuck = np.zeros(len(ts))
 report = track_hand.velocity_report(ts, stuck[:, None] * direction[None, :], np.array([length, 0.0, 0.0]), duration, np.zeros((len(ts), 7)), np.zeros((len(ts), 7)))
 check("track_hand: a move that never starts says breakaway never", "breakaway (hand 1 mm along the move): never" in report, True)
+
+# -- per-robot limits and the stall check (the cables behind the right arm, 2026-10-23) ---------------------------------------------------------------
+import limits as robot_limits  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    path = os.path.join(tmp, "joint_limits.yaml")
+    check("limits: no file is no limits, not an error", robot_limits.load(os.path.join(tmp, "absent.yaml")), {})
+    _, _, note = robot_limits.apply("right", [-1.0] * 7, [1.0] * 7, os.path.join(tmp, "absent.yaml"))
+    check("limits: with no file the plan says the cables are not known", "NOT known" in note, True)
+    with open(path, "w") as handle:
+        handle.write("openarm_right_joint1:\n  lower: 0.0\n  upper: 9.0\nopenarm_left_joint1:\n  lower: -0.5\n  upper: 0.5\n")
+    lo, hi, note = robot_limits.apply("right", [-1.396] * 7, [3.49] * 7, path)
+    check("limits: the right arm's joint 1 is narrowed to the file's lower bound and its upper bound is not widened", [float(lo[0]), float(hi[0])], [0.0, 3.49])
+    check("limits: the other joints and the other arm's entry are untouched, and the note names joint 1", [float(lo[1]), "narrowing joint(s) 1" in note], [-1.396, True])
+    backward = np.linspace(0, 1, 31)[None, :] * np.radians([-5, 0, 0, 0, 0, 0, 5])[:, None]
+    check("goto_hand: a path backward past the cable limit refuses once the file names it", refuses(lambda: goto_hand.check_plan(dict(states=backward), lo, hi, 1.0, 15, 6.0, np.array([-0.04, 0, 0])), "range"), True)
+    with open(path, "w") as handle:
+        handle.write("openarm_right_joint1:\n  lower: oops\n")
+    try:
+        robot_limits.load(path)
+        malformed = "no error"
+    except ValueError:
+        malformed = "refused"
+    check("limits: a malformed file is an error, never silently ignored", malformed, "refused")
+
+check("track_hand: the cable case (hand 20 mm behind, 0 mm advanced, 0.83 N m) stalls", track_hand.stall_reason(20.0, -0.8, -0.8, 0.83) is not None, True)
+check("track_hand: a forward move keeping up (lag 8 mm, 1.0 N m) does not stall", track_hand.stall_reason(30.0, 22.0, 12.0, 1.0), None)
+check("track_hand: the dead time before breakaway (lag 6 mm, no torque) does not stall", track_hand.stall_reason(6.0, 0.0, 0.0, 0.1), None)
+check("track_hand: far behind but advancing 10 mm a second does not stall", track_hand.stall_reason(40.0, 15.0, 5.0, 1.2), None)
+
+target = np.radians([-5.2, 0, 0, 0, 0, 0, 5.2])
+held = track_hand.stuck_joints(target, np.array([-0.0008, 0, 0, 0, 0, 0, 0.06]), np.array([-0.0007, 0, 0, 0, 0, 0, 0.03]), np.array([0.83, 0.1, 0, 0.1, 0, 0.1, 0.2]))
+check("track_hand: joint 1 held at 0.8 mrad of -90 mrad with 0.83 N m is stuck, joint 7 (still moving) is not", held, [1])
+check("track_hand: a joint at rest at its target under load is not stuck (the forward runs held +0.99 N m at the goal)",
+      track_hand.stuck_joints(np.array([0.09] + [0.0] * 6), np.array([0.089] + [0.0] * 6), np.array([0.089] + [0.0] * 6), np.array([0.99] + [0.0] * 6)), [])
+check("track_hand: a joint in the dead time before breakaway (little torque) is not stuck",
+      track_hand.stuck_joints(np.array([0.09] + [0.0] * 6), np.array([0.0] * 7), np.array([0.0] * 7), np.array([0.17] + [0.0] * 6)), [])
+
+quiet_speed = np.full((len(ts), 7), 0.05)
+loud_speed = quiet_speed.copy(); loud_speed[700:760, 4] = 3.5
+r_quiet = track_hand.velocity_report(ts, ideal[:, None] * direction[None, :], np.array([length, 0.0, 0.0]), duration, quiet_speed, np.zeros((len(ts), 7)))
+r_loud = track_hand.velocity_report(ts, ideal[:, None] * direction[None, :], np.array([length, 0.0, 0.0]), duration, loud_speed, np.zeros((len(ts), 7)))
+check("track_hand: the report calls a 3.5 rad/s wrist a vibration and a quiet run quiet", ["no vibration" in r_quiet, "VIBRATION" in r_loud and "j5 3.50" in r_loud], [True, True])
+check("track_hand: the vibration guard's limit is an option", "--max-joint-speed" in inspect.getsource(track_hand.main), True)
 
 # -- make_config -------------------------------------------------------------------------------------------------------------------------------
 with tempfile.TemporaryDirectory() as tmp:
@@ -136,6 +186,46 @@ q[100:, 6] = -0.026; v[100:103, 6] = [3.0, 6.1, 2.0]; tau[100:103, 6] = [1.0, 2.
 kick = torque_probe.analyse(t, q, v, tau)
 check("torque_probe: a 6 rad/s spike on joint 7 is found, with its time, and the window names the joint",
       ["joint 7  +6.10 rad/s" in kick, "0.400 s" in kick, "window around the first event, joint 7" in kick], [True, True, True])
+
+# -- position_play, play_show ------------------------------------------------------------------------------------------------------------------
+spec = position_play.position_controller(10.0, 0.03, 0.5)
+check("position_play: the spec is a position controller with a lead, a leash and an offset gain, one posture stage, a joint-rates input and the model's velocity limit",
+      [spec["type"], spec["maximum_lead"], spec["maximum_error"], spec["offset_gain"], [s["name"] for s in spec["stages"]], spec["inputs"], spec["limits"], spec["stages"][0]["law"]["pd"]["feedforward"]],
+      ["position", 0.03, 0.15, 2.0, ["posture"], {"posture": "joints", "posture_rate": "joint_rates"}, {"joint_velocity": "model"}, "posture_rate"])
+check("position_play: the leash and the offset gain are the caller's", [position_play.position_controller(5.0, 0.02, 0.5, maximum_error=0.3, offset_gain=4.0)[k] for k in ("maximum_error", "offset_gain")], [0.3, 4.0])
+plain = position_play.position_controller(10.0, 0.03, 0.5, feedforward=False)
+check("position_play: without feed-forward there is no rates input and no feedforward key", ["posture_rate" in plain["inputs"], "feedforward" in plain["stages"][0]["law"]["pd"]], [False, False])
+ramp = np.outer(np.arange(0, 6), np.full(7, 0.1))                    # 0.1 rad per knot
+check("position_play: the rate of a ramp is its slope, at both ends too", np.allclose(position_play.rates_from_knots(ramp, 0.05), 2.0), True)
+check("position_play: a single knot has no rate", position_play.rates_from_knots(ramp[:1], 0.05).tolist(), [[0.0] * 7])
+densified = motion_plan.path_poses(np.stack([np.zeros(7), np.full(7, 0.3), np.full(7, 0.3)], axis=1), steps=20)
+check("motion_plan: the poses along a path include both ends, the corner and enough points between", [len(densified) >= 20, np.allclose(densified[0], 0), np.allclose(densified[-1], 0.3),
+      any(np.allclose(q, 0.3) for q in densified)], [True, True, True, True])
+keyframes = [{"start": 0.0, "t": 2.0, "pose_signed": {str(j): (30.0 if j == 7 else 0.0) for j in range(1, 8)}},
+             {"start": 2.0, "t": 4.0, "pose_signed": {str(j): 0.0 for j in range(1, 8)}}]
+times, joints, rates = play_show.sample_path(keyframes, slow=2.0)
+check("play_show: the path starts at zero and ends at the last keyframe, stretched to twice as long", [times[-1], np.allclose(joints[0], 0), np.allclose(joints[-1], 0)], [8.0, True, True])
+check("play_show: the wrist peaks at the keyframe, 30 deg, at twice the written time", [round(float(np.degrees(joints[:, 6]).max()), 2), round(float(times[np.argmax(joints[:, 6])]), 2)], [30.0, 4.0])
+travelled = np.trapezoid(rates[:, 6], times)
+check("play_show: the analytic rate integrates to the displacement (so it is the path's own, slowed with it)", abs(travelled) < 0.01 and float(np.abs(rates[:, 6]).max()) < 1.0, True)
+raised = False
+try:
+    play_show.sample_path(keyframes, slow=0.5)
+except ValueError:
+    raised = True
+check("play_show: --slow below 1 is refused", raised, True)
+check("play_show: the tracking error is the largest joint's distance from the path at that time",
+      round(play_show.tracking_error(times, joints, 4.0, np.r_[np.zeros(6), np.radians(30.0) - 0.05]), 3), 0.05)
+check("play_show: an arm that is not where the path starts is refused, and one that is, is not",
+      [play_show.start_refusal(np.full(7, np.radians(10.0)), np.zeros(7), 3.0) is not None, play_show.start_refusal(np.full(7, np.radians(1.0)), np.zeros(7), 3.0)], [True, None])
+lower, upper = np.full(7, -1.0), np.full(7, 1.0)
+check("play_show: a path in range and slow enough is accepted; one out of range or too fast is refused with the joint",
+      [play_show.path_refusal(joints, rates, lower, upper, 1.3), "joint 7" in (play_show.path_refusal(joints, rates, lower, np.full(7, 0.1), 1.3) or ""),
+       "joint 7" in (play_show.path_refusal(joints, rates, lower, upper, 0.01) or "")], [None, True, True])
+check("play_show: the gates sit before the controller is built (clearance and typed confirmation, then CH6, then the controller)",
+      [inspect.getsource(play_show.main).index(a) < inspect.getsource(play_show.main).index(b) for a, b in
+       [("bringup.gate", "bringup.connect"), ("require_clearance", "input("), ("input(", "deadman_held"), ("deadman_held", "keeper.start()"), ("keeper.start()", "position_play.start")]],
+      [True] * 5)
 
 print("\nall bring-up tool checks pass" if not fails else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)

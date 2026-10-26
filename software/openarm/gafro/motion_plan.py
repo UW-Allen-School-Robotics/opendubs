@@ -103,6 +103,20 @@ def line_poses(start, target, steps: int = PATH_STEPS):
     return [start + (target - start) * (i / steps) for i in range(steps + 1)]
 
 
+def path_poses(states, steps: int = PATH_STEPS):
+    """The poses along a planned joint path (7, N+1), the knots and the straight lines between them, at least `steps` in all: what a controller that follows the
+    path passes through, where `line_poses` is what a ramp between its ends does."""
+    states = np.asarray(states, dtype=float)
+    segments = max(states.shape[1] - 1, 1)
+    per_segment = max(1, -(-steps // segments))
+    poses = []
+    for index in range(segments):
+        a, b = states[:, index], states[:, min(index + 1, states.shape[1] - 1)]
+        poses += [a + (b - a) * (k / per_segment) for k in range(per_segment)]
+    poses.append(states[:, -1].copy())
+    return poses
+
+
 def require_clearance(poses, clearance_of, minimum_mm: float = DEFAULT_MIN_CLEARANCE_MM):
     """The nearest the path comes to anything, as (mm, pair); refuses if it is under `minimum_mm`.
 

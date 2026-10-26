@@ -116,7 +116,7 @@ class PathCheck:
         return None
 
 
-def build(name: str, controllers: dict, system, side: str, configuration: np.ndarray, pose, reference, posture):
+def build(name: str, controllers: dict, system, side: str, configuration: np.ndarray, pose, reference, posture, rate=None):
     from gafro.control import spec
     from gafro.robot import JointDomain
 
@@ -126,7 +126,7 @@ def build(name: str, controllers: dict, system, side: str, configuration: np.nda
         description, dict(description.get("inputs", {})),
         dict(system=system, task_space=task_space, task_space_name=side, domain=JointDomain.from_task_space(system, task_space),
              configuration=configuration, reference=pose, reference_source=reference, posture_source=posture,
-             posture_initial=configuration.copy()),
+             posture_initial=configuration.copy(), posture_rate_source=rate),
         name)
     return controller
 
