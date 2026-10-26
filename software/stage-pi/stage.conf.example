@@ -13,7 +13,9 @@ ROBOT_FALLBACK=http://10.42.2.10:8080/stage/
 # 1920x1080@60, for a screen that reports a mode it cannot really show. Changing it restarts the box once.
 MODE=
 
-# Where the sound goes: auto (a USB audio adapter if one is plugged in, else the HDMI screen),
-# usb, or hdmi.
+# Where the show's music goes, until the dashboard's Stage box card sets it (that choice is kept on the
+# media stick and wins): auto, hdmi, jack, usb or bt.
+#   auto  the screen's speaker if it says it has one, else a USB audio adapter, else a paired Bluetooth
+#         speaker that is connected, else the 3.5 mm jack (a Raspberry Pi 4 only: a Pi 5 has none)
 AUDIO=auto
 

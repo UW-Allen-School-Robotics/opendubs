@@ -8,7 +8,7 @@ RUN=${RUNTIME_DIRECTORY:-/run/stage}
 rm -f "$RUN/page"                       # the agent's watchdog waits until the page is handed over again
 url=$("$LIB/stage-conf" ROBOT_URL http://opendubs2.local:8080/stage/)
 fallback=$("$LIB/stage-conf" ROBOT_FALLBACK http://10.42.2.10:8080/stage/)
-"$LIB/stage-audio" "$("$LIB/stage-conf" AUDIO auto)"
+rm -f "$HOME/.asoundrc"                # the sound is PipeWire's now (stage_sound.py); an old ALSA default would bypass it
 
 sleep 1                                # a display change arrives as a burst of events: let it settle
 
