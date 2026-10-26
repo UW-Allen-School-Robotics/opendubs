@@ -959,7 +959,7 @@ function renderInspector() {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <span style="font-weight:600; font-size:11px;">Joint Angles (${esc(c.slot)})</span>
           <div style="display:flex; gap:4px;">
-            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Reset joints to natural rest pose (J4=15°)">Rest</button>
+            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Set cue to pose: rest (safe hardware rest pose)">Rest</button>
             <button id="btnToggle3DFromInsp" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Toggle 3D robot preview">🤖 3D Robot</button>
           </div>
         </div>
@@ -1171,36 +1171,35 @@ function renderInspector() {
   if ($("btnZeroJoints")) {
     $("btnZeroJoints").onclick = () => {
       const cue = { ...c };
-      delete cue.pose; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
-      const jointsObj = {};
+      delete cue.joints; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
+      cue.pose = "rest";
+
+      const restVisual = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
       for (const d of JOINT_DEFS) {
-        const val = (d.j === 4 ? 15 : 0);
-        jointsObj[d.j] = val;
-        currentJoints[d.j] = val;
+        currentJoints[d.j] = restVisual[d.j];
         const valEl = $(`jval_${d.j}`);
-        if (valEl) valEl.textContent = `${val}°`;
+        if (valEl) valEl.textContent = `${restVisual[d.j]}°`;
       }
       el.querySelectorAll(".joint-slider").forEach((sl) => {
         const j = +sl.dataset.j;
-        sl.value = j === 4 ? 15 : 0;
+        sl.value = restVisual[j];
       });
       try {
         const fields = JSON.parse($("iFields").value);
-        delete fields.pose; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
-        fields.joints = jointsObj;
+        delete fields.joints; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
+        fields.pose = "rest";
         $("iFields").value = JSON.stringify(fields);
       } catch (e) {}
 
       if (R3D.view && R3D.view.ready) {
         const side = c.slot === "ARM_L" ? "left" : "right";
         const dual = {};
-        dual[side] = jointsObj;
+        dual[side] = restVisual;
         R3D.view.setDualArmChoreoPose(dual);
-        R3D.view.setGhostCuePose(c.slot, jointsObj);
+        R3D.view.setGhostCuePose(c.slot, restVisual);
       }
 
-      cue.joints = jointsObj;
-      edit([{ op: "set", index: i, cue }], `reset ${c.slot} to rest pose`);
+      edit([{ op: "set", index: i, cue }], `set ${c.slot} to pose: rest`);
     };
   }
 
