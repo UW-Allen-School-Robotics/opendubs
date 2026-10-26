@@ -23,13 +23,13 @@
   // Back to the robot's face (software/face-web, served at /face/): one tablet is both the face and
   // this dashboard (tablet plan 5.4, the minimum). On the face, a long-press brings you back here.
   // A show takes the face. On the KIOSK tablet only (a laptop's dashboard never jumps), when a run
-  // arms or starts, the tablet shows the robot's face, where the runner's ARMED sign and countdown
+  // arms or starts, the tablet shows the robot's face, where the runner's start sign (READY) and countdown
   // appear, so the people near the robot can see a show is about to start. Only on the CHANGE into a
   // show: an operator who comes back here during a show (long-press on the face) is not dragged away.
   if (window.OpenDubsKiosk) {
     const SHOW = new Set(["ARMED_WAITING", "COUNTDOWN", "PREPPING", "WAITING_FOR_START", "RUNNING"]);
     // At once, not on the next poll: the moment a run the operator started HERE is accepted, show the
-    // face, so the runner's ARMED sign has a face to land on. After the request succeeds, never on the
+    // face, so the runner's start sign has a face to land on. After the request succeeds, never on the
     // tap itself — leaving the page mid-request would cancel the run it is starting.
     const fetch0 = window.fetch.bind(window);
     window.fetch = async (url, opts) => {

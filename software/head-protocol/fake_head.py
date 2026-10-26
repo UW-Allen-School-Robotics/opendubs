@@ -243,13 +243,16 @@ class FakeHead:
     def do_bright(self, a, _):
         return self._level("bright", a)
 
-    def do_armed(self, a, _):
+    def do_ready(self, a, _, word="ready"):
         x = a.strip().upper()
         if x in ("WAIT", "OFF"):
-            return f"OK armed {x.lower()}"
+            return f"OK {word} {x.lower()}"
         if x.isdigit() and 1 <= int(x) <= hp.ARMED_COUNT_MAX_S:
-            return f"OK armed {int(x)}"
-        return f"ERR armed WAIT | <1..{hp.ARMED_COUNT_MAX_S} seconds> | OFF"
+            return f"OK {word} {int(x)}"
+        return f"ERR {word} WAIT | <1..{hp.ARMED_COUNT_MAX_S} seconds> | OFF"
+
+    def do_armed(self, a, _):                       # v5's name; READY's alias from v10
+        return self.do_ready(a, _, "armed")
 
     def do_batt(self, a, _):
         # v6: the pack's charge. Out of range is refused, never clamped: a 150 % reading is a bug
