@@ -937,14 +937,21 @@ face = ArmedFace()
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
                                   changes=[(2.0, {"ch5": "MANUAL"})], face=face)
 check("CH5 leaving AUTO while armed disarms it, with the reason",
-      end[:2] == ("ABORTED", "AUTHORITY") and "disarmed" in end[2] and "CH5" in end[2] and not r.sent, end)
+      end[:2] == ("ABORTED", "AUTHORITY") and "before it started" in end[2] and "CH5" in end[2] and not r.sent, end)
 check("... and the face is told ARMED OFF", face.said[-1] == "OFF", face.said)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"estop": True})])
-check("an e-stop while armed disarms it as ESTOPPED", end[0] == "ESTOPPED" and "disarmed" in end[2], end)
+check("an e-stop while armed disarms it as ESTOPPED", end[0] == "ESTOPPED" and "nothing had moved" in end[2], end)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"arms": "inactive"})])
 check("the arms going inactive while armed disarms it", end[:2] == ("ABORTED", "ARMS"), end)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"deadman": False})])
 check("letting go while armed is not an abort (it times out only)", end[1] == "START_TIMEOUT", end)
+check("... and the time-out says READY's word, never 'armed'", "ready for" in end[2] and "armed" not in end[2], end)
+check("every run state has the words a person reads, and READY says nothing moves until the deadman",
+      all(R.phase(s_) for s_ in (R.VALIDATING, R.PREFLIGHT, R.ARMED, R.COUNTDOWN, R.PREPPING, R.WAITING, R.RUNNING,
+                                 R.COMPLETED, R.ABORTED, R.ESTOPPED, R.REFUSED))
+      and R.phase(R.ARMED) == {"word": "READY", "say": "nothing moves until you press and hold the deadman"}
+      and R.phase(R.COUNTDOWN, 4.2)["word"] == "STARTING in 5"
+      and not any("ARM" in w for w, _ in R.PHASE_WORDS.values()), R.PHASE_WORDS)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False, estop=True))
 check("everything but the deadman is still preflighted: an e-stop refuses before arming",
       end[0] == "REFUSED" and "ARMED_WAITING" not in st, (end, st))

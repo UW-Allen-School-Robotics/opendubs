@@ -65,8 +65,12 @@
     const badge = el("showsTwin");
     const armsFollow = !!(status && status.live_available), liveRun = !!(status && status.live);
     if (badge) {
-      const waiting = liveRun && ["VALIDATING", "PREFLIGHT", "ARMED_WAITING", "COUNTDOWN"].includes(status.status);
-      badge.textContent = waiting ? "LIVE · ARMED, NOTHING MOVES YET" : liveRun ? "LIVE · THE ARMS ARE MOVING" : armsFollow ? "LIVE · THE ARMS FOLLOW EVERY RUN" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
+      // the runner's words for the state (its PHASE_WORDS): READY, never "armed"
+      const st = status && status.status;
+      badge.textContent = liveRun && (st === "VALIDATING" || st === "PREFLIGHT") ? "LIVE · CHECKING, NOTHING MOVES YET"
+        : liveRun && st === "ARMED_WAITING" ? "LIVE · READY, NOTHING MOVES UNTIL YOU HOLD THE DEADMAN"
+        : liveRun && st === "COUNTDOWN" ? "LIVE · STARTING, THE ROBOT WILL MOVE"
+        : liveRun ? "LIVE · THE ROBOT IS MOVING" : armsFollow ? "LIVE · THE ROBOT MOVES ON EVERY RUN" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
       badge.classList.toggle("livebadge", armsFollow);
     }
     el("showsStop").disabled = !running;
@@ -79,7 +83,7 @@
       ? ` <button class="sysbtn shows-skip" data-id="${esc(last.id)}" data-skip="${esc(JSON.stringify(last.offer))}">RUN WITHOUT ${esc(last.offer.join(", ").replace(/_/g, " ").toUpperCase())}</button>` : "";
     el("showsStatus").innerHTML = running
       ? `<b class="shows-running">▶ ${esc(labelOf(running))}</b>${without(status.skipped)}${status.live ? ' <b class="bad">LIVE</b>' : ""} ${startHTML(status)}`
-      : last ? `Last: <b>${esc(labelOf(last.id))}</b>${without(last.skipped)} — <span class="${last.status === "COMPLETED" ? "ok" : "bad"}">${esc(last.status)}</span> <span class="dim">${esc(last.cause || "")}</span>${offer}`
+      : last ? `Last: <b>${esc(labelOf(last.id))}</b>${without(last.skipped)} — <span class="${last.status === "COMPLETED" ? "ok" : "bad"}">${esc((status.last_phase || {}).word || last.status)}</span> <span class="dim">${esc(last.cause || "")}</span>${offer}`
       : "Pick a routine.";
     /* Rebuild the buttons only when something about them changed: rebuilding every poll would
        replace a button under a finger mid-tap, and the tap would be lost. */
@@ -94,17 +98,19 @@
         <span class="uses">${usesHTML(r.uses)}</span>
       </button>`).join("") || '<div class="dim">No routines.</div>';
   }
-  /* ARMED_WAITING and COUNTDOWN in words: what the operator must do next, and how long is left. */
+  /* READY (the runner's ARMED_WAITING) and STARTING in words: what the operator must do next, and how long
+     is left. The words are the runner's (status.phase, PHASE_WORDS), so every screen says the same. */
   function startHTML(s) {
     const si = s.start_info || {}, left = si.left_s != null ? ` · ${Math.ceil(si.left_s)} s left` : "";
+    const ph = s.phase || {};
     if (s.status === "ARMED_WAITING" && si.audio_waiting)
-      return `<b class="shows-armed">ARMED</b> — getting the show's audio and video ready (a few seconds); then press the deadman`;
+      return `<b class="shows-armed">READY</b> — getting the show's audio and video ready (a few seconds); nothing moves until you press and hold the deadman`;
     if (s.status === "ARMED_WAITING")
-      return `<b class="shows-armed">ARMED</b> — ${si.deadman === true ? "let go of the deadman, then press it to start"
-        : si.deadman === false ? "press the deadman to start" : "the deadman is unknown"}<span class="dim">${esc(left)}</span>`;
+      return `<b class="shows-armed">READY</b> — nothing moves until you ${si.deadman === true ? "let go of the deadman, then press and hold it"
+        : si.deadman === false ? "press and hold the deadman" : "press and hold the deadman (its state is unknown)"}<span class="dim">${esc(left)}</span>`;
     if (s.status === "COUNTDOWN")
-      return `<b class="shows-armed">STARTING in ${Math.ceil(si.left_s || 0)} s</b> — keep the deadman held`;
-    return `<span class="dim">${esc(s.status || "")}</span>`;
+      return `<b class="shows-armed">STARTING in ${Math.ceil(si.left_s || 0)} s</b> — the robot will move; keep the deadman held`;
+    return `<span class="dim">${esc(ph.word || s.status || "")}${ph.say ? " — " + esc(ph.say) : ""}</span>`;
   }
   const labelOf = (id) => (routines.find((r) => r.id === id) || {}).label || id;
 

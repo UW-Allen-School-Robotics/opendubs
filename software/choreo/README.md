@@ -94,14 +94,21 @@ fake you can flip (`curl -X POST localhost:8092/api/sim/deadman/release`, `…/e
 Every status change and abort cause is a JSON line (`--log`). Live output is not built (plan 5.6).
 
 **How a run starts** (`--start`, or the Shows page's Start picker; plan 5.7). `deadman` — the robot's
-default — passes every check but the deadman and goes ARMED_WAITING: nothing moves, the show audio
-loads, and an e-stop, CH5 leaving AUTO, a fault or the arms going inactive disarms it. The GO is a
-FRESH press: a deadman already held at Start must be let go and pressed again, and letting go while
-armed is not an abort. No GO in 300 s refuses the run (`START_TIMEOUT`). Then a COUNTDOWN (5 s, a show's
-`start_countdown_s`, or the run's own `--countdown`), the start-pose move and the 2 s lead; from the GO
-on, letting go aborts. `countdown` — a twin's default — needs the deadman held at Start and counts down
-at once; `now` skips the countdown. On a live run the face shows it: `ARMED WAIT`, then `ARMED <seconds>`
-at the GO, `ARMED OFF` when the show starts or ends (head protocol v5).
+default — passes every check but the deadman and is **READY** (state id `ARMED_WAITING`): nothing moves,
+the show audio loads, and an e-stop, CH5 leaving AUTO, a fault or the arms going inactive ends it before
+anything moved. The GO is a FRESH press: a deadman already held at Start must be let go and pressed
+again, and letting go while READY is not an abort. No GO in 300 s refuses the run (`START_TIMEOUT`). Then
+**STARTING** (`COUNTDOWN`: 5 s, a show's `start_countdown_s`, or the run's own `--countdown`), the
+start-pose move and the 2 s lead; from the GO on, letting go aborts. `countdown` — a twin's default —
+needs the deadman held at Start and counts down at once; `now` skips the countdown. On a live run the
+face shows it: `ARMED WAIT`, then `ARMED <seconds>` at the GO, `ARMED OFF` when the show starts or ends
+(head protocol v5; the message keeps its wire name until the Tablet lane renames it).
+
+**The words a person reads** are the runner's `PHASE_WORDS`, sent as `phase` ({word, say}) in
+`/status` beside the state id, so the Shows page, the face and any other front end say the same thing:
+CHECKING · READY (nothing moves until you press and hold the deadman) · STARTING in N (the robot will
+move) · SHOW RUNNING · SHOW FINISHED · SHOW STOPPED · DIDN'T START. Never "armed": it is unclear and
+sounds violent.
 
 **The routine palette** — `runner.py palette` lists the shows marked `palette:` (each ending at
 rest, so any can follow any) and runs the one the operator picks: `GET /api/routines`,
