@@ -146,17 +146,24 @@ Key observations:
 ## Choreo Composer integration
 
 Motion planning is integrated into the Choreo Composer (`software/choreo/composer/`). To start the
-composer, see the [Composer quickstart](composer/quickstart.md) or run:
+composer with optional backends enabled (CBiRRT, cuRobo), run it in the Python environment where those dependencies are installed:
 
 ```bash
-software/choreo/studio-up.sh
+# With planning environment active:
+python3 software/choreo/studio/studio.py up
+
+# Or launch the standalone composer server:
+python3 software/choreo/composer/server.py
 ```
+
+*(Note: Running `software/choreo/studio-up.sh` launches through an isolated `uv` sandbox for zero-setup runs; optional planners whose dependencies are not installed in that sandbox will be marked as `(unavailable)` in the UI).*
 
 ### Capabilities
 - **3D Robot Arm Preview:** Dual-arm WebGL visualizer rendering real OpenArm mesh geometry with orbit camera.
-- **Dynamic Joint Sliders:** Interactive joint angle sliders with live 3D visual preview.
+- **Dynamic Joint Sliders & Rest Pose:** Interactive joint angle sliders with live 3D visual preview, plus a one-click **Rest** button setting `pose: rest` directly.
 - **SSIK Analytical Jogger & Reach Solver:** Enter Cartesian (X, Y, Z) targets and click **Solve Reach** to compute analytical IK in under 0.2 ms.
 - **Automatic Path Planning:** Click **Plan Path** on any arm cue to synthesize collision-free paths routing around obstacles and the robot chassis using CBiRRT or cuRobo.
+- **Rest Pose Preservation:** The motion planner respects canonical `pose: rest` start and arrival cues without clamping to internal joint margins or converting goal poses to explicit angles, preserving palette routine compatibility.
 - **Save-Time Clearance Verification:** Clearance reported by the planner applies to the planner's own waypoints. The save-time sweep (`sim/clearance.py`) provides the check against the 30.0 mm threshold (`CLEAR_MIN_MM`).
 - **Show Runner Safety Gating:** Physical robot motion is executed through `software/choreo/runner.py`, which acquires the exclusive motion lease, validates preflight safety, and enforces the RC deadman switch.
 

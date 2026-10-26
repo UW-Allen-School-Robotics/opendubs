@@ -132,8 +132,14 @@ Two steps, from your computer:
    `--dry-run --limits-from-robot` to check the show against the robot's own limits without sending
    anything.
 
-Shows sent this way live in the robot's own shows folder, separate from the software, so an update
-of the robot's software never removes them.
+The `<robot>` name is reached over SSH (for example `<robot>.local` or a host defined in
+`~/.ssh/config`). If the target folder `/var/lib/opendubs/shows` does not exist yet on a fresh
+robot, pass `--create` on your first push. To appear in the dashboard's **Shows — routines** palette,
+the show must have a `palette: { label: "...", order: ... }` block and every moved arm must end
+at `pose: rest`.
+
+Shows sent this way live in the robot's own shows folder (`/var/lib/opendubs/shows`), separate from
+the repository software, so an update of the robot's software never removes them.
 
 ## Running it
 
