@@ -30,6 +30,7 @@ import json
 import math
 import os
 import pwd
+import re
 import struct
 import subprocess
 import threading
@@ -48,7 +49,7 @@ SCAN_S = 15
 
 lock = threading.Lock()
 live = {"sinks": {}, "actual": None, "why": None, "playing": [], "bt": None, "found": [],
-        "busy": None, "error": None, "applied": {}, "default": None}
+        "busy": None, "error": None, "applied": {}, "default": None, "adapter": None}
 
 
 # ---- settings ----------------------------------------------------------------------------------------
@@ -267,6 +268,43 @@ def bt_devices(text: str) -> list[tuple[str, str]]:
     return out
 
 
+def rfkill_unblock(base: str = "/sys/class/rfkill") -> list[str]:
+    """Lift the SOFT block on every Bluetooth radio, through sysfs (no rfkill tool, no package). A fresh
+    Raspberry Pi OS keeps Bluetooth soft-blocked, and systemd-rfkill restores that at every boot from the
+    root, which the read-only overlay never lets change (found 2026-10-26: Powered: no, PowerState:
+    off-blocked, "Failed to set mode: Failed (0x03)" at every pairing). So it is lifted here, at start and
+    on every check, whatever put it back. A hard block (a switch) is not ours to lift. Returns what it lifted."""
+    done = []
+    try:
+        radios = sorted(os.listdir(base))
+    except OSError:
+        return done
+    for r in radios:
+        try:
+            with open(f"{base}/{r}/type") as f:
+                if f.read().strip() != "bluetooth":
+                    continue
+            with open(f"{base}/{r}/soft") as f:
+                if f.read().strip() != "1":
+                    continue
+            with open(f"{base}/{r}/soft", "w") as f:
+                f.write("0")
+            done.append(r)
+        except OSError:
+            continue
+    return done
+
+
+def adapter_state(show: str) -> str:
+    """`bluetoothctl show` -> "on", "off", "blocked" (rfkill), or "none" (no adapter)."""
+    if not show.strip() or "No default controller" in show:
+        return "none"
+    powered = re.search(r"^\s*Powered:\s*(yes|no)", show, re.M)
+    if "off-blocked" in show:
+        return "blocked"
+    return "on" if powered and powered.group(1) == "yes" else "off"
+
+
 # ---- the test tone -----------------------------------------------------------------------------------
 
 def write_tone(path: str, rate: int = 48000) -> None:
@@ -308,6 +346,11 @@ class Sound:
 
     # -- the loop --
     def tick(self) -> None:
+        if rfkill_unblock():                               # Bluetooth was blocked: lift it, then power it
+            _btctl("power", "on")
+        live["adapter"] = adapter_state(_btctl("show"))
+        if live["adapter"] == "off":
+            _btctl("power", "on")
         shown = screens()
         try:
             r = _as_stage(["pw-dump"], timeout=8)
@@ -444,4 +487,4 @@ class Sound:
                     "latency_ms": LATENCY_MS.get(a), "latency_by_output": LATENCY_MS,
                     "available": sorted(live["sinks"]), "volumes": self.settings["volumes"],
                     "playing": live["playing"], "bt": live["bt"], "found": live["found"],
-                    "busy": live["busy"], "kept": self.kept, "error": live["error"]}
+                    "busy": live["busy"], "kept": self.kept, "error": live["error"], "adapter": live["adapter"]}
