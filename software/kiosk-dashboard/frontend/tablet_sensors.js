@@ -28,7 +28,10 @@
 
   function connect() {
     ws = new WebSocket(URL_);
-    ws.onopen = () => { retry = 1000; ws.send(JSON.stringify({ hello: { kiosk: true, version: K.version ? K.version() : null } })); };
+    // The cameras' optics ride along (the app's cameraIntrinsics(), 0.7.0 on): the robot works out a frame's
+    // focal length from them (backend/tag_test.py). An older app has none, and sends null.
+    ws.onopen = () => { retry = 1000; ws.send(JSON.stringify({ hello: { kiosk: true, version: K.version ? K.version() : null,
+                                                                        intrinsics: json("cameraIntrinsics") } })); };
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.ok) { st.connected = true; ws.send(JSON.stringify({ ping: performance.now() })); }

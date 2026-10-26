@@ -42,6 +42,7 @@ app on any tablet for development.
 | `motion()` | the accelerometer samples since the last call, `[[ax, ay, az, age_ms], …]` (m/s², gravity included, the tablet's axes; no gyroscope). Read by the app, not the page's DeviceMotion, which stopped after every app restart |
 | `light()` | ambient light, `{"lux": n, "age_ms": n}`, or `null` with no reading |
 | `cameras()` | each camera, `[{"id", "facing": "screen"\|"back"\|"external", "open": bool}]`; `open` is true while ANY app has it open, so the face's camera indicator follows the hardware |
+| `cameraIntrinsics()` | each camera's optics as Camera2 reports them (0.7.0 on): focal lengths, sensor size, pixel and active arrays, and the device's own calibration and distortion where it has one. Sent to the robot when the page connects; the wall tag test works out a frame's focal length from it |
 | `thermal()` | `{"status": "none"…"shutdown"\|null, "battery_c": n}`: Android's throttling level and the battery's temperature |
 | `power()` | `{"battery_mode", "low", "level", "robot_answers", "sleep_in_s"}` (from 0.5.0): the face saves power while `battery_mode` is true |
 | `sleep()`, `command(id, cmd)` | the screen off now; a dashboard command (`"sleep"`, `"restart"`) passed on by the page, run once by its id |
@@ -132,6 +133,8 @@ adb shell am start -n org.opendubs.kiosk/.ProvisionActivity --ez lock true
 "has an active device admin"), so waiting for the app to restart would wait forever. Close any
 screen you opened, too: after an update the app brings itself back, but a screen left open behind
 it comes to the front first.
+
+**The wall tag test** (`tag_test.py`, with someone at the robot): the robot holds the head at each pan, takes one frame from the back camera, and returns the AprilTag 36h11 tags it sees (ids, corners, and pose when the tag size is known) with the head's angles; no picture comes back. `python3 tag_test.py --pans 60,75,90,105,120 --tilt 90 --out <file>`; `--pattern <the pattern's JSON> --mm-per-px <from the tape measure>` adds each tag's pose in metres. The head is never moved while an arm is raised.
 
 **Is it still a kiosk?** `uv run --with websockets python3 kiosk_check.py --serial <serial>` checks device owner, lock task, the secure context, the bridge, the microphone, camera and location grants and a wake lock — run it before and after any update. Updating the tablet's **WebView**: `notes/design/tablet-device.md`, *Updating the robot tablet's WebView*.
 
