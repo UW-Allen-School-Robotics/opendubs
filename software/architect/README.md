@@ -103,9 +103,17 @@ service's models read-only, and the spotter's model in `~/architect-data/models`
 ```bash
 software/architect/tools/dev.sh build             # needs archit-perception:dev on the robot
 software/architect/tools/dev.sh kws               # once: the spotter's model, verified against its pins
+software/architect/tools/dev.sh butler            # once: the butler's voice, verified against its pins
 software/architect/tools/dev.sh listen            # Kokoro on the GPU (TTS_DEVICE=cpu: about 2 s a line)
 LISTEN=1 software/architect/tools/dev.sh dry      # the runner, speaking through the listener
 ```
+
+**The voice is a butler's** (`butler.py`): Kokoro's British man, `bm_george`, in British English,
+a touch slower than Kokoro's usual pace. It uses the voice service's own Kokoro weights and its
+no-GPL rule. Words outside misaki's British dictionary go to misaki's own British fallback model
+(Apache-2.0), not espeak-ng, as the American voice's go to the American one. The voice and that
+model are pinned by sha256 and fetched once by `dev.sh butler`. `VOICE=heart` gives the voice
+service's American voice (`af_heart`) instead.
 
 **The robot talks back** (`chat.py`), from the robot's own language model: Qwen3-30B-A3B on vLLM,
 the voice service's local brain, called with the voice service's serving profile. As each run

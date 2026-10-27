@@ -13,6 +13,7 @@
 #                                  (archit-architect-arms, robot_node.py). FAKE ARMS by default: nothing
 #                                  moves. ARMS=ros for the real arms (see below)
 #   dev.sh kws                     fetch the listener's keyword-spotter model into $DATA/models, once
+#   dev.sh butler                  fetch the butler's voice (bm_george, British English) into $DATA/models, once
 #   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner;
 #                                  SHOW=<routine>: "trick or treat" plays that show-palette routine through
 #                                  the dashboard instead (the Shows page's gates; START=deadman, the default,
@@ -33,6 +34,8 @@
 # BASE_IMAGE (default archit-perception:dev: Kokoro uses its PyTorch), MODELS (the voice service's
 # models, mounted read-only, default /var/lib/opendubs/models), LISTEN=1 (the runner speaks through
 # the listener), TTS_DEVICE (cuda, the default: Kokoro on the GPU, 0.14 s a line; or cpu, about 2 s),
+# VOICE (listen: butler, the default, bm_george in British English, fetched once by dev.sh butler; or
+# heart, the voice service's American voice),
 # PROGRAM (for dry, a path inside the repository), DOCKER (default: sudo -n docker), PROFILE (arms,
 # the default, or arms_see: the program may look with the perception services, which a recorded show
 # then follows; the container joins the robot's ROS domain 0 for those read-only calls, as API.md
@@ -182,6 +185,10 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
     echo "dev.sh: ${LISTENER} is already running; 'dev.sh down' first" >&2; exit 1
   fi
   [ "${TTS_DEVICE:-cuda}" = cuda ] && tts=(--runtime nvidia -e VOICE_TTS_DEVICE=cuda)
+  if [ "${VOICE:-butler}" = butler ]; then      # VOICE=heart: the voice service's American voice instead
+    [ -d "${DATA}/models/butler" ] || { echo "dev.sh: no butler voice; run 'dev.sh butler' first (or VOICE=heart)" >&2; exit 1; }
+    show="${show} --tts butler"
+  fi
   ${DOCKER} run -d --rm --name "${LISTENER}" --network host \
     --device /dev/snd --group-add "${gid}" "${tts[@]}" \
     -e HOME=/data/home -w /data/home -e PYTHONPATH=/work/software/architect \
@@ -205,6 +212,11 @@ case "${1:-}" in
     mkdir -p "${DATA}/models"
     ${DOCKER} run --rm -v "${DATA}:/data" -v "${REPO}:/work:ro" -e PYTHONPATH=/work/software/architect \
       "${IMAGE}" python3 -m opendubs_architect.kws fetch /data/models
+    ;;
+  butler)
+    mkdir -p "${DATA}/models"
+    ${DOCKER} run --rm -v "${DATA}:/data" -v "${REPO}:/work:ro" -e PYTHONPATH=/work/software/architect \
+      "${IMAGE}" python3 -m opendubs_architect.butler fetch /data/models
     ;;
   listen)
     listen

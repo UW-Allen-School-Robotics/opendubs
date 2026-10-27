@@ -554,7 +554,9 @@ def main(argv=None) -> int:
     ap.add_argument("--models", default=os.environ.get("OPENDUBS_VOICE_MODELS", "/var/lib/opendubs/models"))
     ap.add_argument("--kws-models", help="where kws.py fetched the spotter's model (default: --models)")
     ap.add_argument("--stt", default=os.environ.get("VOICE_STT", "parakeet"))
-    ap.add_argument("--tts", default=os.environ.get("VOICE_TTS", "kokoro"))
+    ap.add_argument("--tts", default=os.environ.get("VOICE_TTS", "kokoro"),
+                    help="kokoro (the voice service's American voice) or butler (bm_george, British; "
+                    "butler.py, fetched into --kws-models)")
     ap.add_argument("--no-chat", action="store_true", help="no greetings or replies from the local model")
     ap.add_argument("--program", metavar="FILE", help="show mode: the ARCHITECT program the show was recorded from, "
                     "for the dashboard's ARCHITECT tab (display only; the show is what runs)")
@@ -581,7 +583,12 @@ def main(argv=None) -> int:
         print(json.dumps(ev), flush=True)
         feed.add(ev)
 
-    stt, tts = speech.make_stt(a.stt), speech.make_tts(a.tts)
+    stt = speech.make_stt(a.stt)
+    if a.tts == "butler":
+        from opendubs_architect import butler
+        tts = butler.ButlerTTS(a.kws_models or a.models)
+    else:
+        tts = speech.make_tts(a.tts)
     if a.show:
         runner = Shows(a.dashboard, a.show, a.start, a.countdown_s, log=log)
         runner.check()
