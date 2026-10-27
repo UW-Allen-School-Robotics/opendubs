@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=6e897f48" />
+  <link rel="stylesheet" href="style.css?v=ff9e1c42" />
 </head>
 <body>
   <div id="app">
@@ -351,14 +351,15 @@
         </div>
         <canvas id="archArmCanvas" class="tp-canvas arch-arm-canvas"></canvas>
       </section>
+      </div>
+      <div class="arch-right">
       <section class="card arch-speech">
         <h2>SPEECH <span id="archEars" class="badge dimbadge">—</span></h2>
         <div class="arch-meter" title="The Jabra microphone's level"><div id="archLevel"></div></div>
         <div id="archHeardNote" class="sub">—</div>
         <ol id="archFeed" class="arch-feed"></ol>
-        <div class="sub">What Parakeet wrote for each clip it was given (after the spotter heard a phrase, or while the robot waits for a yes or runs a program) and what the listener did; times are after the spotter's hit. Kept in memory on the robot only.</div>
+        <div class="sub">Left: exactly what Parakeet heard in each clip it was given (after the spotter caught a phrase, or while the robot waited for a reply). Right: exactly what the robot said on the Jabra. Between: what the listener did, timed from the phrase. Newest first; kept in memory on the robot only.</div>
       </section>
-      </div>
       <section class="card arch-prog">
         <h2>PROGRAM <span id="archProgBadge" class="badge dimbadge">—</span></h2>
         <div id="archSummary" class="arch-summary">—</div>
@@ -366,6 +367,7 @@
         <div id="archCode" class="arch-code"></div>
         <details id="archDiffBox" hidden><summary id="archDiffNote">Changes</summary><div id="archDiff" class="arch-code"></div></details>
       </section>
+      </div>
     </main>
 
     <!-- ARMS view (placeholder) -->
@@ -582,7 +584,7 @@
   <script src="operate.js?v=a416f5b7"></script>
   <script type="module" src="teleop.js?v=88924ca4"></script>
   <script src="show_audio.js?v=b2f6a4e4"></script>
-  <script type="module" src="architect.js?v=0d6c3afa"></script>
+  <script type="module" src="architect.js?v=2669e88d"></script>
   <script src="choreo.js?v=e4aa7cbc"></script>
   <script src="headface.js?v=ea3f18f3"></script>
   <script src="projector.js"></script>

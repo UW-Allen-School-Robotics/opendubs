@@ -133,23 +133,30 @@ import { ArmView } from "./armview.js?v=39c54689";   // the teleop tab's arm vie
 
   /* ---------- speech ---------- */
   let after = 0, lastListener = null, listenBusy = false;
-  const KINDS = { wake: "after OpenDubs", trick: "trick or treat check", open: "open window" };
+  const KINDS = { wake: "after \u201cOpenDubs\u201d", trick: "\u201ctrick or treat\u201d check", open: "while waiting for a reply" };
+  // A transcript: what Parakeet heard (left), what the robot actually said on the Jabra (right, the
+  // `said` event: the exact words played, the runner's own lines included), and between them, small,
+  // what the listener decided. Greetings and answers are noted when chosen and shown when spoken.
   function fmt(e) {
+    const at = e.after_s != null ? "+" + e.after_s.toFixed(2) + " s after the phrase" : new Date(e.t * 1000).toLocaleTimeString();
     switch (e.event) {
-      case "heard": return ["heard", e.text ? "“" + e.text + "”" : "(nothing intelligible)", KINDS[e.kind] || e.kind];
-      case "spotted": return ["minor", "spotter caught " + String(e.keyword).replace(/_/g, " ").toLowerCase(), ""];
-      case "posted": return ["act", "sent " + e.kind + (e.kind === "trigger" ? "" : ": " + e.text), e.state ? "runner now " + e.state : ""];
-      case "show_started": return ["act", "show armed: " + e.routine, "press the deadman fresh to start it"];
-      case "show_refused": return ["act", "show refused", e.why || ("status " + e.status)];
-      case "show_stopped": return ["act", "show stopped", ""];
-      case "greeted": case "replied": case "held": return ["said", "robot: " + e.text, e.event === "held" ? "no run started" : ""];
-      case "light": return ["minor", e.ok ? "base strip: purple" : "base strip: flash not accepted", ""];
-      case "not_confirmed": return ["minor", "not confirmed as trick or treat", ""];
-      case "not_addressed": return ["minor", "no wake phrase: " + (e.why || ""), ""];
-      case "turn_capped": return ["minor", "stopped listening after " + e.seconds + " s", ""];
-      case "dropped": return ["minor", "ignored" + (e.why ? ": " + e.why : ""), ""];
-      case "said": case "listening": case "capture_open": return null;
-      default: return ["minor", e.event + (e.error ? ": " + e.error : ""), ""];
+      case "heard": return { who: "you", text: e.text ? e.text : "(nothing intelligible)", meta: "heard " + (KINDS[e.kind] || e.kind) + " \u00b7 " + at };
+      case "said": return { who: "robot", text: e.text, meta: "said " + new Date(e.t * 1000).toLocaleTimeString() };
+      case "spotted": return { who: "note", text: new Date(e.t * 1000).toLocaleTimeString() + " \u2014 spotter caught \u201c" + String(e.keyword).replace(/_/g, " ").toLowerCase() + "\u201d" };
+      case "posted": return { who: "act", text: (e.kind === "trigger" ? "sent the trigger" : "sent " + e.kind + ": " + e.text) + (e.state ? " \u2192 runner " + e.state : "") + " \u00b7 " + at };
+      case "show_started": return { who: "act", text: "show armed: " + e.routine + " \u2014 press the deadman fresh to start it" };
+      case "show_refused": return { who: "act", text: "show refused: " + (e.why || "status " + e.status) };
+      case "show_stopped": return { who: "act", text: "show stopped" };
+      case "greeted": return { who: "note", text: "chose a greeting \u00b7 " + at };
+      case "replied": return { who: "note", text: "answering with the local model \u00b7 " + at };
+      case "held": return { who: "note", text: "no run started: a hold-on line \u00b7 " + at };
+      case "light": return { who: "note", text: (e.ok ? "base strip flashed purple" : "base strip flash not accepted") + " \u00b7 " + at };
+      case "not_confirmed": return { who: "note", text: "not confirmed as \u201ctrick or treat\u201d \u00b7 " + at };
+      case "not_addressed": return { who: "note", text: "no wake phrase (" + (e.why || "") + ") \u00b7 " + at };
+      case "turn_capped": return { who: "note", text: "stopped listening after " + e.seconds + " s \u00b7 " + at };
+      case "dropped": return { who: "note", text: "ignored" + (e.why ? ": " + e.why : "") };
+      case "listening": case "capture_open": return null;
+      default: return { who: "note", text: e.event + (e.error ? ": " + e.error : "") };
     }
   }
   async function listenTick() {
@@ -171,14 +178,17 @@ import { ArmView } from "./armview.js?v=39c54689";   // the teleop tab's arm vie
       if (d.seq < after) { after = 0; $("archFeed").replaceChildren(); }   // the listener restarted
       for (const e of d.events || []) {
         const f = fmt(e); if (!f) continue;
-        const [cls, text, note] = f;
-        const li = document.createElement("li"); li.className = "arch-" + cls;
-        const t = document.createElement("span"); t.className = "arch-t";
-        t.textContent = e.event === "spotted" || e.after_s == null ? new Date(e.t * 1000).toLocaleTimeString() : "+" + e.after_s.toFixed(2) + " s";
-        const x = document.createElement("span"); x.textContent = text;
-        if (note) { const n = document.createElement("div"); n.className = "dim"; n.textContent = note; x.append(n); }
-        li.append(t, x); $("archFeed").prepend(li);
-        while ($("archFeed").children.length > 150) $("archFeed").lastChild.remove();
+        const li = document.createElement("li"); li.className = "arch-" + f.who;
+        if (f.who === "you" || f.who === "robot") {
+          const who = document.createElement("div"); who.className = "arch-who"; who.textContent = f.who === "you" ? "HEARD" : "ROBOT SAID";
+          const b = document.createElement("div"); b.className = "arch-bubble"; b.textContent = f.text;
+          const m = document.createElement("div"); m.className = "arch-when"; m.textContent = f.meta;
+          li.append(who, b, m);
+        } else {
+          li.textContent = f.text;
+        }
+        $("archFeed").prepend(li);
+        while ($("archFeed").children.length > 200) $("archFeed").lastChild.remove();
       }
       after = d.seq;
     } catch (e) { badge("archEars", "OFF", "dimbadge"); }
