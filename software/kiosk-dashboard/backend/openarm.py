@@ -70,6 +70,48 @@ SERVICE_OPS = {
 }
 _SERVICE_TIMEOUT = 180.0
 
+#: Bringing an arm's service up is the unit's job (software/openarm/opendubs-arm@.service). The sudoers rule (opendubs-arm.sudoers) allows exactly these commands, as
+#: written: the full path and the `.service`. There is no `stop` here: `down` is how the service ends, and it refuses an arm that is not at stow, which `systemctl stop` would not.
+SYSTEMCTL = "/usr/bin/systemctl"
+UNIT_OPS = {"start": "enables the arm's motors and holds it where it is"}
+_UNIT_TIMEOUT = 60.0
+
+
+def _unit(side):
+    return f"opendubs-arm@{side}.service"
+
+
+def _unit_state(side):
+    """The unit's ActiveState, Result and ExecMainStatus (no sudo needed to read them), or {} if systemd does not answer."""
+    try:
+        r = _run([SYSTEMCTL, "show", _unit(side), "-p", "ActiveState", "-p", "Result", "-p", "ExecMainStatus"], 5)
+    except Exception:                                # noqa: BLE001
+        return {}
+    return dict(line.partition("=")[::2] for line in r.stdout.splitlines()) if r.returncode == 0 else {}
+
+
+def _start_unit(side):
+    """`systemctl start` the arm's service and wait until it answers on its socket. Returns (output, error)."""
+    if _service_status(side) is not None:
+        return f"{side}: the arm service is already running", None
+    try:
+        r = _run(_sudo([SYSTEMCTL, "start", _unit(side)]), 30)
+    except Exception as e:                           # noqa: BLE001
+        return "", f"{side}: systemctl start failed: {type(e).__name__}: {e}"
+    if r.returncode != 0:
+        return "", f"{side}: " + (r.stderr.strip() or f"systemctl start returned {r.returncode}") + f" (sudoers: opendubs-arm.sudoers allows `{SYSTEMCTL} start {_unit(side)}`)"
+    deadline = time.time() + _UNIT_TIMEOUT
+    while time.time() < deadline:
+        status = _service_status(side)
+        if status is not None:
+            return f"{side}: started; " + status.splitlines()[0], None
+        state = _unit_state(side)
+        if state.get("ActiveState") in ("failed", "inactive"):
+            return "", (f"{side}: the unit ended ({state.get('Result', '?')}, exit status {state.get('ExecMainStatus', '?')}) before it answered: "
+                        f"`journalctl -u {_unit(side)}` says why (exit 2 is the old arm stack still running)")
+        time.sleep(0.5)
+    return "", f"{side}: the arm service did not answer in {int(_UNIT_TIMEOUT)} s: `journalctl -u {_unit(side)}`"
+
 
 def _service_status(side):
     """The service's status text for `side`, or None when there is none or it does not answer. Cheap: a unix socket."""
@@ -134,11 +176,13 @@ def _show_running():
 def start_op(name, arm="both"):
     """Begin a long arm operation. Returns (accepted, detail)."""
     spec = OPS.get(name)
-    if spec is None and name not in SERVICE_OPS:
+    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS:
         return False, f"unknown operation {name!r}"
     if arm not in ("left", "right", "both"):
         return False, f"arm must be left|right|both, got {arm!r}"
     sides = []
+    if name in UNIT_OPS and arm not in ("left", "right"):
+        return False, "START is per arm: left or right (starting a service enables that arm's motors)"
     if name in SERVICE_OPS:
         served = arm_client.sides_served()
         sides = served if arm == "both" else [arm]
@@ -161,9 +205,9 @@ def start_op(name, arm="both"):
                     "rc": None, "out": "", "error": None})
 
     def work():
-        if name in SERVICE_OPS:
+        if name in SERVICE_OPS or name in UNIT_OPS:
             try:
-                out, error = _service_work(name, sides)
+                out, error = _start_unit(arm) if name in UNIT_OPS else _service_work(name, sides)
             except Exception as e:                       # noqa: BLE001 - surfaced to the operator
                 out, error = "", f"{type(e).__name__}: {e}"
             with _lock:
