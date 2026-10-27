@@ -46,6 +46,33 @@ video tracks. Tracking (`tracking: tablet` on the Head & face page) loads MediaP
 **The controls.** A long-press anywhere opens STOP SHOW / DASHBOARD / FACE. A short tap shows
 "Hold anywhere to open controls" for 3 s. Nothing shows by itself, so a show's face stays clean.
 
+## The Halloween ghost
+
+A content code skin for the Halloween demo: a ghost with ten expressions (DOZE, LOOKOUT, GROOVE,
+SMILE, PEEK, EEK!, FOCUS, HAPPY, PUZZLED for THINK, and the flame mouth that never stops). Which one
+shows follows the face tracker (someone in view) and the ARCHITECT demo runner (a "trick or treat"
+taken, the arm getting the candy, done, or could not). **The state machine, with every expression
+animated:** [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
+(download it and open it in a browser; it needs nothing else).
+
+| | |
+|---|---|
+| `content/face/skins/ghost.js` | **added.** The skin, one file: the drawing, and `ghostStage()`, which picks the expression from the runner's state. Imports nothing from the engine |
+| `tests/test_ghost_skin.mjs` | **added.** `ghostStage()` row by row, and when someone counts as in view |
+| `tests/conformance.sh` | **changed.** Runs the test above |
+| `../kiosk-dashboard/backend/architect_proxy.py` | **added.** `GET /api/architect/state`: the runner's state, read-only, from the dashboard the face already talks to (the runner on 127.0.0.1:8098 is out of the tablet's reach) |
+| `../kiosk-dashboard/backend/app.py` | **changed** (a shared path). Includes that router |
+| `../kiosk-dashboard/backend/tests/test_architect_proxy.py` | **added.** The route, and a runner that is not there reading as `{"available": false}` |
+| `../../notes/design/face-halloween-ghost-states.html` | **added.** The state machine above |
+
+No engine file is touched. A reserved state (E_STOP, DEGRADED) still draws the default eyes.
+
+To put it on the robot, copy `ghost.js` to `face/skins/` in the robot's content folder
+(`$OPENDUBS_SHOWS_DIR`), then send `SKIN ghost`. Without the demo runner it still dozes, looks
+around, dances and smiles at people; EEK!, FOCUS and HAPPY need the runner. To try it in a browser
+with no robot, set its inputs from the console:
+`window.ghostInputs = { runner: { available: true, state: "RUNNING", since_s: 0.5 }, person: true }`.
+
 ## Render a show offline
 
 `index.html?render=1` is the face as a renderer rather than a live page. It is for drawing a show into
