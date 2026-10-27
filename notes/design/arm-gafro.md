@@ -47,8 +47,8 @@ mutated to see the tests fail):
   motors for their state and commands nothing. An interface that cannot be listened to is a refusal.
 - **A step in `bringup.py lapse` and `move`** (motion_plan.py): it has no default size or direction (`--delta` signed and required, 5 deg at most unless `--allow-large`);
   a lapse that cannot pass (the move over before the 0.5 s permit runs out) is refused before anything is enabled; and with the arm held at its real pose, before it moves,
-  the clearance along the path is checked in the twin (refuse under 20 mm, only the arm being moved counts; the twin is a third opinion and was 6 deg optimistic on the one
-  measured pose), the plan is printed with that pose, and the joint and direction must be typed back. A twin that cannot be built is a refusal. Added after a first `move` met the
+  the clearance along the path is checked in the twin (refuse under 20 mm, only the arm being moved counts; the twin is a third opinion; with the head that merged in #521 it agrees with the hand
+  measurement to within about half a degree), the plan is printed with that pose, and the joint and direction must be typed back. A twin that cannot be built is a refusal. Added after a first `move` met the
   body column: nothing in the script then asked about direction or checked clearance.
 - **Motion** (`engage`, `--park`, `bringup.py lapse` and `move`): CH5 MANUAL or AUTO (DEC-21: STANDBY is hold and status only) and the e-stop clear, read from
   the dashboard's `GET /api/choreo/robot`, the read-only view the runner uses, and `--supervised`, which says a person is at the e-stop with head tracking off and the neck centred (the head is not in the model). A dashboard that does not
@@ -64,8 +64,8 @@ mutated to see the tests fail):
 A `fake` bus and the simulator are not gated. The arm service replaces the second and third: it owns presence, the leases and the deadman.
 
 **Ready is a working pose, not a resting one.** An e-stop or a power drop with an arm at ready lets the forearm fall, where stow moves nothing. Park (`engage.py --park`,
-or `openarm-up park`) before leaving the robot. The maintainers approved the J2 hard cap of 157 degrees (182 measured contact less the 25 of a show) as a backstop that
-matches what shows already obey, and the ready pose's 78 mm to the head as a working pose, on two conditions: the head, neck and lift go into the model before either figure
+or `openarm-up park`) before leaving the robot. The maintainers approved the J2 hard cap as a backstop that matches what shows already obey, and the ready pose's clearance to the head as a working pose (both restated for the head of #521: the cap is
+155 degrees, 180 measured contact less the 25 of a show, with the neck centred; the ready pose clears the head by 59 mm with the neck neutral and by 39 mm at the worst neck pose), on two conditions: the head, neck and lift go into the model before either figure
 is relied on near a moving head, and ready is never where the arms are left. `tools/arm_gafro_model.py` derives the cap from `software/choreo/cue.py`'s `SHOULDER_*`, so
 changing those moves the arm's hard cap.
 
@@ -114,8 +114,8 @@ mirror, joints 1 to 3 negated, per `sim/scene.py`): `[0.00, 0.70, -0.50, 1.80, -
 |---|---|---|
 | smallest singular value | 0.128 | the guard's floor, 0.06 (2.1x) |
 | smallest joint margin | 0.57 rad | the guard's margin, 0.35 |
-| J2 margin to the head cap | 117 deg | |
-| clearance to the head, at lift 0, 137 and 275 mm | 78 mm | a show leaves 30 mm; the twin is 6 deg optimistic (DEC-12) |
+| J2 margin to the head cap | 115 deg | |
+| clearance to the head, at lift 0, 137 and 275 mm | 59 mm | neck neutral (39 mm at the worst neck pose); a show leaves 30 mm; the twin agrees with the hand measurement to about half a degree |
 | between the arms | 188 mm | |
 
 It was **picked** by sampling, with ssik through `self_motion_charts.bridge` (the OpenArm's ssik twin agrees with gafro's FK to 3e-15), the
