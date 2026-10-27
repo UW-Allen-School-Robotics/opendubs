@@ -12,7 +12,8 @@ controllers:
   # resolved through the kinematics), run on an anchor that their own velocity moves, and the integrated anchor is the command -- joint positions and velocities,
   # like the MIT frame the driver sends (position, dq_ref, the motor's own kp and kd, gravity as a feed-forward). The motor's PD supplies the stiffness, so no loop
   # here is closed over the bus and the gains can be high; it needs no gravity term, the driver adds its own.
-  # STARTING VALUES, not tuned on an arm: the redundancy (the posture stage) is what is being tuned.
+  # STARTING VALUES, tuned in the simulator only (a closed hand circle, two laps), not on an arm. The guard margin is 0.01 rad: at 0.35 it sat above the pose stage and froze the hand
+  # on the second lap, when the first lap's null-space drift had put a joint inside the margin.
   follow_pose:
     inputs: {reference: pose, posture: joints}
     type: position
@@ -24,13 +25,13 @@ controllers:
     stages:
       - name: guards
         input: joints
-        objective: {joint_limits: {margin: 0.35}}
+        objective: {joint_limits: {margin: 0.01}}
         law: {pd: {gain: 5.0, max_speed: 1.0}}
         output: velocity
       - name: pose
         input: pose
         objective: {pose: {target: reference}}
-        law: {pd: {gain: 10.0, max_speed: {linear: 0.5, angular: 1.5}}}
+        law: {pd: {gain: 40.0, max_speed: {linear: 0.5, angular: 1.5}}}      # sim, closed 8 cm circle: mean hand error 10.7 mm at 10, 6.1 at 20, 3.8 at 40, 2.6 at 80
         output: velocity
       - name: posture
         input: joints
