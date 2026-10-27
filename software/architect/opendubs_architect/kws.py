@@ -9,7 +9,10 @@ repository or an image: fetch it once per robot, into the voice service's model 
 which verifies the tarball and each file it keeps. The spotter checks the files again at start.
 
 KEYWORDS are the model's own BPE pieces of each phrase (its bpe.model, by sentencepiece), with a
-boost (`:`) and a threshold (`#`). HEY_OPENDUBS is the face page's line; TRICK_OR_TREAT was chosen
+boost (`:`) and a threshold (`#`). OPENDUBS is the wake phrase, "OpenDubs" alone (2026-10-26; it was
+"Hey OpenDubs", the face page's line, whose pieces it keeps without the "HE Y": the boost and threshold
+are that line's, untuned for the shorter phrase, which the voice workplan found harder to spot at a
+distance when it was "hey dubs"). TRICK_OR_TREAT was chosen
 on the first Jabra take (2026-10-24, one speaker at 1, 2 and 3 m in a quiet room): at 1 m it caught
 3 of 3 "Hey OpenDubs" and 2 of 3 "trick or treat", at 3 m one "trick or treat", and at 2 m nothing,
 at any setting tried. A hit is only a candidate, which Parakeet confirms before anything is posted.
@@ -39,9 +42,9 @@ FILES = {   # kept from the tarball: name -> sha256
     "tokens.txt": "fd2ded4050a55d2b1578870ba8697d02371980217806b7558bd0a5cc60f3ba53",   # gitleaks:allow (a sha256 pin, not a token)
 }
 
-HEY, TRICK = "HEY_OPENDUBS", "TRICK_OR_TREAT"
+WAKE, TRICK = "OPENDUBS", "TRICK_OR_TREAT"
 KEYWORDS = "\n".join([
-    "▁HE Y ▁O P EN ▁DU B S :4.0 #0.02 @HEY_OPENDUBS",
+    "▁O P EN ▁DU B S :4.0 #0.02 @OPENDUBS",
     "▁T RI CK ▁OR ▁T RE AT :3.0 #0.02 @TRICK_OR_TREAT",
 ])
 RATE = 16000

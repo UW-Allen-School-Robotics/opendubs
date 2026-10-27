@@ -6,7 +6,7 @@ profile (llm_profile.py). Nothing leaves the robot. Two uses:
 
     greeting()     one varied sentence as a run starts on "trick or treat", so each visitor does not
                    hear the same line; spoken while the arm moves, never waited on by the run
-    reply(heard)   one or two sentences to "Hey OpenDubs, <a question>" while a program is armed
+    reply(heard)   one or two sentences to "OpenDubs, <a question>" while a program is armed
 
 WHAT THE MODEL CANNOT DO. It is asked for words and gets no tools; what it writes is spoken and
 nothing else. It never reaches the demo runner, so a child's question never becomes a program or a

@@ -26,7 +26,7 @@ handout triggered by "trick or treat".
 | `opendubs_architect/routing.py` | For a recorded show: a move the straight-line planner refuses as too close is routed around the body by the arm motion planner (CBiRRT, `sim/planner` on `feat/arm-motion-planner-ui`); every leg is checked as a straight move is |
 | `opendubs_architect/robot_node.py` | The ROS 2 node serving the arm primitives under `/robot/` over `live_arms` |
 | `opendubs_architect/demo_runner.py` | The Halloween runner: instruction, spoken yes, frozen program, "trick or treat" runs; a browser page shows the code |
-| `opendubs_architect/listener.py` | The runner's ears and voice on the Jabra speakerphone: "Hey OpenDubs", "trick or treat", yes and stop, each checked by Parakeet before it is posted |
+| `opendubs_architect/listener.py` | The runner's ears and voice on the Jabra speakerphone: "OpenDubs", "trick or treat", yes and stop, each checked by Parakeet before it is posted |
 | `opendubs_architect/chat.py` | What the robot says to visitors, from its own local model (the voice service's Qwen on vLLM): a varied greeting as each run starts, short answers while armed; words only, never posted to the runner |
 | `opendubs_architect/kws.py`, `alsa.py` | Keyword spotting on the Thor (sherpa-onnx, the face page's pinned model), and the speakerphone through libasound |
 | `opendubs_architect/ssa_agent.py` | ARCHITECT (ssa's session) behind the runner, with library helpers copied into each program |
@@ -84,7 +84,8 @@ curl -X POST localhost:8098/api/heard -d '{"kind": "trigger", "text": "trick or 
 ### The voice: a Jabra speakerphone on the Thor
 
 `listener.py` hears through a USB Jabra SPEAK 510 plugged into the Thor and speaks through it, so
-its echo canceller has the robot's voice to subtract. It spots "Hey OpenDubs" and "trick or treat"
+its echo canceller has the robot's voice to subtract. It spots "OpenDubs" (since 2026-10-26; "Hey
+OpenDubs" before, and still heard) and "trick or treat"
 on the Thor (`kws.py`), transcribes each candidate with Parakeet, and posts to `/api/heard` only
 what passes; the rules are in its docstring. "Trick or treat" needs no wake phrase but counts only
 while a program is armed, and the runner still needs the deadman. While the runner waits for a yes,
@@ -108,7 +109,7 @@ LISTEN=1 software/architect/tools/dev.sh dry      # the runner, speaking through
 **The robot talks back** (`chat.py`), from the robot's own language model: Qwen3-30B-A3B on vLLM,
 the voice service's local brain, called with the voice service's serving profile. As each run
 starts, it says one greeting, different for each visitor ("Pumpkin power, hope this treat gives
-you a sweet ride!"); "Hey OpenDubs, are you a real robot?" while armed gets a one- or two-sentence
+you a sweet ride!"); "OpenDubs, are you a real robot?" while armed gets a one- or two-sentence
 answer. The model gets no tools and its words go only to the speaker: a question never reaches the
 runner, so it never becomes a program or a run, and each answer passes the voice service's own
 check (`spoken.Gate`), so the robot never promises a move it will not make. Nothing leaves the robot
@@ -124,7 +125,7 @@ did not post. A menu item and page on the dashboard itself is the ARCHITECT page
 **On the night: a pre-selected program, no model calls.** `--agent program --program handout.py`
 offers that file for any instruction, so ARCHITECT and its API are not called at all (the local
 Qwen still greets each visitor; it is on the robot and costs no API calls). Once, at the
-start: "Hey OpenDubs, hand out candy", the robot reads the program's summary, "yes", and it is
+start: "OpenDubs, hand out candy", the robot reads the program's summary, "yes", and it is
 armed. From then on each "trick or treat" runs the same frozen program again, back to ARMED after
 each run; nothing is regenerated. "Stop" disarms it, and the same instruction and "yes" arm it
 again. A "trick or treat" before it is armed is dropped. Run it with the live arm backend, not

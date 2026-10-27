@@ -75,7 +75,7 @@ class Wake(Case):
     def test_an_instruction_after_the_phrase(self):
         li = self.make("Hey OpenDubs, hand out candy.")
         self.feed(li, QUIET[:20])
-        self.spotter.fire(kws.HEY)
+        self.spotter.fire(kws.WAKE)
         self.feed(li, QUIET[:5] + SPEECH + QUIET)
         self.assertEqual(self.posted, [("instruction", "hand out candy.")])
 
@@ -92,17 +92,31 @@ class Wake(Case):
     def test_a_second_phrase_starts_a_second_turn(self):
         """The second take: "Hey OpenDubs, yes. Hey OpenDubs, no." was one turn, so "no" was lost."""
         li = self.make("Hey OpenDubs, yes.")
-        self.spotter.fire(kws.HEY)
+        self.spotter.fire(kws.WAKE)
         self.feed(li, QUIET[:5] + SPEECH + QUIET[:10])     # 0.2 s of quiet: not yet the end of the turn
         self.assertEqual(self.posted, [])
-        self.spotter.fire(kws.HEY)
+        self.spotter.fire(kws.WAKE)
         self.feed(li, QUIET[:1])
         self.assertEqual(self.posted, [("instruction", "yes.")])   # the first turn, ended by the second phrase
         self.assertEqual(li.turn[0], "wake")                       # and the second has begun
 
+    def test_opendubs_alone(self):
+        """The wake phrase is "OpenDubs" (2026-10-26); "Hey OpenDubs" is still heard, and a sentence that
+        merely contains "opened up" is not the phrase."""
+        for text, rest in (("OpenDubs, hand out candy.", "hand out candy."), ("Open dubs, stop!", "stop!"),
+                           ("Opened up, wave hello.", "wave hello."), ("Open ducks, what is your name?", "what is your name?"),
+                           ("Hey OpenDubs, yes.", "yes.")):
+            self.assertEqual(ls.wake_rest(text), rest, text)
+        for text in ("it opened up", "the door opened up, then", "open up", "open the door", "open doors"):
+            self.assertIsNone(ls.wake_rest(text), text)
+        li = self.make("OpenDubs, hand out candy.")
+        self.spotter.fire(kws.WAKE)
+        self.feed(li, QUIET[:5] + SPEECH + QUIET)
+        self.assertEqual(self.posted, [("instruction", "hand out candy.")])
+
     def test_a_near_miss_posts_nothing(self):
         li = self.make("Hey doves, hand out candy.")
-        self.spotter.fire(kws.HEY)
+        self.spotter.fire(kws.WAKE)
         self.feed(li, QUIET[:5] + SPEECH + QUIET)
         self.assertEqual(self.posted, [])
 
@@ -122,11 +136,11 @@ class Trick(Case):
         """A child's "Hey OpenDubs, trick or treat" before anything is armed never reaches the model."""
         for state in ("IDLE", "AWAITING_YES", "CHECK_FAILED"):
             li = self.make("Hey OpenDubs, trick or treat!", state)
-            self.spotter.fire(kws.HEY)
+            self.spotter.fire(kws.WAKE)
             self.feed(li, QUIET[:5] + SPEECH + QUIET)
             self.assertEqual(self.posted, [], state)
         li = self.make("Hey OpenDubs, trick or treat!", "ARMED")
-        self.spotter.fire(kws.HEY)
+        self.spotter.fire(kws.WAKE)
         self.feed(li, QUIET[:5] + SPEECH + QUIET)
         self.assertEqual(self.posted, [("trigger", "trick or treat")])
 
@@ -153,7 +167,7 @@ class Chat(Case):
         self.said = []
         li.chat, li.say = FakeChat(), self.said.append
         li.post = lambda kind, text: (self.posted.append((kind, text)), post_state)[1]
-        self.spotter.fire(kws.HEY)
+        self.spotter.fire(kws.WAKE)
         self.feed(li, QUIET[:5] + SPEECH + QUIET)
         return li
 
@@ -178,11 +192,11 @@ class Chat(Case):
         li.state, now = "RUNNING", self.t[0]
         li.clock = lambda: now                                               # a crowd, all at once
         for _ in range(3):
-            self.spotter.fire(kws.HEY)
+            self.spotter.fire(kws.WAKE)
             self.feed(li, QUIET[:5] + SPEECH + QUIET)
         self.assertEqual(len(self.said), 1)
         li.clock = lambda: now + ls.HOLD_ON_EVERY_S
-        self.spotter.fire(kws.HEY)
+        self.spotter.fire(kws.WAKE)
         self.feed(li, QUIET[:5] + SPEECH + QUIET)
         self.assertEqual(len(self.said), 2)
         self.assertNotEqual(self.said[0], self.said[1])                      # not the same line twice running
@@ -289,13 +303,13 @@ class BaseLight(Case):
     def test_purple_on_a_confirmed_phrase(self):
         self.lit("Trick or treat!", kws.TRICK)
         self.assertEqual(self.flashes, [{"rgb": [150, 0, 255], "br": 100, "lease_ms": 2000}])
-        self.lit("Hey OpenDubs, what is your name?", kws.HEY, "IDLE")
+        self.lit("Hey OpenDubs, what is your name?", kws.WAKE, "IDLE")
         self.assertEqual(len(self.flashes), 1)
 
     def test_not_on_a_hit_parakeet_does_not_confirm(self):
         self.lit("the trick is to eat", kws.TRICK)
         self.assertEqual(self.flashes, [])
-        self.lit("hey doves", kws.HEY)
+        self.lit("hey doves", kws.WAKE)
         self.assertEqual(self.flashes, [])
 
     def test_a_reserved_colour_is_refused(self):

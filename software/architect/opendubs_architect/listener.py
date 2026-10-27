@@ -13,9 +13,11 @@ canceller has the playback to subtract.
 WHAT IT POSTS, and when. Every clip is transcribed by Parakeet before anything is posted, and a
 spotter hit alone posts nothing.
 
-    "Hey OpenDubs, <words>"   any state  the turn runs to the end of speech (vad.Endpointer), and
+    "OpenDubs, <words>"       any state  the turn runs to the end of speech (vad.Endpointer), and
                                          wake_rest must find the phrase: "instruction" while the
-                                         runner is IDLE, "speech" otherwise ("Hey OpenDubs, stop")
+                                         runner is IDLE, "speech" otherwise ("OpenDubs, stop").
+                                         The wake phrase is "OpenDubs" (kws.WAKE); "Hey OpenDubs"
+                                         is still heard
     "trick or treat", in any  not ARMED  never an instruction or a reply, so a child saying it early
      form                                never becomes a prompt; the robot says a HOLD_ON line
     "trick or treat"          ARMED      no wake phrase; the spotter's hit plus Parakeet's agreement
@@ -30,7 +32,7 @@ WHAT IT SAYS ITSELF (chat.py, the robot's local language model; never posted to 
     a run starts              RUNNING    one varied greeting while the arm hands out the treat
     "trick or treat" that     any but    "Hold on, I'm thinking!" and its variations: a run is under
      starts no run            AWAITING_YES  way, or the runner refused it (the deadman not held)
-    "Hey OpenDubs, <words>"   ARMED      a short reply, unless the words hold "stop" (posted as above)
+    "OpenDubs, <words>"       ARMED      a short reply, unless the words hold "stop" (posted as above)
 
 Outside those states, and while the runner cannot be read, only the wake phrase is listened for.
 
@@ -71,7 +73,7 @@ FRAME_MS = 20
 PRE_ROLL_MS = 2500          # kept before a hit: the phrase itself, for Parakeet's check. 1.5 s lost the
                             # "trick" of a slow "trick ... or treat" on the robot: Parakeet heard "or treat."
 TRICK_TAIL_MS = 400         # after a "trick or treat" hit, so the last word is whole in the clip
-PHRASE_MS = 1000            # "Hey OpenDubs" ends about this long before the spotter fires
+PHRASE_MS = 800             # "OpenDubs" ends about this long before the spotter fires
 OPEN_LEAD_MS = 800          # kept before Silero says speech has begun: it says so late, and a 300 ms
                             # lead cut "yes" and "no" to nothing on the second take
 OPEN_END_SILENCE_MS = 800
@@ -92,10 +94,13 @@ _STOP = re.compile(r"\bstop\b", re.I)
 _OR = {"or", "r", "a", "er", "ah", "and", "n"}
 # How Parakeet wrote a real "Hey OpenDubs" on the Jabra at 1 m (the takes of 2026-10-24), which
 # wakeword.strip refuses: "Hey, opened up", "Hey overdubs", "A open dubs", "They opened up", "I opened
-# dubs", "Hey open dumps", "Hey Oaken Ducks", "Hey, open dogs". Accepted here only after a spotter hit
-# or in an open window, never on their own: "hey dogs" without the "open" stays refused.
-_JABRA_WAKE = re.compile(r"\b(?:hey|hay|hi|a|they|he|i)\b[\s,.!?]+(?:(?:open(?:ed)?|oaken)[\s,.]*(?:dubs?|dubbs|ducks?|dumps?|dogs?|up)"
-                         r"|over\s*dubs?)\b[\s,.!?]*", re.I)
+# dubs", "Hey open dumps", "Hey Oaken Ducks", "Hey, open dogs". The wake phrase is "OpenDubs" alone
+# since 2026-10-26, so the leading word is optional; "opened up" alone counts only at the very start of
+# what was heard, never in a sentence ("it opened up"). Accepted only after a spotter hit or in an open
+# window, never on their own: "hey dogs" without the "open" stays refused.
+_LEAD = r"(?:\b(?:hey|hay|hi|a|they|he|i)\b[\s,.!?]+)"
+_JABRA_WAKE = re.compile(rf"{_LEAD}?(?:(?:open(?:ed)?|oaken)[\s,.]*(?:dubs?|dubbs|ducks?|dumps?|dogs?)|over\s*dubs?)\b[\s,.!?]*"
+                         rf"|{_LEAD}opened\s+up\b[\s,.!?]*|^\W*opened\s+up\b[\s,.!?]*", re.I)
 _TRICK_LIKE = re.compile(r"^[a-z]*(?:ick|eck|ik)$")    # "check or cheat", as Parakeet wrote a real one
 _TREAT_LIKE = re.compile(r"^[a-z]*(?:eat|eet|eats)$")
 
@@ -227,9 +232,9 @@ class Listener:
             self.spotter.reset()
         self.ring.append(pcm)
         hits = self.spotter.feed(pcm)           # every frame: its streaming decoder does not survive a gap
-        if kws.HEY in hits:
-            self._log("spotted", keyword=kws.HEY)
-            if self.turn is not None:           # a new "Hey OpenDubs" ends the turn in hand, before it
+        if kws.WAKE in hits:
+            self._log("spotted", keyword=kws.WAKE)
+            if self.turn is not None:           # a new "OpenDubs" ends the turn in hand, before it
                 kind, frames, _, state = self.turn
                 keep = frames[:max(0, len(frames) - PHRASE_MS // FRAME_MS)] if kind == "wake" else frames
                 if keep:
@@ -677,7 +682,7 @@ spotter heard a phrase, or while the robot waits for a yes or runs a program), a
 const $ = (id) => document.getElementById(id);
 let after = 0;
 const fmt = (e) => {
-  const kinds = {wake: "after Hey OpenDubs", trick: "trick or treat check", open: "open window"};
+  const kinds = {wake: "after OpenDubs", trick: "trick or treat check", open: "open window"};
   switch (e.event) {
     case "heard": return ["heard", e.text ? "\\u201c" + e.text + "\\u201d" : "(nothing intelligible)", kinds[e.kind] || e.kind];
     case "spotted": return ["minor", "spotter caught " + e.keyword.replace(/_/g, " ").toLowerCase(), ""];
