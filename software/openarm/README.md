@@ -14,6 +14,8 @@ commands. Full walkthrough: [docs/openarm-setup.md](../../docs/openarm-setup.md)
 | `opendubs-arm@.service` | `/etc/systemd/system/` | the arm service on gafro for one arm (`right` / `left`); not enabled at boot. See below |
 | `opendubs-arm` | `/usr/local/lib/opendubs/` | what that unit runs: the gafro environment, the old-stack check, then `gafro/arm_service.py` |
 | `opendubs-arm.env.example` | `/etc/opendubs/arm-service.env` | this robot's settings for the unit (the checkout, the driver's config); per robot, never overwritten |
+| `opendubs-arm.sudoers` | `/etc/sudoers.d/opendubs-arm` | lets `kiosk` start, stop and restart the arm units, and nothing else of systemd |
+| `provision-arm-service.sh` | — | installs the four files above; run by `provision-openarm.sh`, or alone |
 
 Deployed to `/opt/opendubs/openarm` by `deploy-all.sh`. Not called from `provision-all.sh`,
 because the arms are an optional payload.
@@ -25,16 +27,16 @@ because the arms are an optional payload.
 pose targets). `opendubs-arm@right.service` / `opendubs-arm@left.service` run it as the user `kiosk`.
 
 ```sh
-# by hand until provision-openarm.sh does it (slice 3)
-sudo install -D -m0755 software/openarm/opendubs-arm /usr/local/lib/opendubs/opendubs-arm
-sudo install -m0644 software/openarm/opendubs-arm@.service /etc/systemd/system/
-sudo install -D -m0640 -g kiosk software/openarm/opendubs-arm.env.example /etc/opendubs/arm-service.env     # then edit it: the checkout, the driver's config
-sudo systemctl daemon-reload
+sudo /opt/opendubs/openarm/provision-arm-service.sh     # installs the unit, the wrapper, the settings file (if absent) and the sudoers rule; provision-openarm.sh runs it too
+sudoedit /etc/opendubs/arm-service.env                  # the checkout (OPENDUBS_REPO) and the driver's config
 
-sudo systemctl start opendubs-arm@right          # enables the arm's motors and holds it where it is
+sudo systemctl start opendubs-arm@right                 # enables the arm's motors and holds it where it is
 journalctl -u opendubs-arm@right -f
 sudo -u kiosk OPENDUBS_ARM_SOCKET_DIR=/run/opendubs-arm python software/openarm/gafro/arm_service.py ctl --side right status
 ```
+
+`provision-arm-service.sh` installs nothing it cannot check first: the sudoers rule goes through `visudo -cf` before any file is written, and `ROOT=<dir>` installs under `<dir>` without
+root and without touching the machine. The rule lets `kiosk` run exactly `systemctl start|stop|restart opendubs-arm@left|right.service` (with the `.service`, as written) and nothing else.
 
 What the unit decides, and why:
 

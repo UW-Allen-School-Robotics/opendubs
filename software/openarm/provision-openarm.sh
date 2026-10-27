@@ -5,6 +5,7 @@
 #   2. udev names arm_left / arm_right for the adapter's two channels (per-robot; never overwritten)
 #   3. openarm-can@.service, which raises each channel at 1M/5M CAN-FD whenever it appears
 #   4. the openarm-up and openarm-motors commands
+#   5. the arm service as a systemd unit, installed and not enabled (provision-arm-service.sh)
 # The arm software runs in its own container; see docs/openarm-setup.md. Not part of
 # provision-all.sh, because the arms are an optional payload.
 #
@@ -66,6 +67,9 @@ udevadm control --reload
 install -D -m0755 "$DIR/openarm-motors" /usr/local/lib/openarm/openarm-motors
 ln -sfn /usr/local/lib/openarm/openarm-motors /usr/local/bin/openarm-motors
 install -m0755 "$DIR/openarm-up" /usr/local/bin/openarm-up
+
+# --- 5. the arm service as a unit (installed, never enabled or started) ------
+"$DIR/provision-arm-service.sh"
 
 # --- apply now, if the adapter is plugged in --------------------------------
 if ip link show arm_left >/dev/null 2>&1 && ip link show arm_right >/dev/null 2>&1; then
