@@ -1,0 +1,45 @@
+#!/bin/bash
+# opendubs-arm <side> -- what opendubs-arm@.service runs: the arm service for one arm (left | right), in the gafro environment.
+#
+# Everything per robot comes from the environment, which the unit takes from /etc/opendubs/arm-service.env (opendubs-arm.env.example):
+#   OPENDUBS_REPO         a checkout of this repository, readable by the service's user. Required. `engage.DEFAULT_MODEL` finds the arm's model, and the
+#                         clearance twin finds sim/, relative to the file's place in the repository; deploy-all.sh copies software/openarm to
+#                         /opt/opendubs/openarm without description/openarm/ or sim/, so a deployed copy alone cannot find them.
+#   OPENDUBS_ARM_CONFIG   the driver's hardware config (a copy of gafro/hardware.example.yaml). Required on a real bus.
+#   OPENDUBS_GAFRO_SETUP  the gafro environment to source (default /opt/gafro/setup.bash: the venv, ROS 2, the paths).
+#   OPENDUBS_PYTHON       python to run (default `python`, which the venv of that setup puts first).
+#   OPENDUBS_ARM_ARGS     more arguments for the service, e.g. `--backend mujoco --no-ros` to try the unit without an arm, or `--move-seconds 6`.
+#
+# It is started unsupervised: no --supervised. A person at the e-stop says so with `arm_service.py ctl supervise`, and a moving command is refused on a
+# real bus until then.
+set -eu
+
+side="${1:?usage: opendubs-arm left|right}"
+case "$side" in left | right) ;; *) echo "opendubs-arm: the side is left or right, not '$side'" >&2; exit 64 ;; esac
+
+: "${OPENDUBS_REPO:?opendubs-arm: OPENDUBS_REPO is not set (see /etc/opendubs/arm-service.env, opendubs-arm.env.example)}"
+service="$OPENDUBS_REPO/software/openarm/gafro/arm_service.py"
+[ -f "$service" ] || { echo "opendubs-arm: no $service (OPENDUBS_REPO=$OPENDUBS_REPO)" >&2; exit 78; }
+
+# The old stack (ros2_control in the `openarm` container, started by openarm-up) and this service must not both drive an arm. Its processes are
+# visible here. The driver's own listen for another sender is the second line of defence; this one says why. Exit status 2 is not retried.
+if pgrep -f ros2_control_node >/dev/null 2>&1; then
+    echo "opendubs-arm: the old arm stack is running (ros2_control_node): run \`openarm-up down\` first; two senders on one bus must not happen" >&2
+    exit 2
+fi
+
+setup="${OPENDUBS_GAFRO_SETUP:-/opt/gafro/setup.bash}"
+if [ -r "$setup" ]; then
+    # shellcheck disable=SC1090
+    . "$setup"
+elif [ "$setup" != /dev/null ]; then
+    echo "opendubs-arm: no $setup: the gafro environment is not installed (set OPENDUBS_GAFRO_SETUP=/dev/null to use the python on PATH)" >&2
+    exit 78
+fi
+
+args=(run --side "$side" --socket "${OPENDUBS_ARM_SOCKET_DIR:-/run/opendubs-arm}/opendubs-arm-service-$side.sock")
+[ -n "${OPENDUBS_ARM_CONFIG:-}" ] && args+=(--hardware-config "$OPENDUBS_ARM_CONFIG")
+# shellcheck disable=SC2206
+[ -n "${OPENDUBS_ARM_ARGS:-}" ] && args+=($OPENDUBS_ARM_ARGS)
+
+exec "${OPENDUBS_PYTHON:-python}" -u "$service" "${args[@]}"
