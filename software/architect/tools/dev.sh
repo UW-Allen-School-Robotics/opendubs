@@ -35,7 +35,8 @@
 # models, mounted read-only, default /var/lib/opendubs/models), LISTEN=1 (the runner speaks through
 # the listener), TTS_DEVICE (cuda, the default: Kokoro on the GPU, 0.14 s a line; or cpu, about 2 s),
 # VOICE (listen: butler, the default, bm_george in British English, fetched once by dev.sh butler; or
-# heart, the voice service's American voice),
+# heart, the voice service's American voice), JABRA_VOLUME (listen: the Jabra's playback volume, set
+# on each start, default 100%),
 # PROGRAM (for dry, a path inside the repository), DOCKER (default: sudo -n docker), PROFILE (arms,
 # the default, or arms_see: the program may look with the perception services, which a recorded show
 # then follows; the container joins the robot's ROS domain 0 for those read-only calls, as API.md
@@ -184,6 +185,13 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
   if ${DOCKER} inspect "${LISTENER}" >/dev/null 2>&1; then
     echo "dev.sh: ${LISTENER} is already running; 'dev.sh down' first" >&2; exit 1
   fi
+  # A reboot brings the Jabra back at 55% (-12 dB), too quiet to hear the robot over a room (found
+  # 2026-10-27): set its playback volume each start, JABRA_VOLUME (default 100%).
+  local card
+  card=$(awk '/Jabra/ {print $1; exit}' /proc/asound/cards 2>/dev/null)
+  if [ -z "${card}" ]; then echo "dev.sh: no Jabra in /proc/asound/cards" >&2; exit 1; fi
+  amixer -q -c "${card}" sset PCM "${JABRA_VOLUME:-100%}" unmute \
+    || echo "dev.sh: could not set the Jabra's volume (card ${card}); check it by ear" >&2
   [ "${TTS_DEVICE:-cuda}" = cuda ] && tts=(--runtime nvidia -e VOICE_TTS_DEVICE=cuda)
   if [ "${VOICE:-butler}" = butler ]; then      # VOICE=heart: the voice service's American voice instead
     [ -d "${DATA}/models/butler" ] || { echo "dev.sh: no butler voice; run 'dev.sh butler' first (or VOICE=heart)" >&2; exit 1; }
