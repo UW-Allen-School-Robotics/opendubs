@@ -51,7 +51,6 @@ import engage  # noqa: E402
 import arm_client  # noqa: E402
 import gripper  # noqa: E402
 import guards  # noqa: E402
-import planner  # noqa: E402
 import pose_follow  # noqa: E402
 import reach  # noqa: E402
 import trajectory  # noqa: E402
@@ -156,7 +155,6 @@ class ArmService:
             _, self.real = guards.buses_of(args.hardware_config, self.groups)
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
         self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
-        self.planner = None            # the posture planner (planner.py), needs the reach
         self.behaviour = ""            # what `follow` is doing about its target now ("following", "holding: ..."), while it runs
         self.running = None            # the name of the command in progress (a gripper command does not count: it runs beside the others)
         self.permit = SharedPermit(self.groups, guards.motion_gate(args.dashboard) if self.real else None)
@@ -217,7 +215,7 @@ class ArmService:
                     controllers = yaml.safe_load(stream)["controllers"]
                 self.behaviour = ""
                 self.last = "following: " + pose_follow.follow(self.robot, side, controllers, self.source, self.permit.lease(), self.cancel, lambda: self.permit.withheld,
-                                                               log=self._log, reach=self.reach, status=self._behaviour, planner=self.planner)
+                                                               log=self._log, reach=self.reach, status=self._behaviour)
                 return
             self._move(name, known, tolerance, move_seconds, allow_large)
             self.last = f"{name} done"
@@ -430,8 +428,8 @@ def main() -> int:
         p.add_argument("--socket-mode", default="600", help="the socket's permissions, octal: 660 lets the dashboard's user (the directory's group) send commands")
         p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 5 s from stow to ready; under about 3.4 s the arm cannot follow and the move is refused)")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
-        p.add_argument("--plan-posture", action="store_true", help="steer `follow`'s posture along the global route over the hand's next poses (planner.py; needs ssik and self_motion_charts). "
-                       "Off: in simulation it gave no gain over the follow controller on long sweeps")
+        p.add_argument("--reach-clearance", type=float, default=reach.CLEARANCE, help="m: the least gap between any two balls of the collision cover for a target to count as reachable (default %(default)s: the cover "
+                       "must not interpenetrate; negative tolerates an overlap of that depth)")
         p.add_argument("--no-ros", action="store_true", help="no /joint_states or action server: the lifecycle only (they need ROS)")
     args = parser.parse_args()
 
@@ -449,8 +447,7 @@ def main() -> int:
 
     robot, _, _ = bringup.connect(args)
     service = ArmService(robot, args)
-    service.reach = reach.build(robot.get_system(), args.side, service._log)
-    service.planner = planner.build(service.reach, robot.get_system(), args.side, service._log) if service.reach is not None and args.plan_posture else None
+    service.reach = reach.build(robot.get_system(), args.side, service._log, args.reach_clearance)
     server = listen(service, args.socket, int(args.socket_mode, 8))
     try:
         print(f"holding the {args.side} arm; commands: `arm_service.py ctl {{{','.join(COMMANDS)}}}`", flush=True)
