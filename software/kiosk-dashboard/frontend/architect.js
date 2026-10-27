@@ -3,6 +3,8 @@
    nothing is fetched while another view is up or the page is hidden, and the camera feed itself
    subscribes only while frames are asked for. The program is shown as ssa's CLI shows it (a numbered,
    highlighted panel), with the changes from the previous program when a correction replaces it. */
+import { ArmView } from "./armview.js?v=39c54689";   // the teleop tab's arm view (the Arms lane's), reused as is
+
 (function architectView() {
   const $ = (id) => document.getElementById(id);
   const shown = () => { const v = $("view-architect"); return !!v && v.classList.contains("active") && !document.hidden; };
@@ -182,6 +184,64 @@
     } catch (e) { badge("archEars", "OFF", "dimbadge"); }
     finally { listenBusy = false; }
   }
+
+  /* ---------- arms: the teleop tab's 3D view, live from /joint_states (rosbridge, via app.js) ---------- */
+  // Built the first time the tab is shown (the canvas has no size before), and fed by app.js's
+  // "opendubs-joint-states" event, which leaves teleop.js's own hook alone. Stale data reads STALE,
+  // never as a pose: the teleop panel's rule.
+  let arms = null, armsLoading = false, lastJointMs = 0;
+  async function armsBoot() {
+    if (arms || armsLoading || !shown()) return;
+    armsLoading = true;
+    try {
+      arms = await new ArmView($("archArmCanvas")).load();
+      for (const btn of document.querySelectorAll("[data-arch-armview]")) {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll("[data-arch-armview]").forEach((b) => b.classList.remove("on"));
+          btn.classList.add("on");
+          arms.setView(btn.dataset.archArmview);
+        });
+      }
+      arms.frame(); arms.render();
+    } catch (e) {
+      badge("archArmSrc", "render failed", "dimbadge");
+      console.error("ARCHITECT arm view failed to load", e);
+    } finally { armsLoading = false; }
+  }
+  function stowDeg(prefix) {
+    let worst = 0;
+    for (const [name, j] of Object.entries(arms.joints)) {
+      if (name.startsWith(prefix) && !name.includes("finger")) worst = Math.max(worst, Math.abs(j.value) * 180 / Math.PI);
+    }
+    return worst;
+  }
+  window.addEventListener("opendubs-joint-states", (ev) => {
+    const msg = ev.detail;
+    if (!arms || !msg || !msg.name) return;
+    const angles = {};
+    for (let i = 0; i < msg.name.length; i++) angles[msg.name[i]] = msg.position?.[i];
+    arms.setJoints(angles);
+    lastJointMs = Date.now();
+    badge("archArmSrc", "live", "good");
+    for (const [side, id] of [["left", "archStowL"], ["right", "archStowR"]]) {
+      const d = stowDeg(`openarm_${side}_`), el = $(id);
+      el.textContent = d < 3 ? `${side} at stow` : `${side} ${Math.round(d)}° from stow`;
+      el.style.color = d < 3 ? "var(--good)" : "var(--warn)";
+    }
+  });
+  setInterval(() => {
+    if (!shown()) return;
+    armsBoot();
+    if (!lastJointMs) { badge("archArmSrc", "no joint data", "dimbadge"); return; }
+    const age = (Date.now() - lastJointMs) / 1000;
+    if (age > 2) badge("archArmSrc", `STALE ${age.toFixed(0)}s`, "warn");
+  }, 1000);
+  const viewEl = $("view-architect");
+  if (viewEl && window.MutationObserver) {
+    new MutationObserver(() => { if (arms && viewEl.classList.contains("active")) { arms.frame(); arms.render(); } })
+      .observe(viewEl, { attributes: true, attributeFilter: ["class"] });
+  }
+  window.addEventListener("resize", () => { if (arms) arms.frame(); });
 
   function badge(id, text, cls) { const b = $(id); if (b) { b.textContent = text; b.className = "badge " + cls; } }
 

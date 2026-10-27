@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=2af87b29" />
+  <link rel="stylesheet" href="style.css?v=6e897f48" />
 </head>
 <body>
   <div id="app">
@@ -338,6 +338,19 @@
         <img id="archCam" alt="The Orbbec colour camera's latest frame">
         <div id="archCamNote" class="sub">—</div>
       </section>
+      <section class="card arch-arms">
+        <h2>ARMS <span id="archArmSrc" class="badge dimbadge">no joint data</span></h2>
+        <div class="tp-views">
+          <button class="iobtn on" data-arch-armview="iso">ISO</button>
+          <button class="iobtn" data-arch-armview="top">TOP</button>
+          <button class="iobtn" data-arch-armview="side">SIDE</button>
+          <button class="iobtn" data-arch-armview="front">FRONT</button>
+          <span class="tp-spacer"></span>
+          <span id="archStowL" class="sub">left —</span>
+          <span id="archStowR" class="sub">right —</span>
+        </div>
+        <canvas id="archArmCanvas" class="tp-canvas arch-arm-canvas"></canvas>
+      </section>
       <section class="card arch-speech">
         <h2>SPEECH <span id="archEars" class="badge dimbadge">—</span></h2>
         <div class="arch-meter" title="The Jabra microphone's level"><div id="archLevel"></div></div>
@@ -565,11 +578,11 @@
     <div class="ditem" data-view="headface">Head &amp; face — idle, looks, sound<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
-  <script src="app.js?v=48740d1e"></script>
+  <script src="app.js?v=8c2fceb6"></script>
   <script src="operate.js?v=a416f5b7"></script>
   <script type="module" src="teleop.js?v=88924ca4"></script>
   <script src="show_audio.js?v=b2f6a4e4"></script>
-  <script src="architect.js?v=7cb6d07d"></script>
+  <script type="module" src="architect.js?v=0d6c3afa"></script>
   <script src="choreo.js?v=e4aa7cbc"></script>
   <script src="headface.js?v=ea3f18f3"></script>
   <script src="projector.js"></script>
