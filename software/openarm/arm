@@ -1,0 +1,117 @@
+#!/bin/bash
+# arm <command> [left|right] -- run an arm from the Thor without knowing where anything is.
+#
+#   arm start|stop|restart [side]     the arm service (opendubs-arm@<side>.service); starting it enables the motors and holds the arm where it is
+#   arm status|activate|park|follow|hold|down|supervise|unsupervise [side]
+#                                     a command to the running service, over its socket (arm_service.py ctl): the same gates apply as ever
+#   arm viewer [side] [port]          the viser viewer of that arm (default port 8090: 8080 is the dashboard), with the model the service runs
+#   arm doctor [side]                 why the viewer shows nothing: is the service up, is /joint_states publishing, is a viewer subscribed
+#
+# The side is `right` unless given. Everything per robot comes from /etc/opendubs/arm-service.env, which the unit reads too (OPENDUBS_REPO, OPENDUBS_GAFRO_SETUP,
+# OPENDUBS_PYTHON, OPENDUBS_ARM_SOCKET_DIR, and the DDS settings RMW_IMPLEMENTATION, ROS_DOMAIN_ID, FASTDDS_*: the viewer and the doctor must be on the service's ROS graph). ARM_ENV_FILE names another file.
+# ARM_DRY_RUN=1 prints what would run and runs nothing.
+set -eu
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+[ $# -ge 1 ] || usage
+command="$1"; shift
+
+# The viewer takes a port after the side, and the side is optional: `arm viewer 8091` is the right arm on 8091.
+side=right; port=8090
+for word in "$@"; do
+    case "$word" in
+        left | right) side="$word" ;;
+        [0-9]*) port="$word" ;;
+        *) echo "arm: '$word' is not a side (left, right) or a port" >&2; exit 64 ;;
+    esac
+done
+
+run() {
+    if [ -n "${ARM_DRY_RUN:-}" ]; then printf '%s\n' "$*"; else "$@"; fi
+}
+
+env_file="${ARM_ENV_FILE:-/etc/opendubs/arm-service.env}"
+if [ -r "$env_file" ]; then
+    # KEY=value lines, as systemd reads them; only the names this script uses are taken, so that nothing else in the file is executed as a command.
+    for name in OPENDUBS_REPO OPENDUBS_GAFRO_SETUP OPENDUBS_PYTHON OPENDUBS_ARM_SOCKET_DIR RMW_IMPLEMENTATION ROS_DOMAIN_ID FASTDDS_DEFAULT_PROFILES_FILE FASTRTPS_DEFAULT_PROFILES_FILE; do
+        value=$(sed -n "s/^${name}=//p" "$env_file" | tail -n 1)
+        [ -n "$value" ] && [ -z "${!name:-}" ] && export "$name=$value"
+    done
+fi
+
+socket_dir="${OPENDUBS_ARM_SOCKET_DIR:-/run/opendubs-arm}"
+setup="${OPENDUBS_GAFRO_SETUP:-/opt/gafro/setup.bash}"
+python="${OPENDUBS_PYTHON:-python}"
+
+need_repo() {
+    : "${OPENDUBS_REPO:?arm: OPENDUBS_REPO is not set (in $env_file, or in the environment)}"
+}
+
+# The gafro environment, as the wrapper sources it: its scripts read variables they never set, so strictness is off for the source.
+gafro_environment() {
+    [ -n "${ARM_DRY_RUN:-}" ] && { echo ". $setup"; return 0; }
+    if [ -r "$setup" ]; then
+        set +eu
+        # shellcheck disable=SC1090
+        . "$setup"
+        set -eu
+    elif [ "$setup" != /dev/null ]; then
+        echo "arm: no $setup: the gafro environment is not installed (gafro-deploy)" >&2
+        exit 78
+    fi
+}
+
+case "$command" in
+    start | stop | restart)
+        # The sudoers rule names the unit with its .service, as written.
+        run sudo systemctl "$command" "opendubs-arm@$side.service"
+        ;;
+    status | activate | park | follow | hold | down | supervise | unsupervise)
+        need_repo
+        gafro_environment
+        socket="$socket_dir/opendubs-arm-service-$side.sock"
+        service="$OPENDUBS_REPO/software/openarm/gafro/arm_service.py"
+        # The socket is the service user's (mode 600 by default): from another user the command has to go through that user.
+        if [ -z "${ARM_DRY_RUN:-}" ] && [ -e "$socket" ] && [ ! -w "$socket" ]; then
+            run sudo -u kiosk env "OPENDUBS_ARM_SOCKET_DIR=$socket_dir" "$python" -u "$service" ctl --side "$side" --socket "$socket" "$command"
+        else
+            run "$python" -u "$service" ctl --side "$side" --socket "$socket" "$command"
+        fi
+        ;;
+    viewer)
+        need_repo
+        gafro_environment
+        run "$python" -u -m gafro_ri_ros2_bridge.viewer --model "$OPENDUBS_REPO/description/openarm/gafro/openarm_bimanual.xml" \
+            --task-space "$side" --reference "$side" --port "$port"
+        ;;
+    doctor)
+        need_repo
+        gafro_environment
+        problems=0
+        say() { printf '%-34s %s\n' "$1" "$2"; }
+        if [ -n "${ARM_DRY_RUN:-}" ]; then
+            echo "systemctl is-active opendubs-arm@$side.service; arm status $side; ros2 topic echo --once /joint_states; ros2 node list"
+            exit 0
+        fi
+        active=$(systemctl is-active "opendubs-arm@$side.service" 2>/dev/null || true)
+        say "service (opendubs-arm@$side):" "${active:-unknown}"
+        [ "$active" = active ] || { problems=1; echo "    not running: arm start $side; the log: journalctl -u opendubs-arm@$side -n 30 --no-pager"; }
+        if answer=$("$0" status "$side" 2>&1); then say "service answers on its socket:" "yes: $answer"; else say "service answers on its socket:" "NO"; echo "    $answer"; problems=1; fi
+        if command -v ros2 >/dev/null 2>&1; then
+            if timeout 4 ros2 topic echo --once /joint_states >/dev/null 2>&1; then
+                say "/joint_states is publishing:" "yes"
+            else
+                say "/joint_states is publishing:" "NO (nothing arrived in 4 s: the service was started with --no-ros, or is in another ROS domain / RMW than this shell)"
+                problems=1
+            fi
+            if ros2 node list 2>/dev/null | grep -q gafro_viewer; then say "a viewer is on the graph:" "yes"; else say "a viewer is on the graph:" "no (arm viewer $side)"; fi
+        else
+            say "ros2:" "not found in this shell (is $setup sourced?)"; problems=1
+        fi
+        exit "$problems"
+        ;;
+    *)
+        echo "arm: unknown command '$command'" >&2
+        usage
+        ;;
+esac

@@ -10,6 +10,7 @@
 #
 # What it puts where:
 #   /usr/local/lib/opendubs/opendubs-arm     the wrapper (always replaced)
+#   /usr/local/bin/arm                       the operator's command: arm start|status|activate|follow|viewer|doctor [left|right] (always replaced)
 #   /etc/systemd/system/opendubs-arm@.service  the unit (always replaced)
 #   /etc/opendubs/arm-service.env            this robot's settings, from opendubs-arm.env.example: only if absent, a deploy never overwrites it
 #   /etc/sudoers.d/opendubs-arm              kiosk may `systemctl start|stop|restart opendubs-arm@left|right.service` and nothing else; checked with visudo first
@@ -23,7 +24,7 @@ if [ -z "$ROOT" ] && [ "$(id -u)" -ne 0 ]; then
   echo "provision-arm-service.sh: run it as root (sudo), or set ROOT=<dir> to install somewhere else" >&2
   exit 1
 fi
-for f in opendubs-arm opendubs-arm@.service opendubs-arm.env.example opendubs-arm.sudoers; do
+for f in opendubs-arm arm opendubs-arm@.service opendubs-arm.env.example opendubs-arm.sudoers; do
   [ -f "$DIR/$f" ] || { echo "provision-arm-service.sh: $DIR/$f is missing" >&2; exit 1; }
 done
 
@@ -38,6 +39,7 @@ owner=()
 [ -z "$ROOT" ] && owner=(-o root -g root)
 
 install -D -m0755 "${owner[@]}" "$DIR/opendubs-arm" "$ROOT/usr/local/lib/opendubs/opendubs-arm"
+install -D -m0755 "${owner[@]}" "$DIR/arm" "$ROOT/usr/local/bin/arm"
 install -D -m0644 "${owner[@]}" "$DIR/opendubs-arm@.service" "$ROOT/etc/systemd/system/opendubs-arm@.service"
 if [ -e "$ROOT/etc/opendubs/arm-service.env" ]; then
   echo "-- keeping this robot's $ROOT/etc/opendubs/arm-service.env"
@@ -66,4 +68,4 @@ elif id "$USER_NAME" >/dev/null 2>&1 && ! sudo -u "$USER_NAME" test -r "$repo/so
   echo "!! $USER_NAME cannot read $repo/software/openarm/gafro/arm_service.py (OPENDUBS_REPO in /etc/opendubs/arm-service.env)"
 fi
 [ -r /opt/gafro/setup.bash ] || echo "!! no /opt/gafro/setup.bash: the gafro environment is not installed (gafro-deploy)"
-echo "   start an arm:  sudo systemctl start opendubs-arm@right      logs:  journalctl -u opendubs-arm@right -f"
+echo "   start an arm:  arm start right      then:  arm status | activate | follow | viewer | doctor      logs:  journalctl -u opendubs-arm@right -f"
