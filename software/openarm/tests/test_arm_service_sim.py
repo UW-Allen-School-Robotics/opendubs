@@ -60,6 +60,38 @@ def wait(service, seconds=30.0):
     assert not service.running, f"{service.running} did not finish"
 
 
+def test_a_move_takes_the_time_asked():
+    """`activate` takes --move-seconds (7 s by default: stow to ready peaks at 0.48 rad/s, under the driver's 1.0 slew), and a time the distance cannot allow is refused."""
+    assert arm_service.MOVE_SECONDS == 7.0 and 1.875 * 1.8 / arm_service.MOVE_SECONDS < 1.0
+    side = "right"
+    robot, indices, position = arm_service.bringup.connect(args_for(side))
+    args = args_for(side)
+    args.stow_conf = None
+    service = arm_service.ArmService(robot, args)
+    try:
+        ready = position().copy()
+        conf = os.path.join(tempfile.mkdtemp(prefix="arm_service_stow_"), "stow.conf")
+        stow = ready.copy()
+        stow[0] += np.radians(30.0)
+        with open(conf, "w") as stream:
+            stream.write(f"{side.upper()}_STOW=" + ",".join(f"{v:.4f}" for v in np.degrees(stow)) + "\n")
+        args.stow_conf, args.move_seconds = conf, 3.0
+        for name, expected in (("park", 3.0), ("activate", 3.0)):
+            began = time.time()
+            assert service.start(name) == f"{name} started"
+            wait(service)
+            took = time.time() - began
+            assert service.last == f"{name} done" and expected <= took < expected + 2.5, f"{name} took {took:.1f} s, asked {expected:g}: {service.last}"
+        assert np.abs(position() - ready).max() < 0.05
+        args.stow_conf, args.move_seconds = conf, 0.4          # 0.52 rad in 0.4 s peaks at 2.4 rad/s: over the 1.3 limit
+        assert service.start("park") == "park started"
+        wait(service)
+        assert "rad/s" in service.last and "park stopped" in service.last, service.last
+        assert np.abs(position() - ready).max() < 0.05, "a refused move moved the arm"
+    finally:
+        robot.shutdown()
+
+
 def test_the_process(side="left"):
     """`arm_service.py run` as the unit would start it: the socket is the side's, commands are answered, `down` ends it and removes the socket."""
     path = arm_service.socket_for(side)
@@ -168,6 +200,8 @@ def trajectory_refusal():
 
 
 if __name__ == "__main__":
+    test_a_move_takes_the_time_asked()
+    print("ok move duration")
     test_the_process("left")
     print("ok process (left)")
     for side in ("right", "left"):
