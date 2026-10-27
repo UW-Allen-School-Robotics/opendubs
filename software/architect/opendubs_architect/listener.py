@@ -48,6 +48,7 @@ import argparse
 import array
 import asyncio
 import collections
+import concurrent.futures
 import json
 import math
 import os
@@ -374,12 +375,19 @@ class Listener:
                 self._log("dropped", state=state, words=len(words))
 
     def _send(self, kind: str, text: str) -> None:
+        # The greeting is written while the run is being started (the dashboard's start took 1 to 1.5 s
+        # on opendubs2, the model 0.3 s), and spoken only once it has: a refused start never hears it.
+        greeting = None
+        if kind == "trigger" and self.chat and self.say:
+            greeting = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            line_f = greeting.submit(self.chat.greeting)
+            greeting.shutdown(wait=False)
         got = self.post(kind, text)
         if got:
             self.state = got
         self._log("posted", kind=kind, text=text, state=got)
-        if kind == "trigger" and got == "RUNNING" and self.chat and self.say:
-            line = self.chat.greeting()             # after the run has started: it never waits on this
+        if greeting and got == "RUNNING":
+            line = line_f.result()                  # the run has started: it never waited on this
             self.say(line)
             self._log("greeted", text=line)
         elif kind == "trigger" and got != "RUNNING":

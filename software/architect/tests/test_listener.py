@@ -199,6 +199,23 @@ class Chat(Case):
         self.armed("Hey OpenDubs, trick or treat!", post_state="RUNNING")
         self.assertEqual((self.posted, self.said), ([("trigger", "trick or treat")], ["Happy haunting!"]))
 
+    def test_the_greeting_is_written_while_the_run_starts(self):
+        """The dashboard's start took 1 to 1.5 s on opendubs2: the greeting must not wait behind it."""
+        import threading
+        asked = threading.Event()
+
+        class SlowChat(FakeChat):
+            def greeting(self):
+                asked.set()
+                return "Happy haunting!"
+        li = self.make("Hey OpenDubs, trick or treat!", "ARMED")
+        self.said = []
+        li.chat, li.say = SlowChat(), self.said.append
+        li.post = lambda kind, text: (self.posted.append((kind, text)), asked.wait(2) and "RUNNING")[1]
+        self.spotter.fire(kws.WAKE)
+        self.feed(li, QUIET[:5] + SPEECH + QUIET)
+        self.assertEqual(self.said, ["Happy haunting!"])        # asked for during the start, not after it
+
     def test_hold_on_when_no_run_starts(self):
         """A "trick or treat" during a run, or refused for the deadman, gets a word instead of silence."""
         li = self.armed("Hey OpenDubs, trick or treat!", post_state="ARMED")     # refused
