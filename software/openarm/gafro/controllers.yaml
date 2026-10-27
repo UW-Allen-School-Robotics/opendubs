@@ -15,7 +15,7 @@ controllers:
   # STARTING VALUES, tuned in the simulator only (a closed hand circle, two laps), not on an arm. The guard margin is 0.01 rad: at 0.35 it sat above the pose stage and froze the hand
   # on the second lap, when the first lap's null-space drift had put a joint inside the margin.
   follow_pose:
-    inputs: {reference: pose, posture: joints}
+    inputs: {reference: pose, reference_rate: twist, posture: joints}   # reference_rate: the target's twist in the tool frame, estimated by pose_follow.py
     type: position
     maximum_lead: 0.02          # rad per joint: the offset that closes what the actuator did not do (friction dead band)
     maximum_error: 0.15         # rad per joint: the leash of the anchor on the measured position
@@ -31,7 +31,7 @@ controllers:
       - name: pose
         input: pose
         objective: {pose: {target: reference}}
-        law: {pd: {gain: 40.0, max_speed: {linear: 0.5, angular: 1.5}}}      # sim, closed 8 cm circle: mean hand error 10.7 mm at 10, 6.1 at 20, 3.8 at 40, 2.6 at 80
+        law: {pd: {gain: 40.0, max_speed: {linear: 0.5, angular: 1.5}, feedforward: reference_rate}}      # sim, closed 8 cm circle: mean hand error 10.7 mm at 10, 6.1 at 20, 3.8 at 40, 2.6 at 80
         output: velocity
       - name: posture
         input: joints

@@ -48,7 +48,8 @@ def controllers_build(system, controllers: dict) -> list[str]:
                     description, supplied,
                     dict(system=system, task_space=task_space, task_space_name=side, domain=domain, configuration=q,
                          reference=pose, reference_source=reference, posture_source=posture, posture_initial=q.copy(),
-                         posture_rate_source=control.JointRateReferenceSource(np.zeros(len(task_space.get_joint_indices())), horizon=0.02)),
+                         posture_rate_source=control.JointRateReferenceSource(np.zeros(len(task_space.get_joint_indices())), horizon=0.02),
+                         reference_rate_source=control.TwistReferenceSource(np.zeros(6), horizon=0.02)),
                     name)
                 print(f"  {side:5} {name:10} builds ({str(controller.get_command_mode()).rsplit('.', 1)[-1].lower()} command)")
             except Exception as error:  # noqa: BLE001 -- report whatever the build says
