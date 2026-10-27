@@ -71,7 +71,8 @@ def test_the_process(side="left"):
                 break
             time.sleep(0.2)
         assert os.path.exists(path), "the service did not come up"
-        assert "held" in arm_service.send("status", path=path)
+        first = arm_service.send("status", path=path)
+        assert "held" in first and "joints (deg)" in first, f"the reply was cut short: {first!r}"
         assert "refused" in arm_service.send("follow", path=path), "follow needs ROS (the pose reference), so it must refuse without it"
         assert arm_service.send("activate", path=path) == "activate started"
         assert "refused" in arm_service.send("park", path=path), "two moving commands at once"

@@ -320,7 +320,8 @@ def send(command, drop=False, path=None):
     with socket.socket(socket.AF_UNIX) as sock:
         sock.connect(path)
         sock.sendall((json.dumps({"command": command, "drop": drop}) + "\n").encode())
-        return sock.makefile().readline().rstrip("\n")
+        sock.shutdown(socket.SHUT_WR)
+        return sock.makefile().read().rstrip("\n")       # the whole reply: `status` is two lines
 
 
 def main() -> int:
