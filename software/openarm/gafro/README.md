@@ -11,6 +11,7 @@ its own CAN driver, with no ROS. The design, the layering and what is and is not
 | `controllers.yaml` | the controllers, in gafro's control spec: what each does and what it is driven with |
 | `../../../tools/arm_ready_pose.py` | the ready pose: `verify` checks its singularity, joint margins and clearance; `pick` repeats the search (ssik + self-motion-charts) |
 | `engage.py` | the sequence from stow (or ready) to the ready pose, one arm or both, handing over to `track`; `--park` is the way back to the stow pose. See *Engage and park* below |
+| `arm_service.py` | the arm service, taking over what `ros2_control` did one slice at a time: holds one arm, publishes `/joint_states` through gafro-ri-ros2-bridge, and takes `ctl activate\|park\|hold\|down\|status` over a unix socket in place of `openarm-up`, gated as `engage.py` is, and serves `/<side>_controller/follow_joint_trajectory` (`ros_actions.py` over `trajectory.py`) for the show runner, `/<side>_gripper_controller/gripper_cmd` (`gripper.py`; tests in `../tests/test_arm_service.py`). The slice list is in its docstring |
 | `guards.py` | what the first runs check before they command an arm on a real bus: no other controller on it, CH5 and the e-stop, `--supervised`, and a start near stow or ready. See *What the first runs refuse* in the design note |
 | `check.py` | builds every controller for both arms against that model (and `engage` over the `bimanual` task space), checks it carries the head cap (and nothing else changed), that the controller's guard reacts to it, and that the hardware config adds no second one |
 
@@ -122,3 +123,20 @@ The test for where a setting goes is whose fact it is.
   controller's joint 2 torque at the same state in this model and in the arm's own, and 0.1 rad from the cap they differ by -7 N m, with
   no difference far from it. But a 7-DoF arm reaches a far pose by another route, so the simulation never approached the cap.
 - **Every number here is a starting value** that has not been run on an arm.
+
+## Testing `arm_service.py`
+
+`tests/test_arm_service.py` (permit, gripper, resampling; no robot) and `tests/test_arm_service_sim.py` (the real process, a trajectory and a pose follow on both arms, in MuJoCo; no ROS) run anywhere
+with gafro. Nothing here has run against ROS. On the Thor, `source /opt/gafro/setup.bash`, the old stack down, `--hardware-config /etc/opendubs/openarm-gafro-right-only.yaml`, a person at the
+e-stop. Stop at the first rung that misbehaves; the unit file waits for rungs 3 to 6.
+
+| # | Run | Passes when |
+|---|---|---|
+| 0 | both test files, on the Thor | green on the deployed wheels (the ABI) |
+| 1 | `arm_service.py run --side right --hardware-config ... --no-ros`, then `ctl status` | the arm does not move; `ctl follow` and `ctl down` (away from stow) are refused |
+| 2 | the same with ROS | `/joint_states` is exactly `openarm_right_joint1..7` at ~100 Hz; `ros2 action list` shows both actions; `/right/target` and `/right/status` exist; no second `/joint_states` publisher |
+| 3 | `ctl activate`: CH6 released, then unsupervised, then both held | refused, refused, runs; CH6 released mid-move holds the arm within ~0.5 s |
+| 4 | `tools/play_show.py` on `shrug.yaml`, `--max-speed 1.0` | PASS (done 2026-10-26) |
+| 5 | a one-joint action goal of ~0.05 rad, then `ctl hold` mid-move | followed; the cancel leaves the arm held |
+| 6 | `ctl follow` from `ready`, drag the viser target ~2 cm (`viewer.py --port 8090`: 8080 is the dashboard), release CH6 | the hand follows; releasing CH6 ends the follow; the next `ctl follow` starts without a jump |
+| 7 | the gripper after calibration; the left arm last (its shoulder ids 1 and 2 were flaky) | |
