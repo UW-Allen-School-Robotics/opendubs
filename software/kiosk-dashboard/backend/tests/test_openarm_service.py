@@ -20,7 +20,7 @@ class Fake:
 
     def __init__(self, side, directory, refusal=None, busy=0.6, outcome="park done"):
         self.side, self.refusal, self.busy, self.outcome = side, refusal, busy, outcome
-        self.received, self.until, self.last = [], 0.0, "none"
+        self.received, self.until, self.last, self.supervised = [], 0.0, "none", False
         self.path = os.path.join(directory, f"opendubs-arm-service-{side}.sock")
         fake = self
 
@@ -39,12 +39,16 @@ class Fake:
         if command == "status":
             if not running and self.until:
                 self.last = self.outcome
-            return f"{self.side} arm, mujoco: {'park running' if running else 'held'}; last: {self.last}\njoints (deg) +0.0 +0.0 +0.0 +0.0 +0.0 +0.0 +0.0"
+            return (f"{self.side} arm, mujoco: {'park running' if running else 'held'}; last: {self.last}\njoints (deg) +0.0 +0.0 +0.0 +0.0 +0.0 +0.0 +0.0"
+                    f"\nsupervised: {'yes' if self.supervised else 'no'}")
         if self.refusal:
             return f"refused: {self.refusal}"
         if command in ("park", "activate"):
             self.until = time.time() + self.busy
             return f"{command} started"
+        if command in ("supervise", "unsupervise"):
+            self.supervised = command == "supervise"
+            return command + "d"
         return "holding" if command == "hold" else "down"
 
     def stop(self):
@@ -120,9 +124,11 @@ def test_a_move_that_stops_is_an_error(arms):
 
 def test_a_dead_service_with_a_stale_socket(arms):
     arms("right").stop()                      # the socket file stays, nothing answers
-    assert openarm.start_op("hold", "right")[0]
+    assert openarm.start_op("park", "right")[0]
     op = wait()
     assert op["rc"] == 1 and "does not answer" in op["error"], op
+    ok, detail = openarm.start_op("hold", "right")      # an instant one answers in the request itself
+    assert not ok and "does not answer" in detail, (ok, detail)
 
 
 def test_the_snapshot_shows_each_service(arms, monkeypatch):
@@ -198,3 +204,32 @@ def test_a_unit_that_ends_before_it_answers_is_reported_at_once(arms, monkeypatc
 
 def test_there_is_no_stop(arms):
     assert not openarm.start_op("stop", "right")[0], "`systemctl stop` would end the service without the not-at-stow refusal that `down` has"
+
+
+def test_supervise_says_so_to_the_service(arms):
+    right = arms("right")
+    assert openarm.start_op("supervise", "right")[0]
+    op = wait()
+    assert op["rc"] == 0 and right.supervised and right.received == ["supervise"], (op, right.received)
+    assert "supervised: yes" in openarm._service_status("right")
+
+
+def test_hold_and_end_supervision_are_not_kept_waiting_by_a_running_move(arms):
+    """A HOLD refused as 'busy' while a park runs would be the one button that must always work; ending supervision only takes capability away."""
+    right = arms("right", busy=3.0)
+    right.supervised = True
+    assert openarm.start_op("park", "right")[0]
+    assert openarm.op_status()["running"]
+    ok, detail = openarm.start_op("hold", "right")
+    assert ok and "holding" in detail, (ok, detail)
+    ok, detail = openarm.start_op("unsupervise", "right")
+    assert ok and not right.supervised, (ok, detail)
+    assert right.received[:3] == ["park", "hold", "unsupervise"], right.received
+    assert not openarm.start_op("supervise", "right")[0], "attesting is an operation like any other and waits for the move"
+    assert not openarm.start_op("activate", "right")[0], "a second move must still be refused while one runs"
+    wait()
+
+
+def test_a_hold_with_no_service_says_so_at_once(arms):
+    ok, detail = openarm.start_op("hold", "right")
+    assert not ok and "no arm service" in detail

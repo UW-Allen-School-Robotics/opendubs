@@ -67,7 +67,13 @@ SERVICE_OPS = {
     "activate": "moves the arm to its ready pose",
     "hold":     "stops the arm where it is",
     "down":     "ends the arm service; the motors stay stiff until the e-stop",
+    # An attestation, not a movement: "a person is at the e-stop, head tracking is off, the neck centred". Until it is made the service refuses every moving command on a real bus.
+    "supervise":   "says a person is at the e-stop, so the arm service allows moving commands",
+    "unsupervise": "withdraws that: the arm service refuses moving commands again",
 }
+#: Operations that only take capability away. They do not wait for, or count as, "the" running operation: a HOLD refused as "busy" while a move runs would be the one
+#: button that must always work, and ending supervision is the same. They answer at once, so the request returns the service's answer.
+INSTANT_OPS = ("hold", "unsupervise")
 _SERVICE_TIMEOUT = 180.0
 
 #: Bringing an arm's service up is the unit's job (software/openarm/opendubs-arm@.service). The sudoers rule (opendubs-arm.sudoers) allows exactly these commands, as
@@ -196,6 +202,9 @@ def start_op(name, arm="both"):
         if show:
             return False, f"a show is running ({show}): a link restart waits until it ends"
 
+    if name in INSTANT_OPS:
+        out, error = _service_work(name, sides)
+        return (False, error) if error else (True, out)
     with _lock:
         if _op["running"]:
             # Deliberately a refusal rather than a queue: a second arm command arriving mid-motion

@@ -93,11 +93,17 @@ async function boot() {
  * that is refused anyway says so instead of looking like success. */
 const ARM_BUTTONS = [
   { id: "btnArmPark",  url: "/api/arms/park?arm=both",      op: "park both",      confirm: "CONFIRM PARK",  pending: "PARKING…",    label: "PARK BOTH" },
-  { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L" },
-  { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R" },
+  { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L", instant: true },
+  { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R", instant: true },
   // Brings that arm's service up (systemctl start opendubs-arm@<side>): it ENABLES the arm's motors and holds it where it is, and moves nothing. Every other button here needs it.
   { id: "btnArmStartL", url: "/api/arms/start?arm=left",   op: "start left",     confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START L" },
   { id: "btnArmStartR", url: "/api/arms/start?arm=right",  op: "start right",    confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START R" },
+  // The attestation the arm service wants before any moving command: a person is at the e-stop, head tracking is off and the neck centred. Shown only while the
+  // service answers, and only the one that applies. Ending it only takes capability away, so it never waits for a running move.
+  { id: "btnArmSupL",   url: "/api/arms/supervise?arm=left",    op: "supervise left",    confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE L",       sup: { side: "left",  on: true } },
+  { id: "btnArmSupR",   url: "/api/arms/supervise?arm=right",   op: "supervise right",   confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE R",       sup: { side: "right", on: true } },
+  { id: "btnArmUnsupL", url: "/api/arms/unsupervise?arm=left",  op: "unsupervise left",  confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION L", sup: { side: "left",  on: false }, instant: true },
+  { id: "btnArmUnsupR", url: "/api/arms/unsupervise?arm=right", op: "unsupervise right", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION R", sup: { side: "right", on: false }, instant: true },
   { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE L" },
   { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE R" },
   { id: "btnArmDown",  url: "/api/arms/down",               op: "down both",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE" },
@@ -106,6 +112,7 @@ const ARM_BUTTONS = [
   { id: "btnArmRelinkL", url: "/api/arms/relink?arm=left",  op: "relink left",  confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK L", side: "left" },
   { id: "btnArmRelinkR", url: "/api/arms/relink?arm=right", op: "relink right", confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK R", side: "right" },
 ];
+let lastService = null;        // /api/arms/status "service": per arm, the arm service's status text (null if it does not answer)
 let lastLinks = null;          // /api/arms/status "links": per arm, its CAN link and any message
 let lastOp = null;             // the backend's op, from the last status poll
 let requested = null;          // { id, at } -- pressed, and the poll has not shown it running yet
@@ -127,10 +134,16 @@ function paintArmButtons() {
       el.hidden = !show;
       if (!show) continue;
     }
+    if (b.sup) {                                                   // SUPERVISE / END SUPERVISION: the one that applies, while the service answers
+      const st = lastService && lastService[b.sup.side];
+      const supervised = !!(st && /^supervised: yes$/m.test(st));
+      el.hidden = !(st && (b.sup.on ? !supervised : supervised));
+      if (el.hidden) continue;
+    }
     const f = flash[b.id];
     const mine = running ? lastOp.name === b.op : !!(requested && requested.id === b.id);
     el.classList.toggle("busy", mine);
-    el.disabled = running || !!requested;                          // one arm action at a time
+    el.disabled = !b.instant && (running || !!requested);          // one arm action at a time, except the ones that only stop
     if (mine) {
       el.textContent = running ? `${b.pending} ${Math.round(lastOp.elapsed || 0)} s` : b.pending;
       el.title = "";
@@ -157,6 +170,10 @@ function noteArm(text, cls) {
 }
 
 async function onArmResponse(b, r) {
+  if (r && r.ok && b.instant) {                                     // answered already: nothing to wait for
+    flash[b.id] = { text: "DONE", until: Date.now() + 2500 };
+    paintArmButtons(); setTimeout(paintArmButtons, 2600); pollStatus(); return;
+  }
   if (r && r.ok) { requested = { id: b.id, at: Date.now() }; paintArmButtons(); pollStatus(); return; }
   let why = "the dashboard did not answer";
   if (r) { try { why = (await r.json()).error || `HTTP ${r.status}`; } catch (e) { why = `HTTP ${r.status}`; } }
@@ -298,6 +315,7 @@ async function pollStatus() {
       const prev = lastOp;
       lastOp = s.op || null;
       lastLinks = s.links || null;
+      lastService = s.service || null;
       // An op just finished: say how, on its own button, for a few seconds.
       if (prev && prev.running && lastOp && !lastOp.running && prev.name === lastOp.name) {
         const b = ARM_BUTTONS.find((x) => x.op === lastOp.name);
