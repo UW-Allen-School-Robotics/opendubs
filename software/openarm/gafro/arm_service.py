@@ -35,6 +35,7 @@ import socket
 import socketserver
 import sys
 import threading
+import time
 
 import numpy as np
 import yaml
@@ -207,6 +208,11 @@ class ArmService:
             self.running = None
         print(self.last, flush=True)
 
+    def _recording(self, name):
+        """Where this move's samples go (a CSV), or None: `--record-dir`."""
+        directory = getattr(self.args, "record_dir", None)
+        return os.path.join(directory, f"arm_service-{self.args.side}-{name}-{time.strftime('%Y%m%d-%H%M%S')}.csv") if directory else None
+
     def _move(self, name, known, tolerance):
         """`activate` (to the model's `ready`) or `park` (to the stow file's pose) as a straight minimum-jerk line in joint space, in POSITION mode.
 
@@ -252,7 +258,7 @@ class ArmService:
         shape = fraction**3 * (10.0 - 15.0 * fraction + 6.0 * fraction**2)
         slope = 30.0 * fraction**2 * (1.0 - fraction) ** 2 / duration
         result = trajectory.follow(robot, side, times, start + np.outer(shape, target - start), np.outer(slope, target - start), self.permit.lease(), self.cancel,
-                                   log=self._log)
+                                   log=self._log, record=self._recording(name))
         if result.code != trajectory.SUCCESSFUL or result.cancelled:
             raise EngageRefused(result.message)
 
@@ -269,7 +275,8 @@ class ArmService:
             self.running = "trajectory"
             self.cancel.clear()
         try:
-            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, log=self._log)
+            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, log=self._log,
+                                       record=self._recording("trajectory"))
         except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
             result = trajectory.Result(trajectory.INVALID_GOAL, f"{type(error).__name__}: {error}")
         finally:
@@ -391,6 +398,7 @@ def main() -> int:
         p.add_argument("--start-tolerance-deg", type=float, default=float(np.degrees(guards.START_TOLERANCE)))
         p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
         p.add_argument("--socket", default=None, help="default: the side's (one service per arm)")
+        p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--no-ros", action="store_true", help="no /joint_states or action server: the lifecycle only (they need ROS)")
     args = parser.parse_args()
 
