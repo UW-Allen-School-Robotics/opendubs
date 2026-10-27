@@ -221,6 +221,45 @@ def test_a_start_off_the_ends_is_allowed_on_the_line_and_by_flag(side="right"):
         robot.shutdown()
 
 
+def test_the_dashboard_drives_the_real_service(side="right"):
+    """The dashboard's own code (kiosk-dashboard/backend/openarm.py) against a real `arm_service.py` process: the shared socket directory, `activate` through to `done`,
+    `hold`, and `down` ending the process. No `openarm-up`: the dashboard has none to fall back to."""
+    directory = tempfile.mkdtemp(prefix="arm_socket_")
+    os.environ["OPENDUBS_ARM_SOCKET_DIR"] = directory
+    sys.path.insert(0, os.path.join(HERE, "..", "..", "kiosk-dashboard", "backend"))
+    import openarm
+
+    process = subprocess.Popen([sys.executable, os.path.join(GAFRO, "arm_service.py"), "run", "--side", side, "--backend", "mujoco", "--model", MODEL, "--no-ros",
+                                "--socket-mode", "660"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        path = os.path.join(directory, f"opendubs-arm-service-{side}.sock")
+        for _ in range(100):
+            if os.path.exists(path):
+                break
+            time.sleep(0.2)
+        assert os.path.exists(path), "the service did not come up in the shared directory"
+        assert oct(os.stat(path).st_mode & 0o777) == "0o660", "--socket-mode was not applied"
+
+        def run(name):
+            assert openarm.start_op(name, "both")[0]
+            end = time.time() + 40
+            while openarm.op_status()["running"] and time.time() < end:
+                time.sleep(0.2)
+            return openarm.op_status()
+
+        op = run("activate")
+        assert op["rc"] == 0 and op["error"] is None and "activate done" in op["out"], op
+        assert run("hold")["rc"] == 0
+        assert "held" in openarm.snapshot.__globals__["_service_status"](side)
+        op = run("down")
+        assert op["rc"] == 0, op
+        assert process.wait(timeout=20) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+        os.environ.pop("OPENDUBS_ARM_SOCKET_DIR", None)
+
+
 def test_trajectory_and_follow(side):
     import gafro_robot_interface as ri  # noqa: F401
 
@@ -264,6 +303,8 @@ def trajectory_refusal():
 
 
 if __name__ == "__main__":
+    test_the_dashboard_drives_the_real_service("right")
+    print("ok dashboard")
     test_a_move_takes_the_time_asked()
     print("ok move duration")
     test_the_process("left")
