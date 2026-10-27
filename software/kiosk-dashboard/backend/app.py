@@ -494,6 +494,10 @@ class NoCacheStaticFiles(StaticFiles):
 from choreo_proxy import router as _choreo_router  # noqa: E402
 app.include_router(_choreo_router)
 
+# The Halloween demo runner's state, read-only, for the face's ghost skin (architect_proxy.py).
+from architect_proxy import router as _architect_router  # noqa: E402
+app.include_router(_architect_router)
+
 # The show library, read-only, for the tablet's cache (library_serve.py, tablet plan 5.3).
 from library_serve import router as _library_router  # noqa: E402
 app.include_router(_library_router)

@@ -21,6 +21,7 @@ node software/face-web/tests/test_charging.mjs       # CHARGING: the purple, the
 node software/face-web/tests/test_reticle.mjs        # the tracking reticle: legible, on screen, and never invented
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
 node software/face-web/tests/test_content_skins.mjs  # a code skin loaded from the content folder
+node software/face-web/tests/test_ghost_skin.mjs     # the Halloween ghost content skin: which expression, from the demo runner
 node software/face-web/tests/test_levels.mjs        # v5: VOLUME/BRIGHT fades and clamps, ARMED's lease
 node software/face-web/tests/test_percept.mjs       # attention, ported from the Tab5: motion, person, face, arbitration
 node software/face-web/tests/test_render.mjs        # the offline render: same seed and times, same frames
