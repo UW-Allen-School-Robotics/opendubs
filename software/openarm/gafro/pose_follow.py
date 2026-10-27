@@ -17,6 +17,47 @@ import trajectory
 
 NAME = "follow_pose"
 
+# The twist of the target is estimated, because a pose target (a PoseStamped, a policy's action) carries none. Filtered over this long: a target that arrives as steps would
+# otherwise be an impulse train. The filter delays the feed-forward by about this much, which costs less than the lag it removes.
+TWIST_FILTER = 0.05             # s
+TWIST_PERIOD = 0.01             # s between estimates
+TWIST_LIMIT = (1.5, 0.5)        # rad/s, m/s: the pose stage's own speed limits (controllers.yaml); a target that jumps is not a twist that large
+
+
+class TwistEstimator:
+    """The twist of the pose reference, from how it moves: log(M_before^-1 M_now) / dt, which is the twist in the tool frame (the frame the pose error is in, so the frame the
+    controller's `reference_rate` input is in), filtered and limited, published to `twist` (a TwistReferenceSource) for the feed-forward.
+
+    Reads the reference with `get_last`, what the controller sampled last, so it never samples the source itself. `step` is one estimate; `run` repeats it until `done`.
+    """
+
+    def __init__(self, source, twist, filter_time: float = TWIST_FILTER, limits=TWIST_LIMIT):
+        self.source, self.twist, self.filter_time, self.limits = source, twist, filter_time, limits
+        self.previous, self.at, self.estimate = None, None, np.zeros(6)
+
+    def step(self, now: float) -> np.ndarray:
+        """The estimate at `now` (seconds, any monotonic clock); publishes it."""
+        from gafro import control
+
+        motor = self.source.get_last()
+        if self.previous is not None and now > self.at:
+            dt = now - self.at
+            raw = np.asarray(self.previous.inverse().multiply(motor).log(), dtype=float).ravel() / dt
+            for rows, limit in ((slice(0, 3), self.limits[0]), (slice(3, 6), self.limits[1])):
+                norm = np.linalg.norm(raw[rows])
+                if norm > limit:
+                    raw[rows] *= limit / norm
+            alpha = dt / (self.filter_time + dt)
+            self.estimate = self.estimate + alpha * (raw - self.estimate)
+        self.previous, self.at = motor, now
+        self.twist.publish(control.TwistReferenceChunk(control.monotonic_now(), 5 * TWIST_PERIOD, [self.estimate.copy()]))
+        return self.estimate
+
+    def run(self, done: threading.Event) -> None:
+        while not done.is_set():
+            self.step(time.monotonic())
+            time.sleep(TWIST_PERIOD)
+
 
 def reference_source(robot, side: str):
     """The pose reference `<side>/target` feeds, reporting the hand where it is now until a target arrives (a source that starts at the identity drags the arm there)."""
@@ -31,7 +72,7 @@ def reference_source(robot, side: str):
 
 
 def start_controller(robot, side: str, controllers: dict, source):
-    """Build `NAME` at the arm's pose now, hold `source` at that pose, and hand the controller to the interface's loop."""
+    """Build `NAME` at the arm's pose now, hold `source` at that pose, and hand the controller to the interface's loop. Returns the joint indices and the twist source the estimator feeds."""
     from gafro import control
 
     import engage
@@ -45,8 +86,9 @@ def start_controller(robot, side: str, controllers: dict, source):
     posture = control.JointReferenceSource(q.copy(), horizon=0.5)
     posture.set_staleness(control.Staleness.Hold)
     posture.prime(2)
-    robot.control(engage.build(NAME, controllers, system, side, q, pose, source, posture), False)
-    return indices
+    twist = control.TwistReferenceSource(np.zeros(6), horizon=5 * TWIST_PERIOD)    # unknown means still: the default staleness decays it
+    robot.control(engage.build(NAME, controllers, system, side, q, pose, source, posture, twist=twist), False)
+    return indices, twist
 
 
 def follow(robot, side: str, controllers: dict, source, lease, cancel: threading.Event, withheld, limits: trajectory.Limits = trajectory.Limits(), log=print) -> str:
@@ -60,7 +102,8 @@ def follow(robot, side: str, controllers: dict, source, lease, cancel: threading
         return f"refused: {refused}"
     done, vibrating, torque = threading.Event(), {"run": 0, "joints": []}, {"peak": np.zeros(7)}
     try:
-        indices = start_controller(robot, side, controllers, source)
+        indices, twist = start_controller(robot, side, controllers, source)
+        threading.Thread(target=TwistEstimator(source, twist).run, args=(done,), daemon=True).start()
 
         def record():
             while not done.is_set():

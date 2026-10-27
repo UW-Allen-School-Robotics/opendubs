@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "gafro"))
 
 import arm_service  # noqa: E402
 import gripper  # noqa: E402
+import pose_follow  # noqa: E402
 import guards  # noqa: E402
 import trajectory  # noqa: E402
 
@@ -195,6 +196,49 @@ def test_the_permit_outlives_a_lease_that_ends_in_the_middle_of_another():
         again.stop()
     finally:
         arm_service.PermitKeeper = original
+
+
+def test_the_twist_of_a_moving_target_is_estimated_in_the_tool_frame():
+    """`reference_rate`, the feed-forward of `follow_pose`: a target at a world velocity v with the tool at rotation R has the twist [0, 0, 0, R^T v] (measured in the simulator to be the
+    frame and sign that remove the lag); a target that stops has none, and one that jumps does not give a twist beyond the stage's own speed limit."""
+    try:
+        import gafro
+        from gafro import control  # noqa: F401
+    except ImportError:
+        print("skip test_the_twist_of_a_moving_target_is_estimated_in_the_tool_frame: gafro is not importable here")
+        return
+
+    class Source:
+        motor = None
+
+        def get_last(self):
+            return self.motor
+
+    class Twist:
+        def publish(self, chunk):
+            pass
+
+    quaternion = (0.5, 0.5, 0.5, 0.5)                       # w x y z: the tool's axes are the world's, cycled
+    source = Source()
+    estimator = pose_follow.TwistEstimator(source, Twist())
+    here = np.array([0.3, -0.2, 0.5])
+
+    def place(p):
+        source.motor = gafro.Motor.from_position_quaternion(*p, *quaternion)
+
+    velocity = np.array([0.0, 0.1, 0.0])                    # world; R^T v = (0.1, 0, 0) for this rotation
+    for k in range(100):
+        place(here + velocity * k * 0.01)
+        estimate = estimator.step(k * 0.01)
+    assert np.allclose(estimate, [0, 0, 0, 0.1, 0, 0], atol=0.01), estimate
+
+    for k in range(100, 160):                               # the target stops
+        estimate = estimator.step(k * 0.01)
+    assert np.abs(estimate).max() < 0.005, estimate
+
+    place(here + np.array([1.0, 0.0, 0.0]))                  # and jumps a metre in one step
+    estimate = estimator.step(1.61)
+    assert np.linalg.norm(estimate[3:]) <= pose_follow.TWIST_LIMIT[1] + 1e-9, estimate
 
 
 if __name__ == "__main__":
