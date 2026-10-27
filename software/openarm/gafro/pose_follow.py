@@ -72,7 +72,7 @@ def reference_source(robot, side: str):
 
 
 def start_controller(robot, side: str, controllers: dict, source):
-    """Build `NAME` at the arm's pose now, hold `source` at that pose, and hand the controller to the interface's loop. Returns the joint indices, the twist source the estimator feeds, the controller and the posture source."""
+    """Build `NAME` at the arm's pose now, hold `source` at that pose, and hand the controller to the interface's loop. Returns the joint indices, the twist source the estimator feeds and the controller."""
     from gafro import control
 
     import engage
@@ -89,37 +89,13 @@ def start_controller(robot, side: str, controllers: dict, source):
     twist = control.TwistReferenceSource(np.zeros(6), horizon=5 * TWIST_PERIOD)    # unknown means still: the default staleness decays it
     controller = engage.build(NAME, controllers, system, side, q, pose, source, posture, twist=twist)
     robot.control(controller, False)
-    return indices, twist, controller, posture
+    return indices, twist, controller
 
 
 BEHAVIOUR_PERIOD = 0.02         # s between ticks of the behaviour tree (the reach test is about 2 ms)
 
 
-PLAN_PERIOD = 0.2               # s between plans of the posture (a plan takes 0.1-0.2 s)
-
-
-def plan_posture(robot, side: str, source, estimator, posture, planner, mode: dict, done: threading.Event, log=print) -> None:
-    """Steer the follow controller's posture reference along the planner's route, while the arm follows (`mode["following"]`; while it holds there is nothing to steer)."""
-    from gafro import control
-
-    task = robot.get_system().get_task_space(side)
-    indices = np.asarray(task.get_joint_indices())
-    try:
-        while not done.wait(PLAN_PERIOD):
-            if not mode["following"]:
-                continue
-            q = np.asarray(robot.get_state().get_position(), dtype=float).copy()
-            route = planner.posture(q[indices], task.compute_ee_motor(q[indices]), source.get_last(), estimator.estimate)
-            if route is None:
-                continue
-            q[indices] = route
-            posture.publish(control.JointReferenceChunk(control.monotonic_now(), 0.5, [q]))
-    except Exception as error:  # noqa: BLE001 -- the posture stays where it was last put: the controller still follows, as it did without a plan
-        import traceback
-        log(f"the posture planner stopped ({type(error).__name__}: {error})\n{traceback.format_exc()}")
-
-
-def behave(robot, side: str, controllers: dict, source, follow_controller, reach, done: threading.Event, status=lambda text: None, log=print, mode=None) -> None:
+def behave(robot, side: str, controllers: dict, source, follow_controller, reach, done: threading.Event, status=lambda text: None, log=print) -> None:
     """The arm's behaviour, as gafro's own behaviour tree (`gafro.control.task`): follow the target while it is inside the arm's reach, otherwise hold where the arm is.
 
         Fallback[ Sequence[ Condition(the target is reachable), Action(follow_pose) ],
@@ -140,13 +116,11 @@ def behave(robot, side: str, controllers: dict, source, follow_controller, reach
                             memory=restart)
     state = control.SystemState(robot.get_system().get_dof())
     following, dt = True, BEHAVIOUR_PERIOD
-    mode = mode if mode is not None else {}
-    mode["following"] = True
     status("following")
     while not done.wait(dt):
         target = source.get_last() if following else source.sample(control.monotonic_now())
-        gate.update(target)
         measured = robot.get_state()
+        gate.update(target, np.asarray(measured.get_position(), dtype=float))
         state.set_position(np.asarray(measured.get_position(), dtype=float))
         state.set_velocity(np.asarray(measured.get_velocity(), dtype=float))
         state.set_torque(np.asarray(measured.get_torque(), dtype=float))
@@ -162,14 +136,13 @@ def behave(robot, side: str, controllers: dict, source, follow_controller, reach
             start_controller(robot, side, controllers, reference_source(robot, side))
             status("holding: the target is outside the arm's reach")
             log("reach: the target is outside the arm's reach: holding where the arm is")
-        following = mode["following"] = wanted
+        following = wanted
 
 
 def follow(robot, side: str, controllers: dict, source, lease, cancel: threading.Event, withheld, limits: trajectory.Limits = trajectory.Limits(), log=print, reach=None,
-           status=lambda text: None, planner=None) -> str:
+           status=lambda text: None) -> str:
     """Follow until the run ends; returns why. `lease` is this run's share of the permit (started here, released on every way out); `withheld()` is how many permit renewals the
-    gate has refused so far. With a `reach` (reach.py) the target is followed only while it is inside it (`behave`); without one, as far as the joint limits allow. With a `planner`
-    (planner.py, which needs the reach) the posture reference follows the global route over the hand's next poses instead of staying where the run started."""
+    gate has refused so far. With a `reach` (reach.py) the target is followed only while it is inside it (`behave`); without one, as far as the joint limits allow."""
     import guards
 
     try:
@@ -178,15 +151,12 @@ def follow(robot, side: str, controllers: dict, source, lease, cancel: threading
         return f"refused: {refused}"
     done, vibrating, torque, behaviour_error = threading.Event(), {"run": 0, "joints": []}, {"peak": np.zeros(7)}, []
     try:
-        indices, twist, controller, posture = start_controller(robot, side, controllers, source)
-        estimator, mode = TwistEstimator(source, twist), {"following": True}
-        threading.Thread(target=estimator.run, args=(done,), daemon=True).start()
-        if reach is not None and planner is not None:
-            threading.Thread(target=plan_posture, args=(robot, side, source, estimator, posture, planner, mode, done, log), daemon=True).start()
+        indices, twist, controller = start_controller(robot, side, controllers, source)
+        threading.Thread(target=TwistEstimator(source, twist).run, args=(done,), daemon=True).start()
         if reach is not None:
             def behaving():
                 try:
-                    behave(robot, side, controllers, source, controller, reach, done, status, log, mode)
+                    behave(robot, side, controllers, source, controller, reach, done, status, log)
                 except Exception as error:  # noqa: BLE001 -- a gate that died must not leave the arm following whatever comes: end the run, and the arm holds
                     import traceback
                     log(traceback.format_exc())

@@ -316,7 +316,7 @@ def test_a_target_outside_the_reach_is_not_followed(side="right"):
         start = np.asarray(task.compute_ee_motor(q0[ji]).to_position_quaternion(), dtype=float)[:3]
 
         class Within:       # reachable: within 5 cm of where the hand starts
-            def reachable(self, motor):
+            def reachable(self, motor, rest=None):
                 return float(np.linalg.norm(np.asarray(motor.to_position_quaternion(), dtype=float)[:3] - start)) < 0.05
 
         service.reach, service.source = Within(), pose_follow.reference_source(robot, side)
@@ -349,6 +349,34 @@ def test_a_target_outside_the_reach_is_not_followed(side="right"):
         robot.shutdown()
 
 
+def test_a_target_the_arm_would_collide_with_itself_for_is_not_reachable(side="right"):
+    """Trial 3 of the sweeps (random joint goal, seed 3): followed without the check the arm pushes into itself until joint 4 reaches 12 N m and the run stops, the cover
+    interpenetrating by 48 mm. The reach test must say no to its pose, and yes where the cover may overlap that much."""
+    import reach as reach_module
+
+    robot, indices, position = arm_service.bringup.connect(args_for(side))
+    try:
+        system = robot.get_system()
+        task = system.get_task_space(side)
+        ji = np.asarray(task.get_joint_indices())
+        rest = np.asarray(robot.get_state().get_position(), dtype=float).copy()
+        try:
+            strict = reach_module.Reach(system, side)
+        except ImportError as missing:
+            print(f"skipped (needs ssik and self_motion_charts: {missing})")
+            return
+        tolerant = reach_module.Reach(system, side, clearance=-0.1)
+        rng = np.random.default_rng(3)
+        for _ in range(4):
+            q1 = np.clip(rest[ji] + rng.uniform(-1.6, 1.6, 7), strict.lower + 0.05, strict.upper - 0.05)
+        target = task.compute_ee_motor(q1)
+        assert tolerant.reachable(target, rest), "inside the joint box: it is the collision that makes it unreachable"
+        assert not strict.reachable(target, rest)
+        assert strict.reachable(task.compute_ee_motor(rest[ji]), rest), "the pose the arm stands in is reachable"
+    finally:
+        robot.shutdown()
+
+
 def trajectory_refusal():
     return arm_service.trajectory.INVALID_GOAL
 
@@ -369,3 +397,5 @@ if __name__ == "__main__":
         print("ok trajectory and follow", side)
     test_a_target_outside_the_reach_is_not_followed("right")
     print("ok reach gate")
+    test_a_target_the_arm_would_collide_with_itself_for_is_not_reachable("right")
+    print("ok reach collision")
