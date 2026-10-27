@@ -30,6 +30,17 @@ def goal_arrays(side: str, trajectory):
     return times, positions, velocities
 
 
+def settle(handle, cancelled: bool, succeeded: bool) -> None:
+    """End a goal in a state rclpy allows. A goal may be CANCELED only after a client asked for it (`is_cancel_requested`); one ended from the service's side, by `ctl hold`,
+    was stopped and is ABORTED. (Calling `canceled()` on it raised "invalid transition from EXECUTING with CANCELED" on the Thor, 2026-10-26.)"""
+    if cancelled:
+        handle.canceled() if handle.is_cancel_requested else handle.abort()
+    elif succeeded:
+        handle.succeed()
+    else:
+        handle.abort()
+
+
 def serve_trajectory(service):
     """Start the action server for `service`'s arm on its own node, executor and thread; returns the node."""
     import rclpy
@@ -63,12 +74,7 @@ def serve_trajectory(service):
         times, positions, velocities = goal_arrays(side, handle.request.trajectory)
         outcome = service.follow(times, positions, velocities)
         result.error_code, result.error_string = outcome.code, outcome.message
-        if outcome.cancelled:
-            handle.canceled()
-        elif outcome.code == 0:
-            handle.succeed()
-        else:
-            handle.abort()
+        settle(handle, outcome.cancelled, outcome.code == 0)
         return result
 
     group = ReentrantCallbackGroup()
@@ -112,13 +118,9 @@ def serve_gripper(service, node=None, finger_rate: float = 20.0):
         outcome = service.grip(float(handle.request.command.position))
         result = GripperCommand.Result()
         result.position, result.effort, result.stalled, result.reached_goal = outcome.position, outcome.effort, outcome.stalled, outcome.reached
-        if outcome.cancelled:
-            handle.canceled()
-        elif outcome.reached:
-            handle.succeed()
-        else:
+        if not (outcome.cancelled or outcome.reached):
             node.get_logger().warn(f"gripper goal ended: {outcome.message}")
-            handle.abort()
+        settle(handle, outcome.cancelled, outcome.reached)
         return result
 
     group = ReentrantCallbackGroup()

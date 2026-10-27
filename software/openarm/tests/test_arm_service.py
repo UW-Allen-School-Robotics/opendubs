@@ -122,6 +122,33 @@ def test_refusals_command_nothing():
     assert "outside" in grip(robot, clock, 0.5).message
 
 
+class FakeGoal:
+    """A goal handle that enforces rclpy's rule: CANCELED only from a cancel request (else "invalid transition from EXECUTING with CANCELED")."""
+
+    def __init__(self, cancel_requested):
+        self.is_cancel_requested, self.state = cancel_requested, "EXECUTING"
+
+    def canceled(self):
+        assert self.is_cancel_requested, "invalid transition from EXECUTING with CANCELED"
+        self.state = "CANCELED"
+
+    def succeed(self):
+        self.state = "SUCCEEDED"
+
+    def abort(self):
+        self.state = "ABORTED"
+
+
+def test_a_goal_ends_in_a_state_rclpy_allows():
+    import ros_actions
+
+    for requested, cancelled, succeeded, state in ((True, True, False, "CANCELED"), (False, True, False, "ABORTED"), (False, False, True, "SUCCEEDED"),
+                                                   (False, False, False, "ABORTED")):
+        goal = FakeGoal(requested)
+        ros_actions.settle(goal, cancelled, succeeded)
+        assert goal.state == state, (requested, cancelled, succeeded, goal.state)
+
+
 class FakeKeeper:
     log = []
 
