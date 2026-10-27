@@ -37,7 +37,7 @@ opendubs-shows/
   tools/<pack>/<id>.gaits.json      their recorded gaits,
   tools/<pack>/drivers/<out>.py     and the drivers they name in `output:` (e.g. tools/surge/)
   encore/
-    shows/<id>.encore.yaml      ENCORE shows, the originals
+    shows/<id>.yaml             ENCORE shows, the originals
     snippets/<id>.yaml          ENCORE snippets that belong to this content (song-specific ones;
                                 ENCORE's generic snippets stay in the encore repository)
 ```
@@ -59,22 +59,27 @@ Until the composer and studio are retired, a show is edited in exactly one tool:
 - A hand-written cue sheet at the top level is edited in the composer or by hand. ENCORE may import
   it, which makes a *copy*.
 - Once a show has an ENCORE source, that source is the original. The hand-written sheet is
-  deleted from the content repository in the same commit that adds `encore/shows/<id>.encore.yaml`.
+  deleted from the content repository in the same commit that adds `encore/shows/<id>.yaml`. That
+  commit records the round trip: the export passes `cue.py` and every track matches the original.
 - Every cue sheet ENCORE generates carries a top-level marker:
 
   ```yaml
   generated:
     by: encore
-    source: encore/shows/<id>.encore.yaml
-    sha256: <the source's hash>
+    source: encore/shows/<id>.yaml
+    sha256: <sha256 of the source file's bytes>
+    revision: <the ENCORE commit that generated it>
   ```
+
+  The hash is of the file's bytes, so anyone can check it with `sha256sum`. Snippets the show
+  uses are not covered by it, which is fine: sheets are regenerated at every push.
 
   `cue.py` accepts `generated` as a top-level key and checks only its shape. The composer and
   studio open a marked sheet read-only, with a banner naming the source. They save only as a new
   show id, never over it. ENCORE sets the marker and is the only writer of it.
 
-The marker is the one interface change. It is agreed with the ENCORE build session before either
-side ships it.
+The marker is the one interface change, agreed with the ENCORE build session (2026-10-26). ENCORE
+emits it only once `cue.py` on `main` accepts it, and re-vendors `cue.py` at that commit.
 
 ## Steps
 
