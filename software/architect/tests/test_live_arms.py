@@ -159,6 +159,17 @@ CHEST_BACK = [[-62.8, 55.3, -73.5, 122.8, -21.1, 35.7, 61.7], [-46.5, 44.4, -49.
               [-35.8, 36.0, -34.9, 65.2, -2.5, 20.5, 28.0], [-9.2, 9.3, -8.9, 18.9, -0.6, 5.3, 7.2]]  # and back to rest
 
 
+class Timing(unittest.TestCase):
+    def test_no_joint_is_timed_over_the_arm_services_speed_limit(self):
+        """The arm service on gafro refuses a path over 1.0 rad/s; the bucket show reached 1.04 on joint 3."""
+        for j in range(1, 8):
+            goal = [0.0] * 7
+            goal[j - 1] = 90.0
+            peak = cue.PEAK_FACTOR * 90.0 / la.Planner._leg_seconds([0.0] * 7, goal)
+            self.assertLessEqual(peak, la.MAX_DEG_S + 1e-6, f"joint {j}")
+            self.assertLess(math.radians(peak), 1.0, f"joint {j}")
+
+
 class FixedRouter:
     def __init__(self, via):
         self.via, self.calls = via, 0

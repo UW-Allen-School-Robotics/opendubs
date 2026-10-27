@@ -15,8 +15,8 @@ while it runs.
   stops being KNOWN, every goal is cancelled and the controllers hold the arms where they are.
   AFTER. The arm must be measured where it was sent.
 
-TIMING. No joint goes faster than LIVE_SPEED_FRACTION of its measured speed cap (cue.py) at the
-move's peak, along motion.py's smoothed path, sent as one FollowJointTrajectory goal through
+TIMING. No joint goes faster than LIVE_SPEED_FRACTION of its measured speed cap (cue.py), nor than
+MAX_DEG_S, at the move's peak, along motion.py's smoothed path, sent as one FollowJointTrajectory goal through
 arm_output, the runner's own output code.
 
 A refusal raises Refused(code, reason): the robot service answers REFUSED and the program raises
@@ -61,6 +61,11 @@ TICK_S = runner.TICK_S
 ARM_ACK_S = runner.ARM_ACK_S
 #: PLACEHOLDER: half the measured caps, with children in front of the robot. A show may use all of them.
 LIVE_SPEED_FRACTION = 0.5
+#: A ceiling for every joint, whatever its cap: the arm service on gafro (arms/gafro-layer2,
+#: trajectory.Limits) refuses a path over 1.0 rad/s (57 deg/s), the driver's top speed on the arm
+#: (2026-10-26). Half the caps let joints 3 to 7 reach 68 to 90 deg/s, and the bucket show's right arm
+#: 1.04 rad/s; 50 deg/s keeps every leg 13% under the limit.
+MAX_DEG_S = 50.0
 MIN_MOVE_S = 0.5
 #: A routed waypoint is kept this much further inside the margin than the validator asks: its cue is
 #: written to one decimal, and rounding must not take it back out.
@@ -272,8 +277,9 @@ class Planner:
 
     @staticmethod
     def _leg_seconds(a: list, b: list) -> float:
-        need = max(abs(b[j - 1] - a[j - 1]) / cue.SPEED_CAP_DEG_S[j] for j in range(1, 8))
-        return round(max(MIN_MOVE_S, need * cue.PEAK_FACTOR / LIVE_SPEED_FRACTION), 2)
+        need = max(abs(b[j - 1] - a[j - 1]) / min(cue.SPEED_CAP_DEG_S[j] * LIVE_SPEED_FRACTION, MAX_DEG_S)
+                   for j in range(1, 8))
+        return round(max(MIN_MOVE_S, need * cue.PEAK_FACTOR), 2)
 
 
 def _check_side(side: str) -> str:
