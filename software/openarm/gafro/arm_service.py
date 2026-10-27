@@ -16,7 +16,9 @@ Built so far / next (the order is in notes/design/arm-gafro.md):
      controller does not move this arm), `ctl hold` stops what is running (the permit
      lapses, the arm holds where it is), `ctl down` ends the service and is refused unless the arm is at stow (`--drop` to override). Every command that moves the arm
      is gated as engage.py is: `--supervised` at start, CH5 / e-stop / CH6 held at the command and before every permit renewal, the arm starting near stow or ready.
-     The commands go over a unix socket (owner only), so ROS is not needed to run them.
+     The commands go over a unix socket per arm (arm_client.py; `--socket-mode` 600 by default), so ROS is not needed to run them. The dashboard's park, hold, activate and
+     down buttons use the same socket (kiosk-dashboard/backend/openarm.py) and have no other way to move an arm: with the service in a directory shared with the dashboard's
+     user (`OPENDUBS_ARM_SOCKET_DIR`, `--socket-mode 660`) they work, and with no service they say so.
   3. `FollowJointTrajectory` on `/<side>_controller/follow_joint_trajectory` (ros_actions.py, over trajectory.py), so the show runner plays on gafro unchanged:
      the same gate and stops as a lifecycle command, and `ctl hold` cancels it. 4. `GripperCommand` on `/<side>_gripper_controller/gripper_cmd` (gripper.py), position in finger metres, a close that stops on something aborts as stalled, and the finger
      joints on `/joint_states`; it runs beside a trajectory, so the permit is one shared keeper (SharedPermit), not one per command. 5. live pose targets (this too, `ctl follow`: pose_follow.py runs the `follow_pose` position controller of controllers.yaml on `<side>/target`, PoseStamped in, `<side>/status` out;
@@ -46,21 +48,14 @@ sys.path.insert(0, HERE)
 
 import bringup  # noqa: E402
 import engage  # noqa: E402
+import arm_client  # noqa: E402
 import gripper  # noqa: E402
 import guards  # noqa: E402
 import pose_follow  # noqa: E402
 import trajectory  # noqa: E402
+from arm_client import send, socket_for  # noqa: E402,F401  -- `ctl`, and the tests
 from engage import DEFAULT_MODEL, EngageRefused, PermitKeeper, permit_groups  # noqa: E402
 
-RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-
-
-def socket_for(side):
-    """One service per arm, each with its own socket."""
-    return os.path.join(RUNTIME, f"opendubs-arm-service-{side}.sock")
-
-
-SOCKET = None     # (the default is per side: socket_for)
 # How long `activate` and `park` take, seconds, whatever the distance. Stow to ready (joint 4 travels 1.8 rad, the most) peaks at 1.875 * 1.8 / 5 = 0.68 rad/s. Measured on the
 # arm (2026-10-26): 11.2 s and 7 s track within 10 mrad, 5 s within 11 mrad, and 3 s does not: the path asks 1.15 rad/s and the driver tops out at 1.0, so the arm lags by up to
 # 79 mrad. trajectory.Limits therefore refuses a path over 1.0 rad/s (stow to ready: under about 3.4 s), so a time the arm cannot follow is refused, not played.
@@ -377,7 +372,7 @@ class _Handler(socketserver.StreamRequestHandler):
         self.wfile.write((reply + "\n").encode())
 
 
-def listen(service, path):
+def listen(service, path, mode=0o600):
     """Serve the commands on a unix socket only its owner can use; returns the server (shut it down to stop)."""
     if os.path.exists(path):
         probe = socket.socket(socket.AF_UNIX)
@@ -389,18 +384,10 @@ def listen(service, path):
         finally:
             probe.close()
     server = socketserver.ThreadingUnixStreamServer(path, _Handler)
-    os.chmod(path, 0o600)
+    os.chmod(path, mode)
     server.service = service
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
-
-
-def send(command, drop=False, path=None, move_seconds=None, allow_large=False):
-    with socket.socket(socket.AF_UNIX) as sock:
-        sock.connect(path)
-        sock.sendall((json.dumps({"command": command, "drop": drop, "move_seconds": move_seconds, "allow_large": allow_large}) + "\n").encode())
-        sock.shutdown(socket.SHUT_WR)
-        return sock.makefile().read().rstrip("\n")       # the whole reply: `status` is two lines
 
 
 def main() -> int:
@@ -425,7 +412,8 @@ def main() -> int:
         p.add_argument("--stow-conf", default=None)
         p.add_argument("--start-tolerance-deg", type=float, default=float(np.degrees(guards.START_TOLERANCE)))
         p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
-        p.add_argument("--socket", default=None, help="default: the side's (one service per arm)")
+        p.add_argument("--socket", default=None, help="default: the side's, in $OPENDUBS_ARM_SOCKET_DIR (one service per arm)")
+        p.add_argument("--socket-mode", default="600", help="the socket's permissions, octal: 660 lets the dashboard's user (the directory's group) send commands")
         p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 5 s from stow to ready; under about 3.4 s the arm cannot follow and the move is refused)")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--no-ros", action="store_true", help="no /joint_states or action server: the lifecycle only (they need ROS)")
@@ -445,7 +433,7 @@ def main() -> int:
 
     robot, _, _ = bringup.connect(args)
     service = ArmService(robot, args)
-    server = listen(service, args.socket)
+    server = listen(service, args.socket, int(args.socket_mode, 8))
     try:
         print(f"holding the {args.side} arm; commands: `arm_service.py ctl {{{','.join(COMMANDS)}}}`", flush=True)
         if args.no_ros:

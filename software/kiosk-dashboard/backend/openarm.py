@@ -1,16 +1,12 @@
 """Arm operations for the dashboard: park, hold, activate, de-energize, and the teleop bridge.
 
-Everything here SHELLS OUT TO `openarm-up` rather than talking to ros2_control itself. That is the
-whole point: the guards live in one place. `openarm-up` knows that `switch_controllers` is atomic
-and must be called one controller at a time, that the gripper controllers have to come up or teleop
-dies on an action-server timeout, that `down` must not drop an arm which is not at its stow pose,
-and that a dead controller_manager means skipping straight to disabling over CAN. Reimplementing
-any of that here would give the robot two answers to the same question.
+park, hold, activate and down go to the ARM SERVICE (software/openarm/gafro/arm_service.py), one per arm, over its command socket (arm_client.py): the service owns the robot
+and its guards (CH5, the e-stop, CH6, a person at the e-stop, a start near stow or ready), so the dashboard asks and shows the answer, and does not reimplement any of it.
+There is NO fallback to the old stack's `openarm-up`: with no service for an arm, the operation says so and does nothing. `relink` (one arm's CAN link) still goes through
+`openarm-up`, which owns it. "both" means every arm that has a service running.
 
-Long operations run in a BACKGROUND THREAD and are polled, because they genuinely take tens of
-seconds -- `activate` waits up to 10 s for the gripper motor alone -- and an HTTP request held open
-that long is a browser timeout waiting to happen. Only one at a time: two arm operations racing
-each other is a collision, not a queue.
+Long operations run in a BACKGROUND THREAD and are polled, because they take seconds (a park is 5 s or more) and an HTTP request held open that long is a browser timeout
+waiting to happen. Only one at a time: two arm operations racing each other is a collision, not a queue.
 """
 from __future__ import annotations
 
@@ -20,6 +16,11 @@ import socket
 import subprocess
 import threading
 import time
+
+_GAFRO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "openarm", "gafro")     # beside kiosk-dashboard, in the repository and on the robot
+if _GAFRO not in __import__("sys").path:
+    __import__("sys").path.insert(0, _GAFRO)
+import arm_client  # noqa: E402
 
 OPENARM_UP = "/usr/local/bin/openarm-up"
 TELEOP_UNIT = "opendubs-teleop"
@@ -53,19 +54,68 @@ def _sudo(argv):
 
 # ---- long operations -----------------------------------------------------------------------
 
-#: name -> (argv, timeout seconds, human description of what MOVES
+#: name -> (argv, timeout seconds, human description of what MOVES). Only `relink`: the others go to the arm service (SERVICE_OPS).
 OPS = {
-    "park":      (lambda arm: _sudo([OPENARM_UP, "park", arm]), 180, "moves the arm to its stow pose"),
-    "activate":  (lambda arm: _sudo([OPENARM_UP, "activate", arm]), 180, "ENERGIZES and drives the arm to zero"),
-    "down":      (lambda arm: _sudo([OPENARM_UP, "down"]), 180, "de-energizes both arms"),
-    "up":        (lambda arm: _sudo([OPENARM_UP]), 120, "starts the stack, arms stay limp"),
-    # HOLD drives the arm to where it already is. That preempts any running trajectory and leaves
-    # it commanded to its present pose -- "stop what you are doing without dropping anything".
-    "hold":      (lambda arm: _sudo([OPENARM_UP, "hold", arm]), 90, "stops the arm where it is"),
     # One arm's CAN link (openarm-can@arm_<side>). Moves nothing; openarm-up refuses it under an
     # energized arm, and start_op refuses it while a show runs.
     "relink":    (lambda arm: _sudo([OPENARM_UP, "relink", arm]), 30, "restarts one arm's CAN link"),
 }
+
+#: what the arm service does, by the dashboard's word for it, and what it moves
+SERVICE_OPS = {
+    "park":     "moves the arm to its stow pose",
+    "activate": "moves the arm to its ready pose",
+    "hold":     "stops the arm where it is",
+    "down":     "ends the arm service; the motors stay stiff until the e-stop",
+}
+_SERVICE_TIMEOUT = 180.0
+
+
+def _service_status(side):
+    """The service's status text for `side`, or None when there is none or it does not answer. Cheap: a unix socket."""
+    try:
+        return arm_client.send("status", path=arm_client.socket_for(side), timeout=0.5)
+    except OSError:
+        return None
+
+
+def _is_running(status):
+    """Whether the service's status line says a command is in progress (`<side> arm, <backend>: held; last: ...` when it is not)."""
+    head = status.splitlines()[0] if status else ""
+    return head.partition(": ")[2].partition(";")[0] not in ("held", "")
+
+
+def _service_work(name, sides):
+    """Send `name` to each side's service, and for park and activate wait until it has finished. Returns (output, error)."""
+    out, errors = [], []
+    for side in sides:
+        path = arm_client.socket_for(side)
+        try:
+            reply = arm_client.send(name, path=path, timeout=10.0)
+        except OSError as e:
+            errors.append(f"{side}: the arm service does not answer at {path} ({e}); is it running, and is the socket's directory shared with this user?")
+            continue
+        out.append(f"{side}: {reply}")
+        if reply.startswith("refused"):
+            errors.append(f"{side}: {reply.removeprefix('refused: ')}")
+    if errors or name not in ("park", "activate"):
+        return "\n".join(out), "\n".join(errors) or None
+    pending, deadline = set(sides), time.time() + _SERVICE_TIMEOUT
+    while pending and time.time() < deadline:
+        time.sleep(0.5)
+        for side in sorted(pending):
+            status = _service_status(side)
+            if status is not None and _is_running(status):
+                continue
+            pending.discard(side)
+            last = (status or "").partition("last: ")[2].splitlines()[0] if status else ""
+            out.append(f"{side}: {last or 'no answer'}")
+            if status is None or "stopped" in last or "failed" in last:
+                errors.append(f"{side}: {last or 'the arm service stopped answering'}")
+    if pending:
+        errors.append(f"{', '.join(sorted(pending))}: {name} did not finish in {int(_SERVICE_TIMEOUT)} s (`hold` stops it)")
+    return "\n".join(out), "\n".join(errors) or None
+
 
 RUNNER_URL = os.environ.get("OPENDUBS_RUNNER_URL", "http://127.0.0.1:8092")
 
@@ -84,10 +134,17 @@ def _show_running():
 def start_op(name, arm="both"):
     """Begin a long arm operation. Returns (accepted, detail)."""
     spec = OPS.get(name)
-    if spec is None:
+    if spec is None and name not in SERVICE_OPS:
         return False, f"unknown operation {name!r}"
     if arm not in ("left", "right", "both"):
         return False, f"arm must be left|right|both, got {arm!r}"
+    sides = []
+    if name in SERVICE_OPS:
+        served = arm_client.sides_served()
+        sides = served if arm == "both" else [arm]
+        if not sides or any(side not in served for side in sides):
+            return False, (f"no arm service for the {arm} arm (one per arm: `arm_service.py run --side <left|right> ...`; the dashboard has no other way to move an arm). "
+                           f"Running: {', '.join(served) or 'none'}")
     if name == "relink":
         if arm not in ("left", "right"):
             return False, "RESTART LINK is per arm: left or right"
@@ -95,7 +152,6 @@ def start_op(name, arm="both"):
         if show:
             return False, f"a show is running ({show}): a link restart waits until it ends"
 
-    argv_fn, timeout, _desc = spec
     with _lock:
         if _op["running"]:
             # Deliberately a refusal rather than a queue: a second arm command arriving mid-motion
@@ -105,6 +161,15 @@ def start_op(name, arm="both"):
                     "rc": None, "out": "", "error": None})
 
     def work():
+        if name in SERVICE_OPS:
+            try:
+                out, error = _service_work(name, sides)
+            except Exception as e:                       # noqa: BLE001 - surfaced to the operator
+                out, error = "", f"{type(e).__name__}: {e}"
+            with _lock:
+                _op.update({"rc": 1 if error else 0, "out": out[-4000:], "error": error, "running": False})
+            return
+        argv_fn, timeout, _desc = spec
         try:
             r = _run(argv_fn(arm), timeout)
             with _lock:
@@ -365,6 +430,7 @@ def snapshot():
     journal = _journal_tail()
     return {
         "op": op_status(),
+        "service": {side: _service_status(side) for side in arm_client.sides_served()},   # per arm: its status text, None if it does not answer
         "motors": counts or None,
         "links": link_status(),
         "motors_error": m.get("error"),
