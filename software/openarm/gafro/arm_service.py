@@ -341,6 +341,10 @@ class ArmService:
         self.quit.set()
         return "down"
 
+    def state(self):
+        """What the arm service is doing, for the topic and the viewer: {state: held | <the running command>, supervised: yes | no, last: how the last command ended}."""
+        return {"state": self.running or "held", "supervised": "yes" if self.args.supervised else "no", "last": self.last or "none"}
+
     def status(self):
         q = self._position()
         return (f"{self.args.side} arm, {self.args.backend}: " + (f"{self.running} running" if self.running else "held") + f"; last: {self.last or 'none'}\n"

@@ -157,6 +157,11 @@ def arm_joint_names(robot, side: str) -> list:
     return [names[i] for i in system.get_task_space(side).get_joint_indices()]
 
 
+def state_message_values(state: dict) -> list:
+    """The (key, value) pairs of the service's state topic, in a fixed order: what a DiagnosticStatus carries."""
+    return [(key, str(state.get(key, ""))) for key in ("state", "supervised", "last")]
+
+
 def serve_state(service, node, rate: float = 100.0):
     """`/joint_states` for this arm ONLY (the model's `openarm_<side>_joint1..7`: the old stack's names), from the service's own RobotInterface.
 
@@ -180,3 +185,19 @@ def serve_state(service, node, rate: float = 100.0):
         publisher.publish(message)
 
     node.create_timer(1.0 / rate, publish)
+
+    # What the service is doing, for anything that draws it (the viewer): `arm_service/<side>`, a DiagnosticStatus twice a second. The pose target is ignored unless the
+    # state is `following`, and the viewer used to say "sending targets" either way.
+    from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
+
+    state_publisher = node.create_publisher(DiagnosticStatus, f"arm_service/{side}", 1)
+
+    def publish_service_state():
+        state = service.state()
+        message = DiagnosticStatus()
+        message.name, message.message = f"arm_service {side}", state["state"]
+        message.level = DiagnosticStatus.OK
+        message.values = [KeyValue(key=key, value=value) for key, value in state_message_values(state)]
+        state_publisher.publish(message)
+
+    node.create_timer(0.5, publish_service_state)
