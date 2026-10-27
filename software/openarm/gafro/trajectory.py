@@ -31,7 +31,7 @@ VIBRATION_SAMPLES = 6
 @dataclasses.dataclass
 class Limits:
     """STARTING VALUES, the ones play_show.py has (none has been run on an arm for a show)."""
-    max_speed: float = 1.3            # rad/s: a faster path is refused
+    max_speed: float = 1.0            # rad/s: a faster path is refused. The driver tops out at 1.0: a 1.15 rad/s path lagged by 79 mrad on the arm (2026-10-26)
     start_tolerance_deg: float = 3.0  # the arm must start this near the path's first point
     max_error: float = 0.2            # rad from the path: stop
     goal_tolerance: float = 0.05      # rad from the path's end at the end (the simulator ends 0.034 short: position mode has no integral action)
