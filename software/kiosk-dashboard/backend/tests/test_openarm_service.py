@@ -134,3 +134,67 @@ def test_the_snapshot_shows_each_service(arms, monkeypatch):
     monkeypatch.setattr(openarm, "_port_open", lambda port: False)
     service = openarm.snapshot()["service"]
     assert list(service) == ["right"] and "held" in service["right"]
+
+
+class Unit:
+    """`systemctl` as the dashboard calls it: a start brings the fake service up (or does not), `show` reports the unit's state."""
+
+    def __init__(self, arms, side, comes_up=True, rc=0, stderr="", state=None):
+        self.arms, self.side, self.comes_up, self.rc, self.stderr, self.state, self.calls = arms, side, comes_up, rc, stderr, state or {}, []
+
+    def __call__(self, argv, timeout):
+        import subprocess
+
+        self.calls.append(list(argv))
+        if "start" in argv:
+            if self.rc == 0 and self.comes_up:
+                self.arms(self.side)
+            return subprocess.CompletedProcess(argv, self.rc, "", self.stderr)
+        if "show" in argv:
+            return subprocess.CompletedProcess(argv, 0, "".join(f"{k}={v}\n" for k, v in self.state.items()), "")
+        raise AssertionError(f"unexpected command {argv}")
+
+
+def test_start_runs_exactly_what_the_sudoers_rule_allows_and_waits_for_the_service(arms, monkeypatch):
+    unit = Unit(arms, "right")
+    monkeypatch.setattr(openarm, "_run", unit)
+    assert openarm.start_op("start", "right")[0]
+    op = wait()
+    assert op["rc"] == 0 and op["error"] is None and "started" in op["out"], op
+    assert unit.calls[0] == ["sudo", "-n", "/usr/bin/systemctl", "start", "opendubs-arm@right.service"], unit.calls[0]
+
+
+def test_start_does_nothing_for_a_service_already_up(arms, monkeypatch):
+    arms("right")
+    unit = Unit(arms, "right")
+    monkeypatch.setattr(openarm, "_run", unit)
+    assert openarm.start_op("start", "right")[0]
+    op = wait()
+    assert op["rc"] == 0 and "already running" in op["out"] and unit.calls == [], (op, unit.calls)
+
+
+def test_start_is_per_arm(arms, monkeypatch):
+    monkeypatch.setattr(openarm, "_run", Unit(arms, "right"))
+    ok, detail = openarm.start_op("start", "both")
+    assert not ok and "per arm" in detail
+
+
+def test_a_refused_sudo_says_which_rule(arms, monkeypatch):
+    monkeypatch.setattr(openarm, "_run", Unit(arms, "right", rc=1, stderr="sudo: a password is required"))
+    assert openarm.start_op("start", "right")[0]
+    op = wait()
+    assert op["rc"] == 1 and "password is required" in op["error"] and "opendubs-arm.sudoers" in op["error"], op
+
+
+def test_a_unit_that_ends_before_it_answers_is_reported_at_once(arms, monkeypatch):
+    unit = Unit(arms, "right", comes_up=False, state={"ActiveState": "failed", "Result": "exit-code", "ExecMainStatus": "2"})
+    monkeypatch.setattr(openarm, "_run", unit)
+    began = time.time()
+    assert openarm.start_op("start", "right")[0]
+    op = wait()
+    assert op["rc"] == 1 and "exit status 2" in op["error"] and "old arm stack" in op["error"], op
+    assert time.time() - began < 10, "it waited out the whole timeout for a unit that had already failed"
+
+
+def test_there_is_no_stop(arms):
+    assert not openarm.start_op("stop", "right")[0], "`systemctl stop` would end the service without the not-at-stow refusal that `down` has"

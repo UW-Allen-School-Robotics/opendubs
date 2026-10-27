@@ -95,6 +95,9 @@ const ARM_BUTTONS = [
   { id: "btnArmPark",  url: "/api/arms/park?arm=both",      op: "park both",      confirm: "CONFIRM PARK",  pending: "PARKING…",    label: "PARK BOTH" },
   { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L" },
   { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R" },
+  // Brings that arm's service up (systemctl start opendubs-arm@<side>): it ENABLES the arm's motors and holds it where it is, and moves nothing. Every other button here needs it.
+  { id: "btnArmStartL", url: "/api/arms/start?arm=left",   op: "start left",     confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START L" },
+  { id: "btnArmStartR", url: "/api/arms/start?arm=right",  op: "start right",    confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START R" },
   { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE L" },
   { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE R" },
   { id: "btnArmDown",  url: "/api/arms/down",               op: "down both",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE" },
