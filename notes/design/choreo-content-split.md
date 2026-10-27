@@ -103,7 +103,10 @@ robot (**robot**). Both need the user's word. Every other step is an ordinary dr
 loses the Halloween theme and the monster skins at the deploy. One exception: `tools/surge/` reaches the robot
 straight **after** step 7, in the same sitting. While the core still has its own Surge files, the
 same tool ids in a pack are a registry error (`effectors.py`: defined in both), and a show with the
-floor hand refuses. Steps 8 to 10 follow the split.
+floor hand refuses. The monster skins behave the other way and need no special timing: while
+the core still has `monsters.js`, the content copies are refused as "a built-in name" (the settings
+page lists seven such problems, which is expected) and the built-ins keep working. They take over at
+the deploy. Steps 8 to 10 follow the split.
 
 **Blocked today:**
 
