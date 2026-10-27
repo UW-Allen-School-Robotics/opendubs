@@ -13,7 +13,7 @@ cd ~/coding/src/opendubs && git pull --ff-only        # on arms/gafro-layer2, th
 ```
 
 Nothing is copied by hand. The tools are read from the checkout, so a pull is the whole update; `git log -1` says which version ran. Tools that record data
-(`torque_probe.py`) print a summary and write a CSV under `~/`; paste the summary, or `scp` the CSV back (data only: the code never travels that way).
+(`track_hand.py`, `play_show.py`) print a summary and write a CSV under `~/`; paste the summary, or `scp` the CSV back (data only: the code never travels that way).
 
 ## Before any run that moves an arm
 
@@ -37,8 +37,7 @@ All are run as `python software/openarm/gafro/tools/<tool>.py ...` with `--side 
 | `play_show.py --show S --side right` | one arm's part of a choreography show (the keyframes the runner sends ROS as one goal, along `motion.py`'s smoothed path) played through the position controller, the whole path and its analytic rate given at once; `--slow` (default 2) stretches it. Refuses a show that does not validate against the model's joint limits, an arm not at the path's start (run `goto_stow.py`), a path out of range or over `--max-speed`, a twin clearance under the floor along the whole path; stops on tracking error, torque or vibration. Same gates as `goto_hand`; typed `show`. **Not yet run in the simulator or on a real arm** | `show` | no |
 | `limits.py` (library, used by `goto_hand`, `track_hand`, `play_show`) | the joint limits are the model's own: the `range` of each joint in the MJCF, which is also what the controllers' joint-limit stages and the simulator read. What this robot's surroundings allow beyond the arm (cables behind it, a rest, a mount) is written into the model's joint ranges, not a second file; `of_model(system)` gives the `{joint: (lower, upper)}` a show is validated against | | yes: a fake system |
 | `make_config.py --base --out --set g.k=v` | a COPY of the hardware config with keys changed, checked against the driver's real key list; never writes the base | | yes |
-| `move_probe.py`, `engage_probe.py` | `bringup.py` / `engage.py` unchanged plus a status line every 0.5 s (joints, torques, permit, deadman, driver status) | as the tool | yes |
-| `torque_probe.py --mode hold\|park` | `engage.py` unchanged plus a ~480 Hz recorder and a read-out of the first moments; `--nf-scale` scales the controllers' natural frequencies; `--park` is added if missing (without it engage moves to the ready pose) | as engage | yes: see below |
+| `move_probe.py` | `bringup.py` unchanged plus a status line every 0.5 s (joints, torques, permit, deadman, driver status) | as the tool | yes |
 
 **Arguments.** `--model` defaults to this repository's `description/openarm/gafro/openarm_bimanual.xml`, `--hardware-config` to `$ARM_HW_CONFIG` (what `env.sh`'s `arm_*` functions use) and `--assets` to the repository's own `description/openarm/mjcf`, so `python goto_stow.py --side right --supervised` is a whole command. Give them to use another model, config or checkout.
 
@@ -49,10 +48,10 @@ All are run as `python software/openarm/gafro/tools/<tool>.py ...` with `--side 
 - Velocity mode sends kp = 0 and the command under kd: at the stock kd 2 the arm stalls completely; with kd [5,5,5,5,2,2,2] (a config copy with `use_model_gains: false`,
   since the driver takes gains from the model by default) the hand moved 34 of 40 mm after ~1 s of dead time; `--integral 5` overshot by 14 mm.
 - The torque controller (`engage`/`track`, kp = 0 so its stiffness is a loop closed over CAN at 250 Hz) is unstable at its design natural frequency and too soft below it:
-  `torque_probe.py --mode hold` (nothing asked to move) at 40 rad/s ran away within 0.1 s (joint 7 to 6.1 rad/s, tripping the driver; joints 1 and 4 swinging +-5 N m at ~13 Hz);
+  `torque_probe.py --mode hold` (nothing asked to move; the probe and the torque controllers are removed since) at 40 rad/s ran away within 0.1 s (joint 7 to 6.1 rad/s, tripping the driver; joints 1 and 4 swinging +-5 N m at ~13 Hz);
   at 10 rad/s the hold was quiet (0.10 rad/s) but the park move did not move at all (joint 7 stayed 0.096 rad away, peak torque 0.06 N m). No gain fixes both. The driver gives
   torque mode no gravity feed-forward and a flat `torque_kd` of 0.1; the official ROS driver instead sends {kp, kd, q_ref, dq_ref, tau_ff} so the stiff part is the motor's own PD.
-  See `notes/design/arm-mit-feedforward.md`. `track_hand.py` refuses `--controller track`; do not run torque-mode `engage` on the arm.
+  See `notes/design/arm-mit-feedforward.md`. The torque controllers (`track`, `engage`, `freedrive`), their sequence in engage.py and their probes were removed; every move is in position mode.
 - **There are cables behind the right arm** (the model does not have them). Moving the hand backward from stow pushed joint 1 into them: its torque climbed to 0.8 to 1.2 N m and it moved at most 9 mrad, while forward
   from the same pose breakaway took 0.1 to 0.4 N m. `track_hand` now stops renewing the permit when a joint is held (far from its planned angle, moved under 3 mrad in a second, drawing 0.8 N m or more) or the hand is
   far behind its reference and not advancing under load; replayed on the recorded runs it stops the blocked ones at 1.0 s and never fires on the forward ones. Keep backward moves from stow out of the plans:

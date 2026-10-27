@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Move one arm's HAND by a small offset under a gafro CONTROLLER that takes the target POSE as its input. Slice 2 of the pose controllers (velocity);
-the torque `track` controller of controllers.yaml uses the same runner (slice 3, not run on the arm yet: see engage_probe.py's kick).
+"""Move one arm's HAND by a small offset under a gafro CONTROLLER that takes the target POSE as its input. Slice 2 of the pose controllers (velocity).
 
     python track_hand.py --controller position --side right --supervised --offset-cm 4,0,0
 
 What differs from goto_hand.py: there the arm replays a straight joint-space line in the driver's POSITION mode. Here a spec-built controller (the YAML spec of
-gafro.control.spec, built the way engage.py builds `track`) runs in the interface's own loop. Its target pose is a MotorReferenceSource, which this publishes: the
+gafro.control.spec, built the way engage.build builds a controller) runs in the interface's own loop. Its target pose is a MotorReferenceSource, which this publishes: the
 hand path is iLQR's (hand_plan.py: geometry only), timed by a minimum-jerk law, as a pose reference and a joint (posture) reference. `velocity` is
 type: velocity (pose -> velocity, resolved through the kinematics) in the driver's VELOCITY mode: kp = 0 and the command under kd, so the joint torque is
 kd times the speed error. With kd 2 a 0.3 rad/s error is 0.6 N m, about the joint friction: the arm may stall. Raise `kd` (at most 5) in a COPY of the robot's
@@ -144,7 +143,7 @@ def stuck_joints(target: np.ndarray, q_now: np.ndarray, q_then: np.ndarray, torq
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--controller", choices=("velocity", "track", "position"), default="velocity", help="`velocity` is built here; `track` is the torque controller of controllers.yaml; "
+    p.add_argument("--controller", choices=("velocity", "position"), default="velocity", help="`velocity` is built here; "
                    "`position` is built here too: a posture controller that plays the planned path (not a straight line) in the driver's POSITION mode, the rate along it fed forward")
     p.add_argument("--side", choices=("left", "right"), required=True)
     p.add_argument("--model", default=bringup.DEFAULT_MODEL, help="the robot's gafro model (default: the repo's own description/openarm/gafro/openarm_bimanual.xml)")
@@ -160,15 +159,15 @@ def main(argv=None) -> int:
     p.add_argument("--integral-limit", type=float, default=0.02, help="velocity controller: bound of the integral of the pose error (m s)")
     p.add_argument("--lead", type=float, default=0.0, help="seconds the pose reference runs ahead of its own clock. A proportional law on a ramp lags by speed/gain; shown the reference "
                    "1/gain ahead it has no steady lag on a ramp. 0 is the plain reference")
-    p.add_argument("--position-gain", type=float, default=20.0, help="position controller: the posture error to speed, 1/s, on the controller's own anchor. High is fine: there is no actuator in that loop "
+    p.add_argument("--position-gain", type=float, default=None, help="(default: controllers.yaml `follow_path`) position controller: the posture error to speed, 1/s, on the controller's own anchor. High is fine: there is no actuator in that loop "
                    "(without the rate fed forward the anchor lags the plan by speed / gain)")
-    p.add_argument("--max-lead", type=float, default=0.02, help="position controller: how far, rad per joint, the offset may take the command from the anchor. The offset integrates the anchor's distance "
+    p.add_argument("--max-lead", type=float, default=None, help="(default: controllers.yaml `follow_path`) position controller: how far, rad per joint, the offset may take the command from the anchor. The offset integrates the anchor's distance "
                    "from the measurement so a joint held by friction is still asked to move; the motor's PD turns it into torque (kp * lead). It must exceed friction / kp or the joint never "
                    "breaks away; the offset hunts against friction by about the lead when --offset-gain is high")
-    p.add_argument("--leash", type=float, default=0.15, help="position controller: how far, rad per joint, the anchor may get from the measured position. A held joint (a cable, a collision) is "
+    p.add_argument("--leash", type=float, default=None, help="(default: controllers.yaml `follow_path`) position controller: how far, rad per joint, the anchor may get from the measured position. A held joint (a cable, a collision) is "
                    "never asked for more than kp * leash beyond the plan, and the anchor does not run away from an arm that has stopped; it must exceed the tracking error the plan needs")
-    p.add_argument("--offset-gain", type=float, default=2.0, help="position controller: gain of the offset on the anchor's distance from the measurement, 1/s. Low: a high gain hunts against friction")
-    p.add_argument("--max-command-speed", type=float, default=0.5, help="position controller: cap, rad/s, on the speed its feedback asks for (the rate fed forward is the plan's own)")
+    p.add_argument("--offset-gain", type=float, default=None, help="(default: controllers.yaml `follow_path`) position controller: gain of the offset on the anchor's distance from the measurement, 1/s. Low: a high gain hunts against friction")
+    p.add_argument("--max-command-speed", type=float, default=None, help="(default: controllers.yaml `follow_path`) position controller: cap, rad/s, on the speed its feedback asks for (the rate fed forward is the plan's own)")
     p.add_argument("--no-feedforward", action="store_true", help="position controller: do not feed the planned rates forward (the arm then follows rate / gain behind the plan)")
     p.add_argument("--max-torque", type=float, default=12.0, help="N m: stop renewing the permit (the arm holds) if any joint's measured torque reaches this. On the position controller "
                    "this is what bounds a push against something that holds a joint (the lag checks are for the velocity controller)")
@@ -193,11 +192,9 @@ def main(argv=None) -> int:
     except (ValueError, AssertionError):
         print("refused: --offset-cm wants three numbers, dx,dy,dz")
         return 1
+    args.position_gain, args.max_lead, args.max_command_speed, args.leash, args.offset_gain = position_play.settings(args.position_gain, args.max_lead, args.max_command_speed, args.leash, args.offset_gain)
     if not 0 < args.speed <= 0.2:
         print("refused: --speed must be above 0 and at most 0.2 rad/s")
-        return 1
-    if args.controller == "track":
-        print("refused: the torque `track` controller kicked the real arm (engage, 2026-10-23); it is not run until that is understood. --controller velocity only.")
         return 1
     if not 0.0 <= args.lead <= 2.0:
         print("refused: --lead must be between 0 and 2 s")

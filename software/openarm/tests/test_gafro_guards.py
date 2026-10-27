@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The guards the gafro path runs before it commands an arm (software/openarm/gafro/guards.py): another controller on the bus, CH5 and the
 e-stop, and where a move may start. Each fails closed. Off the robot: the bus is a socket pair carrying real CAN frames, the dashboard a local
-HTTP server, and one case runs engage.py to see it refuse before it creates a RobotInterface (skipped without gafro).
+HTTP server.
 Run: python3 software/openarm/tests/test_gafro_guards.py
 """
 import http.server
@@ -171,16 +171,6 @@ with tempfile.TemporaryDirectory() as directory:
     check("a group the config lacks refuses", refuses(lambda: guards.buses_of(config("left_arm: {bus: fake}\n"), ["right_arm"]), "right_arm"), True)
     check("a can bus with no interface refuses", refuses(lambda: guards.buses_of(config("left_arm: {bus: can}\n"), ["left_arm"]), "can_interface"), True)
     check("a missing file refuses", refuses(lambda: guards.buses_of(os.path.join(directory, "nope.yaml"), ["left_arm"]), "cannot read"), True)
-
-    # engage.py refuses before it creates a RobotInterface: no motor is enabled by a refused run.
-    if importlib.util.find_spec("gafro") is not None and importlib.util.find_spec("gafro_robot_interface") is not None:
-        hardware = config("right_arm: {driver: openarm, bus: can, can_interface: no_such_can0}\n")
-        run = subprocess.run([sys.executable, os.path.join(GAFRO, "engage.py"), "--model", "unused.xml", "--side", "right", "--backend", "hardware",
-                              "--hardware-config", hardware, "--listen-seconds", "0.2"], capture_output=True, text=True, timeout=120)
-        check("engage.py on a real bus refuses before enabling anything", (run.returncode, "refused:" in run.stdout, "Traceback" in run.stderr), (1, True, False))
-        check("... and says why", "no_such_can0" in run.stdout or "existing arm stack" in run.stdout, True)
-    else:
-        print("skip engage.py end to end: gafro is not importable here")
 
 # The permit is renewed only while CH5 and the e-stop still allow motion: a sequence in progress is cut short, not finished.
 import time  # noqa: E402
