@@ -106,7 +106,9 @@ and `SKIN <id>` take any id the robot has. Agreed with Face & HRI (the face's lo
   colour by state name; `DEGRADED` and `E_STOP` refused, and `CHARGING`, purple everywhere) and
   `face/skins/<id>.js` (a code skin module, importing core helpers only from the face engine's one
   stable entry point, `skin-api.js`, never an engine file by path: Face & HRI's).
-  A built-in name always wins. The content folder is the show runner's: `$OPENDUBS_SHOWS_DIR`, else
+  A built-in name always wins. **A file whose name begins with `_` is shared code, not a look**
+  (`face/skins/_monsters.js`, which the seven monster skins import): it is never listed, so no picker
+  offers it and no show can name it, but the dashboard serves it, so the looks can import it. The content folder is the show runner's: `$OPENDUBS_SHOWS_DIR`, else
   `$OPENDUBS_LOCAL_SHOWS`, else `/var/lib/opendubs/shows` if it exists, else `~/opendubs-shows`.
 - **The dashboard** answers `GET /api/head/looks` (that list, plus the library's image and video skins)
   and serves the content files to the face at `/face/content/{themes,skins}/<file>`.

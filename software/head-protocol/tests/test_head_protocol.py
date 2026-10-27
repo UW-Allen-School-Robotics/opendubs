@@ -317,6 +317,8 @@ def test_looks_are_the_built_ins_plus_the_content_folders_and_a_bad_file_is_name
         put("themes/green.json", json.dumps({"colors": {"CHARGING": "#00ff00"}}))         # charging stays purple
         put("themes/plain.json", json.dumps({"colors": {"INIT": "#ffffff"}}))             # a built-in name
         put("skins/snowman.js", "export function draw() {}")
+        put("skins/_monsters.js", "export const shell = {};")                      # shared code, not a skin
+        put("themes/_palette.json", json.dumps({"colors": {"INIT": "#ffffff"}}))  # shared, not a theme
         put("skins/snowman.json", json.dumps({"label": "Snowman"}))
         found = looks.discover(d)
         themes = {t["id"]: t for t in found["themes"]}
@@ -327,6 +329,8 @@ def test_looks_are_the_built_ins_plus_the_content_folders_and_a_bad_file_is_name
         assert any("plain.json" in p for p in found["problems"])
         assert {"id": "snowman", "label": "Snowman", "kind": "code", "source": "content"} in found["skins"]
         assert looks.theme_ids(d) >= {"plain", "winter"} and "snowman" in looks.code_skin_ids(d)
+        assert "_monsters" not in looks.code_skin_ids(d) and "_palette" not in looks.theme_ids(d)
+        assert not any("_monsters" in p or "_palette" in p for p in found["problems"])
     assert looks.content_dir(env={"OPENDUBS_SHOWS_DIR": "/x/shows", "OPENDUBS_LOCAL_SHOWS": "/y"}).as_posix() == "/x/shows"
 
 
