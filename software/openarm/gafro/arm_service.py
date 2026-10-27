@@ -153,6 +153,8 @@ class ArmService:
         if args.backend == "hardware":
             _, self.real = guards.buses_of(args.hardware_config, self.groups)
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
+        self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
+        self.behaviour = ""            # what `follow` is doing about its target now ("following", "holding: ..."), while it runs
         self.running = None            # the name of the command in progress (a gripper command does not count: it runs beside the others)
         self.permit = SharedPermit(self.groups, guards.motion_gate(args.dashboard) if self.real else None)
         self.last = ""                 # how the last command ended
@@ -210,8 +212,9 @@ class ArmService:
             if name == "follow":
                 with open(os.path.join(HERE, "controllers.yaml")) as stream:
                     controllers = yaml.safe_load(stream)["controllers"]
+                self.behaviour = ""
                 self.last = "following: " + pose_follow.follow(self.robot, side, controllers, self.source, self.permit.lease(), self.cancel, lambda: self.permit.withheld,
-                                                               log=self._log)
+                                                               log=self._log, reach=self.reach, status=self._behaviour)
                 return
             self._move(name, known, tolerance, move_seconds, allow_large)
             self.last = f"{name} done"
@@ -319,6 +322,9 @@ class ArmService:
         self.last = f"gripper: {result.message}"
         return result
 
+    def _behaviour(self, text):
+        self.behaviour = text
+
     def _log(self, text):
         print(text, flush=True)
 
@@ -343,7 +349,8 @@ class ArmService:
 
     def state(self):
         """What the arm service is doing, for the topic and the viewer: {state: held | <the running command>, supervised: yes | no, last: how the last command ended}."""
-        return {"state": self.running or "held", "supervised": "yes" if self.args.supervised else "no", "last": self.last or "none"}
+        return {"state": self.running or "held", "supervised": "yes" if self.args.supervised else "no", "last": self.last or "none",
+                "behaviour": self.behaviour if self.running == "follow" else ""}
 
     def status(self):
         q = self._position()
