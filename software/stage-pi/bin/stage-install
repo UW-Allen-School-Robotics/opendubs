@@ -1,0 +1,33 @@
+#!/bin/bash
+# stage-install [--root DIR]: put this folder's programs, units and configs in place under DIR (default /).
+# THE ONE LIST of the box's own files: setup.sh runs it, and so does a signed self-update (stage_update.py),
+# against the real root beneath the overlay. Files only: no packages (packages.txt; setup.sh installs them),
+# no users, nothing that needs the running system. Each file is written beside its place and renamed in, so
+# a power cut leaves the old file or the new one, never half of one. Units are enabled with
+# `systemctl --root`, which works on a root that is not the one running.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+root=/
+[ "${1:-}" = --root ] && root=${2:?--root needs a directory}
+R=${root%/}
+put() {   # put MODE SRC DST
+    install -d "$(dirname "$3")"
+    install -m "$1" "$2" "$3.new"
+    mv -f "$3.new" "$3"
+}
+lib=$R/usr/local/lib/stage
+for f in stage-conf stage-kiosk stage-mode stage-agent stage-media stage-install; do put 0755 "bin/$f" "$lib/$f"; done
+for f in stage_sound.py stage_update.py; do put 0644 "bin/$f" "$lib/$f"; done
+put 0644 packages.txt "$lib/packages.txt"
+rm -f "$lib/stage-audio"                          # replaced by stage_sound.py (2026-10-25)
+install -d "$R/srv/stage-media"                   # the media partition's mount point, on the read-only root
+for u in systemd/*.service; do put 0644 "$u" "$R/etc/systemd/system/$(basename "$u")"; done
+put 0644 systemd/bluetooth.service.d/stage.conf "$R/etc/systemd/system/bluetooth.service.d/stage.conf"
+put 0644 udev/99-stage-display.rules "$R/etc/udev/rules.d/99-stage-display.rules"
+put 0644 wireplumber/80-stage.conf "$R/etc/wireplumber/wireplumber.conf.d/80-stage.conf"
+put 0644 wireplumber/80-stage.lua "$R/etc/wireplumber/bluetooth.lua.d/80-stage.lua"
+if command -v systemctl >/dev/null; then
+    systemctl --root="$root" enable stage-mode.service stage-media.service stage-kiosk.service stage-agent.service \
+        bluetooth.service >/dev/null
+fi
+echo "stage-install: the box's files are in place under $root"
