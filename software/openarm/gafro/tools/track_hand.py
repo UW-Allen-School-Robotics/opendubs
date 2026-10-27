@@ -170,6 +170,8 @@ def main(argv=None) -> int:
     p.add_argument("--offset-gain", type=float, default=2.0, help="position controller: gain of the offset on the anchor's distance from the measurement, 1/s. Low: a high gain hunts against friction")
     p.add_argument("--max-command-speed", type=float, default=0.5, help="position controller: cap, rad/s, on the speed its feedback asks for (the rate fed forward is the plan's own)")
     p.add_argument("--no-feedforward", action="store_true", help="position controller: do not feed the planned rates forward (the arm then follows rate / gain behind the plan)")
+    p.add_argument("--max-torque", type=float, default=12.0, help="N m: stop renewing the permit (the arm holds) if any joint's measured torque reaches this. On the position controller "
+                   "this is what bounds a push against something that holds a joint (the lag checks are for the velocity controller)")
     p.add_argument("--max-joint-speed", type=float, default=1.5, help="rad/s: if any joint stays faster than this for ~12 ms the run stops renewing the permit (the arm holds): a joint that fast during a 4 cm hand move is vibrating")
     p.add_argument("--csv", default=None, help="the raw samples (default ~/track_hand-<time>.csv)")
     p.add_argument("--weight", type=int, default=10)
@@ -324,8 +326,18 @@ def main(argv=None) -> int:
                 now_mm = float((hand[:3] - plan["start"][:3]) * 1000 @ direction)
                 then_mm = float((hand_plan.hand_pose(task, recent[0][1])[:3] - plan["start"][:3]) * 1000 @ direction)
                 ideal_mm = float(np.linalg.norm(move_mm) * engage.minimum_jerk(min(max(elapsed / duration, 0.0), 1.0)))
-                stalled = stall_reason(ideal_mm, now_mm, then_mm, max(float(np.abs(x[3]).max()) for x in recent))
-                held = stuck_joints(plan["states"][:, -1], recent[-1][1], recent[0][1], np.abs(np.array([x[3] for x in recent])).max(axis=0))
+                peaks = np.abs(np.array([x[3] for x in recent])).max(axis=0)
+                over = goto_hand.over_torque(peaks, args.max_torque)
+                if over:
+                    stalled = (f"FORCE LIMIT: joint(s) {over} reached {args.max_torque:g} N m (--max-torque). The permit is no longer renewed; the arm holds where it is. "
+                               "If something holds the arm and you mean to push harder, raise --max-torque on purpose.")
+                # In position mode the motor's torque is kp times the lag behind the command, so a joint that has not broken away yet is pushed harder on purpose, up to the cap
+                # above. The two lag checks below were made for the velocity controller, where a stuck joint draws a fixed torque; on the position controller they cut a joint off
+                # while it is still breaking away (`stuck_joints` also compares with the END of the path, which a joint that has not started is always far from).
+                lag_checks = args.controller != "position"
+                if lag_checks and not stalled:
+                    stalled = stall_reason(ideal_mm, now_mm, then_mm, float(peaks.max()))
+                held = stuck_joints(plan["states"][:, -1], recent[-1][1], recent[0][1], peaks) if lag_checks else []
                 if held and not stalled:
                     target_q = plan["states"][:, -1]
                     gaps = ", ".join("%.2f" % abs(target_q[j - 1] - recent[-1][1][j - 1]) for j in held)
@@ -360,7 +372,7 @@ def main(argv=None) -> int:
         ok = np.linalg.norm(error) <= goto_hand.HAND_TOLERANCE_MM and joint_error <= goto_hand.JOINT_TOLERANCE and not vibrating["joints"] and not stalled
         if vibrating["joints"] or stalled:
             return bringup.verdict(False, "the run was stopped: " + (stalled or "vibration").split(":")[0].lower() + " (see above)")
-        return bringup.verdict(ok, "hand within tolerance under the velocity controller" if ok else
+        return bringup.verdict(ok, f"hand within tolerance under the {args.controller} controller" if ok else
                                f"hand {np.linalg.norm(error):.1f} mm from the target, joints {joint_error:.3f} rad from the plan (a stall: kd too low for the friction, or CH6 released, or a trip)")
     finally:
         keeper.stop()
