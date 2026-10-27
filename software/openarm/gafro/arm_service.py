@@ -1,0 +1,390 @@
+#!/usr/bin/env python3
+"""The arm service on gafro: what `ros2_control` was to the arms, taken over a slice at a time. Slices 1-2: one arm held, its state on ROS, its lifecycle by command.
+
+    $PY software/openarm/gafro/arm_service.py --side right --hardware-config /etc/opendubs/hardware.yaml --supervised
+    ros2 topic echo /joint_states
+    $PY software/openarm/gafro/arm_service.py ctl --side right status|activate|park|follow|hold|down|supervise|unsupervise    # to the running service, as `openarm-up` took them
+
+The service owns the RobotInterface. It holds the arm where it is (the driver enables and holds on `initialize()`, with no permit, so nothing is commanded)
+and publishes `/joint_states` through gafro-ri-ros2-bridge, which is only the ROS side and knows nothing of a permit. The runner and the dashboard can read gafro's
+state with no change of their own. At start the bus must be to ourselves (bringup.py's `hold` guard: the existing stack not running, no other sender).
+
+Built so far / next (the order is in notes/design/arm-gafro.md):
+  1. one arm held, `/joint_states`.
+  2. lifecycle: `ctl activate` takes the arm to `ready` (engage.py's sequence), `ctl park` to the stow file's pose, `ctl hold` stops what is running (the permit
+     lapses, the arm holds where it is), `ctl down` ends the service and is refused unless the arm is at stow (`--drop` to override). Every command that moves the arm
+     is gated as engage.py is: `--supervised` at start, CH5 / e-stop / CH6 held at the command and before every permit renewal, the arm starting near stow or ready.
+     The commands go over a unix socket (owner only), so ROS is not needed to run them.
+  3. `FollowJointTrajectory` on `/<side>_controller/follow_joint_trajectory` (ros_actions.py, over trajectory.py), so the show runner plays on gafro unchanged:
+     the same gate and stops as a lifecycle command, and `ctl hold` cancels it. 4. `GripperCommand` on `/<side>_gripper_controller/gripper_cmd` (gripper.py), position in finger metres, a close that stops on something aborts as stalled, and the finger
+     joints on `/joint_states`; it runs beside a trajectory, so the permit is one shared keeper (SharedPermit), not one per command. 5. live pose targets (this too, `ctl follow`: pose_follow.py runs the `follow_pose` position controller of controllers.yaml on `<side>/target`, PoseStamped in, `<side>/status` out;
+     needs the arm near `ready` on a real bus, ends on `hold`, on a withheld permit, or on the torque / vibration stops). Then teleop, which is not in this repo: the WebXR bridge
+     is `openarm.demos.real_teleop_demo` in the container image, against the impedance controllers; it moves onto `<side>/target` or this service's own input. 6. the left arm, then the container goes.
+
+Two differences from `openarm-up`, both the driver's: there is no limp (the driver exposes no disable, so the motors stay enabled and stiff while the service runs and
+after it ends: the e-stop power cycle releases them), and starting the service already enables them, where `openarm-up` started with the arms inactive.
+`--backend mujoco` runs the same on the simulator. The joint names are the model's; that they equal the old stack's (`openarm_right_joint1`...) is not checked.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import socketserver
+import sys
+import threading
+
+import numpy as np
+import yaml
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+import bringup  # noqa: E402
+import engage  # noqa: E402
+import gripper  # noqa: E402
+import guards  # noqa: E402
+import pose_follow  # noqa: E402
+import trajectory  # noqa: E402
+from engage import DEFAULT_MODEL, EngageRefused, PermitKeeper, permit_groups  # noqa: E402
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+
+
+def socket_for(side):
+    """One service per arm, each with its own socket."""
+    return os.path.join(RUNTIME, f"opendubs-arm-service-{side}.sock")
+
+
+SOCKET = None     # (the default is per side: socket_for)
+COMMANDS = ("status", "activate", "park", "follow", "hold", "down", "supervise", "unsupervise")
+
+
+class SharedPermit:
+    """One permit keeper for the arm, shared by whatever moves it at the moment (a lifecycle command, a trajectory, a gripper command): started by the first lease, stopped (the
+    permit revoked) when the last ends, and revoked at once by `revoke` (`hold`). Without it a gripper cue finishing in the middle of a show would revoke the arm's permit."""
+
+    class Lease:
+        def __init__(self, shared):
+            self.shared, self.epoch, self.held = shared, None, False
+
+        def start(self):
+            self.epoch = self.shared._acquire()
+            self.held = True
+            return self
+
+        def stop(self):
+            if self.held:
+                self.held = False
+                self.shared._release(self.epoch)
+
+        __enter__ = start
+
+        def __exit__(self, *exc):
+            self.stop()
+
+    def __init__(self, groups, gate):
+        self.groups, self.gate = groups, gate
+        self.keeper, self.users, self.epoch = None, 0, 0
+        self.lock = threading.Lock()
+
+    def lease(self):
+        return self.Lease(self)
+
+    def _acquire(self):
+        with self.lock:
+            if self.users == 0:
+                keeper = PermitKeeper(self.groups, allowed=self.gate)
+                keeper.start()                 # the gate answers here; Refused if CH5, the e-stop or CH6 say no
+                self.keeper = keeper
+            self.users += 1
+            return self.epoch
+
+    def _release(self, epoch):
+        with self.lock:
+            if epoch != self.epoch:
+                return                         # revoked since: already counted out
+            self.users -= 1
+            if self.users == 0 and self.keeper is not None:
+                self.keeper.stop()
+                self.keeper = None
+
+    def revoke(self):
+        """Stop renewing and revoke now, for every lease."""
+        with self.lock:
+            if self.keeper is not None:
+                self.keeper.stop()
+                self.keeper = None
+            self.users, self.epoch = 0, self.epoch + 1
+
+    @property
+    def active(self):
+        return self.users > 0
+
+    @property
+    def withheld(self):
+        """How many renewals the gate has refused since the keeper started (0 with no keeper)."""
+        return self.keeper.withheld if self.keeper is not None else 0
+
+
+class ArmService:
+    """One arm's lifecycle. Commands that move the arm run one at a time on their own thread; `hold` and `status` answer at once."""
+
+    def __init__(self, robot, args):
+        self.robot, self.args = robot, args
+        self.groups = permit_groups(args.side) if args.backend == "hardware" else ()
+        self.real = False
+        if args.backend == "hardware":
+            _, self.real = guards.buses_of(args.hardware_config, self.groups)
+        self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
+        self.running = None            # the name of the command in progress (a gripper command does not count: it runs beside the others)
+        self.permit = SharedPermit(self.groups, guards.motion_gate(args.dashboard) if self.real else None)
+        self.last = ""                 # how the last command ended
+        self.cancel = threading.Event()   # ends a trajectory in progress
+        self.grip_cancel = threading.Event()   # ends a gripper command in progress
+        self.quit = threading.Event()
+        self.lock = threading.Lock()
+
+    # -- what a command may start from ---------------------------------------------------------------------------------------------------
+
+    def _stow(self):
+        return engage.stow_pose(self.args.side, self.args.stow_conf)
+
+    def _position(self):
+        indices = np.asarray(self.robot.get_system().get_task_space(self.args.side).get_joint_indices())
+        return np.asarray(self.robot.get_state().get_position(), dtype=float)[indices]
+
+    def _gate(self):
+        """What a moving command needs on a real bus, before it grants anything: the same as engage.py's. Returns (known_starts, tolerance, gate)."""
+        if not self.real:
+            return None, None, None
+        guards.require_motion_permitted(self.args.supervised, self.args.dashboard, deadman=True)
+        stow = self._stow()
+        if stow is None:
+            raise guards.Refused(f"no stow pose configured in {self.args.stow_conf or engage.STOW_CONF}: a move on a real bus starts near stow or ready")
+        return {"stow": stow}, float(np.radians(self.args.start_tolerance_deg)), guards.motion_gate(self.args.dashboard)
+
+    # -- commands ------------------------------------------------------------------------------------------------------------------------
+
+    def start(self, name):
+        """Run `activate`, `park` or `follow` on a thread; the answer is whether it was started."""
+        with self.lock:
+            if self.running:
+                return f"refused: {self.running} is running (`hold` stops it)"
+            if name == "follow" and self.source is None:
+                return "refused: no pose reference to follow (the service runs without ROS, or has not registered `<side>/target`)"
+            try:
+                known, tolerance, gate = self._gate()
+                if name == "follow" and self.real:
+                    ready = np.asarray(self.robot.get_system().get_keyframe("ready").qpos, dtype=float)
+                    indices = np.asarray(self.robot.get_system().get_task_space(self.args.side).get_joint_indices())
+                    guards.require_known_start(self._position(), {"ready": ready[indices]}, tolerance)     # the pose stage from a singular stow would swing the arm
+            except guards.Refused as refused:
+                return f"refused: {refused}"
+            self.cancel.clear()
+            self.running = name
+        threading.Thread(target=self._run, args=(name, known, tolerance, gate), daemon=True).start()
+        return f"{name} started"
+
+    def _run(self, name, known, tolerance, gate):
+        side, model = self.args.side, self.args.model
+        try:
+            if name == "follow":
+                with open(os.path.join(HERE, "controllers.yaml")) as stream:
+                    controllers = yaml.safe_load(stream)["controllers"]
+                self.last = "following: " + pose_follow.follow(self.robot, side, controllers, self.source, self.permit.lease(), self.cancel, lambda: self.permit.withheld,
+                                                               log=self._log)
+                return
+            with self.permit.lease():
+                if name == "park":
+                    engage.park(self.robot, side, model, self.args.stow_conf, start_tolerance=tolerance, log=self._log)
+                else:
+                    engage.engage(self.robot, side, model, "ready", known_starts=known, start_tolerance=tolerance, then="hold", log=self._log)
+            self.last = f"{name} done"
+        except (guards.Refused, EngageRefused) as refused:
+            self.last = f"{name} stopped: {refused}"
+        except Exception as error:  # noqa: BLE001 -- the arm holds; the service stays up to say so
+            self.last = f"{name} failed: {type(error).__name__}: {error}"
+        finally:
+            self.running = None
+        print(self.last, flush=True)
+
+    def follow(self, times, positions, velocities=None):
+        """Play a joint trajectory (the show runner's goal) and return a trajectory.Result. Refused while anything else runs; gated as `activate` is, and the gate is asked
+        again before every permit renewal. Blocks until the path ends, is cancelled (`hold`) or is stopped."""
+        with self.lock:
+            if self.running:
+                return trajectory.Result(trajectory.INVALID_GOAL, f"{self.running} is running")
+            try:
+                _, _, gate = self._gate()
+            except guards.Refused as refused:
+                return trajectory.Result(trajectory.INVALID_GOAL, str(refused))
+            self.running = "trajectory"
+            self.cancel.clear()
+        try:
+            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, log=self._log)
+        except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
+            result = trajectory.Result(trajectory.INVALID_GOAL, f"{type(error).__name__}: {error}")
+        finally:
+            self.running = None
+        self.last = f"trajectory: {result.message}"
+        return result
+
+    def grip(self, metres):
+        """Move the gripper's finger to `metres` (a gripper.Result). Runs beside an arm command: the permit is shared. Gated as the others are."""
+        try:
+            self._gate()
+        except guards.Refused as refused:
+            return gripper.Result(message=str(refused))
+        self.grip_cancel.clear()
+        try:
+            result = gripper.grip(self.robot, self.args.side, metres, self.permit.lease(), self.grip_cancel)
+        except Exception as error:  # noqa: BLE001 -- the gripper holds; the goal fails and the service stays up
+            result = gripper.Result(message=f"{type(error).__name__}: {error}")
+        self.last = f"gripper: {result.message}"
+        return result
+
+    def _log(self, text):
+        print(text, flush=True)
+
+    def hold(self):
+        """Stop renewing the permit and revoke it: whatever is running ends, and the arm holds where it is."""
+        active = self.permit.active
+        self.cancel.set()
+        self.grip_cancel.set()
+        self.permit.revoke()
+        return "holding" if active else "nothing was running; the arm is held"
+
+    def down(self, drop=False):
+        if self.running:
+            return f"refused: {self.running} is running (`hold` first)"
+        stow = self._stow()
+        near = stow is not None and float(np.abs(self._position() - stow).max()) <= np.radians(self.args.start_tolerance_deg)
+        if not (near or drop or not self.real):
+            return ("refused: the arm is not at its stow pose, and the motors stay stiff after the service ends, so an e-stop there lets it fall. "
+                    "`park` first, or `down --drop` to end anyway")
+        self.quit.set()
+        return "down"
+
+    def status(self):
+        q = self._position()
+        return (f"{self.args.side} arm, {self.args.backend}: " + (f"{self.running} running" if self.running else "held") + f"; last: {self.last or 'none'}\n"
+                + "joints (deg) " + " ".join(f"{np.degrees(v):+.1f}" for v in q))
+
+    def handle(self, request):
+        command = request.get("command")
+        if command == "status":
+            return self.status()
+        if command in ("activate", "park", "follow"):
+            return self.start(command)
+        if command in ("supervise", "unsupervise"):
+            self.args.supervised = command == "supervise"
+            return ("supervised: a person is at the e-stop (head tracking off, neck centred); moving commands are allowed while CH5, the e-stop and CH6 permit"
+                    if self.args.supervised else "unsupervised: moving commands are refused on a real bus")
+        if command == "hold":
+            return self.hold()
+        if command == "down":
+            return self.down(bool(request.get("drop")))
+        return f"refused: unknown command {command!r} (one of {', '.join(COMMANDS)})"
+
+
+class _Handler(socketserver.StreamRequestHandler):
+    def handle(self):
+        try:
+            reply = self.server.service.handle(json.loads(self.rfile.readline()))
+        except Exception as error:  # noqa: BLE001
+            reply = f"refused: {type(error).__name__}: {error}"
+        self.wfile.write((reply + "\n").encode())
+
+
+def listen(service, path):
+    """Serve the commands on a unix socket only its owner can use; returns the server (shut it down to stop)."""
+    if os.path.exists(path):
+        probe = socket.socket(socket.AF_UNIX)
+        try:
+            probe.connect(path)
+            raise RuntimeError(f"another arm service is listening on {path}")
+        except ConnectionRefusedError:
+            os.unlink(path)    # left behind by one that died
+        finally:
+            probe.close()
+    server = socketserver.ThreadingUnixStreamServer(path, _Handler)
+    os.chmod(path, 0o600)
+    server.service = service
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def send(command, drop=False, path=None):
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.connect(path)
+        sock.sendall((json.dumps({"command": command, "drop": drop}) + "\n").encode())
+        return sock.makefile().readline().rstrip("\n")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="mode")
+    ctl = sub.add_parser("ctl", help="send a command to the running service")
+    ctl.add_argument("command", choices=COMMANDS)
+    ctl.add_argument("--drop", action="store_true", help="down: end although the arm is not at stow")
+    ctl.add_argument("--side", choices=("left", "right"), default="right")
+    ctl.add_argument("--socket", default=None, help="default: the side's")
+    run = sub.add_parser("run", help="run the service (the default)")
+    for p in (parser, run):
+        p.add_argument("--side", choices=("left", "right"), default="right")
+        p.add_argument("--model", default=DEFAULT_MODEL)
+        p.add_argument("--backend", choices=("hardware", "mujoco"), default="hardware")
+        p.add_argument("--hardware-config", default="")
+        p.add_argument("--state-rate", type=float, default=100.0, help="Hz of /joint_states")
+        p.add_argument("--supervised", action="store_true", help="a person is at the e-stop, head tracking off and the neck centred (a moving command needs it on a real bus)")
+        p.add_argument("--dashboard", default=guards.DASHBOARD, help="where CH5, the e-stop and CH6 are read")
+        p.add_argument("--stow-conf", default=None)
+        p.add_argument("--start-tolerance-deg", type=float, default=float(np.degrees(guards.START_TOLERANCE)))
+        p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
+        p.add_argument("--socket", default=None, help="default: the side's (one service per arm)")
+        p.add_argument("--no-ros", action="store_true", help="no /joint_states or action server: the lifecycle only (they need ROS)")
+    args = parser.parse_args()
+
+    args.socket = args.socket or socket_for(args.side)
+    if args.mode == "ctl":
+        try:
+            print(send(args.command, args.drop, args.socket))
+        except OSError as error:
+            print(f"no arm service at {args.socket} ({error})")
+            return 1
+        return 0
+
+    if bringup.gate(args, motion=False):    # the bus must be to ourselves; nothing moves until a command, which is gated again
+        return 1
+
+    robot, _, _ = bringup.connect(args)
+    service = ArmService(robot, args)
+    server = listen(service, args.socket)
+    try:
+        print(f"holding the {args.side} arm; commands: `arm_service.py ctl {{{','.join(COMMANDS)}}}`", flush=True)
+        if args.no_ros:
+            service.quit.wait()
+        else:
+            from gafro_ri_ros2_bridge import node
+            import ros_actions
+
+            ros_actions.serve_trajectory(service)    # /<side>_controller/follow_joint_trajectory, on its own node and thread
+            service.source = pose_follow.reference_source(robot, args.side)
+            node.serve(robot, source=service.source, name=args.side,
+                       bridge_settings={"node_name": f"openarm_{args.side}", "state_rate": args.state_rate, "publish_state": False},     # the state is ros_actions.serve_state's
+                       running=lambda: not service.quit.is_set())     # `<side>/target` (PoseStamped) in, `<side>/status` out
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+        if os.path.exists(args.socket):
+            os.unlink(args.socket)
+        service.hold()
+        robot.shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
