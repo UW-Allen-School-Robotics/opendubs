@@ -60,6 +60,10 @@ def socket_for(side):
 
 
 SOCKET = None     # (the default is per side: socket_for)
+# How long `activate` and `park` take, seconds, whatever the distance: stow to ready (joint 4 travels 1.8 rad, the most) peaks at 1.875 * 1.8 / 7 = 0.48 rad/s. engage.py's own
+# speed took 11.2 s for that; both runs on the arm tracked within 9 mrad at that pace (recordings of 2026-10-26). The driver slews at 1.0 rad/s, and trajectory.Limits refuses
+# a path over 1.3 rad/s, so a shorter time than the distance allows is refused, not played.
+MOVE_SECONDS = 7.0
 COMMANDS = ("status", "activate", "park", "follow", "hold", "down", "supervise", "unsupervise")
 
 
@@ -251,7 +255,7 @@ class ArmService:
         if refusal:
             raise EngageRefused(f"the straight line to {label} is not clear: {refusal}")
 
-        duration = engage.duration_for(start, target, engage.JOINT_SPEED)
+        duration = float(getattr(self.args, "move_seconds", MOVE_SECONDS))
         self._log(f"{name} {side}: {np.round(start, 2)} -> {np.round(target, 2)} in {duration:.1f} s, in position mode")
         times = np.linspace(0.0, duration, 41)
         fraction = times / duration
@@ -398,6 +402,7 @@ def main() -> int:
         p.add_argument("--start-tolerance-deg", type=float, default=float(np.degrees(guards.START_TOLERANCE)))
         p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
         p.add_argument("--socket", default=None, help="default: the side's (one service per arm)")
+        p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 7 s from stow to ready)")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--no-ros", action="store_true", help="no /joint_states or action server: the lifecycle only (they need ROS)")
     args = parser.parse_args()
