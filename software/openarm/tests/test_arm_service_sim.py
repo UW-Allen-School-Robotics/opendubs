@@ -107,10 +107,16 @@ def test_park_and_activate_move_the_arm(side):
         wait(service)
         assert service.last == "park done", service.last
         assert np.abs(position() - stow).max() < 0.05 and abs(position()[0] - ready[0]) > 0.2, "the arm did not move to the stow pose"
+        recordings = tempfile.mkdtemp(prefix="arm_service_rec_")
+        service.args.record_dir = recordings
         assert service.start("activate") == "activate started"
         wait(service)
         assert service.last == "activate done", service.last
         assert np.abs(position() - ready).max() < 0.05, "the arm did not come back to ready"
+        (csv_file,) = os.listdir(recordings)
+        rows = open(os.path.join(recordings, csv_file)).read().splitlines()
+        assert rows[0].startswith("t,q1") and len(rows) > 100, f"the recording is empty: {len(rows)} rows"
+        assert max(float(r.split(",")[-1]) for r in rows[1:]) < 0.2, "the recording's error column is not the tracking error"
         service.args.stow_conf = os.path.join(os.path.dirname(conf), "missing.conf")
         assert service.start("park") == "park started"
         wait(service)

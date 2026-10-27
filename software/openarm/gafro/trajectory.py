@@ -77,9 +77,10 @@ def resample(times, positions, velocities=None, period: float = PERIOD):
     return grid - times[0], q, qd
 
 
-def follow(robot, side: str, times, positions, velocities, keeper, cancel: threading.Event, limits: Limits = Limits(), log=print) -> Result:
+def follow(robot, side: str, times, positions, velocities, keeper, cancel: threading.Event, limits: Limits = Limits(), log=print, record: str | None = None) -> Result:
     """Play the path (`positions`: K rows of the arm's 7 joints, at `times` from now) and return how it ended. `keeper` is this goal's lease on the permit (arm_service.SharedPermit; started
-    here, after the path passes its checks, and released on every way out). `cancel` is set to end the run early."""
+    here, after the path passes its checks, and released on every way out). `cancel` is set to end the run early.
+    `record`: a CSV path for the run's samples (about 500 Hz: measured position, velocity and torque, the path's position and the error), written however the run ends."""
     import play_show
     import position_play
     from gafro import control
@@ -105,11 +106,11 @@ def follow(robot, side: str, times, positions, velocities, keeper, cancel: threa
     samples, done = [], threading.Event()
     vibrating = {"run": 0, "joints": []}
 
-    def record():
+    def sample():
         while not done.is_set():
             s = robot.get_state()
             v = np.asarray(s.get_velocity(), dtype=float)[indices]
-            samples.append((time.time(), np.asarray(s.get_position(), dtype=float)[indices], np.asarray(s.get_torque(), dtype=float)[indices]))
+            samples.append((time.time(), np.asarray(s.get_position(), dtype=float)[indices], np.asarray(s.get_torque(), dtype=float)[indices], v))
             over = np.abs(v) > limits.max_joint_speed
             vibrating["run"] = vibrating["run"] + 1 if over.any() else 0
             if vibrating["run"] >= VIBRATION_SAMPLES and not vibrating["joints"]:
@@ -126,7 +127,7 @@ def follow(robot, side: str, times, positions, velocities, keeper, cancel: threa
                                                    True, limits.leash, limits.offset_gain)
         time.sleep(0.1)                          # holding where it is before the path starts
         begin_clock, began = control.monotonic_now() + limits.lead_in, time.time() + limits.lead_in
-        threading.Thread(target=record, daemon=True).start()
+        threading.Thread(target=sample, daemon=True).start()
         position_play.publish(posture, rate_source, begin_clock, PERIOD, full, rates)
 
         while time.time() - began < grid[-1] + 1.0 and not cancel.is_set():
@@ -134,7 +135,7 @@ def follow(robot, side: str, times, positions, velocities, keeper, cancel: threa
             elapsed = time.time() - began
             if elapsed <= 0 or not samples:
                 continue
-            _, q, tau = samples[-1]
+            _, q, tau, _ = samples[-1]
             error = play_show.tracking_error(grid, joints, elapsed, q)
             worst = max(worst, error)
             if vibrating["joints"]:
@@ -157,3 +158,23 @@ def follow(robot, side: str, times, positions, velocities, keeper, cancel: threa
     finally:
         done.set()
         keeper.stop()
+        if record and samples:
+            try:
+                write_recording(record, list(samples), grid, joints, began)
+                log(f"recorded {record}")
+            except OSError as error:
+                log(f"could not write {record}: {error}")
+
+
+def write_recording(path: str, samples, grid, joints, began: float) -> None:
+    """The run's samples as a CSV: t (s from the path's start), q1..7, qd1..7, tau1..7, ref1..7 (where the path is), error (the largest joint's distance from it)."""
+    import csv
+
+    with open(path, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["t"] + [f"q{j + 1}" for j in range(7)] + [f"qd{j + 1}" for j in range(7)] + [f"tau{j + 1}" for j in range(7)]
+                        + [f"ref{j + 1}" for j in range(7)] + ["error"])
+        for when, q, tau, v in samples:
+            elapsed = when - began
+            ref = np.array([np.interp(elapsed, grid, joints[:, j]) for j in range(joints.shape[1])])
+            writer.writerow([f"{elapsed:.4f}"] + [f"{x:.5f}" for x in np.r_[q, v, tau, ref]] + [f"{np.abs(q - ref).max():.5f}"])
