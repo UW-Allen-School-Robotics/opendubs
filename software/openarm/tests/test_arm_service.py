@@ -122,6 +122,17 @@ def test_refusals_command_nothing():
     assert "outside" in grip(robot, clock, 0.5).message
 
 
+def test_the_stow_ready_line_is_a_known_start():
+    a, b = np.zeros(7), np.array([0.0, 0.7, -0.5, 1.8, -1.0, -0.1, -0.55])
+    tolerance = np.radians(5.0)
+    assert arm_service.line_fraction(a, a, b, tolerance) == 0.0 and arm_service.line_fraction(b, a, b, tolerance) == 1.0
+    halfway = arm_service.line_fraction(0.4 * b, a, b, tolerance)
+    assert abs(halfway - 0.4) < 1e-9, "an arm stopped on the line is not recognised"
+    assert arm_service.line_fraction(0.4 * b + np.array([0.2, 0, 0, 0, 0, 0, 0]), a, b, tolerance) is None, "an arm 11 deg off the line was accepted"
+    assert arm_service.line_fraction(0.4 * b, None, b, tolerance) is None, "a missing pose must not count as a known start"
+    assert arm_service.line_fraction(2.0 * b, a, b, tolerance) is None, "past the ready end, far from it"
+
+
 class FakeGoal:
     """A goal handle that enforces rclpy's rule: CANCELED only from a cancel request (else "invalid transition from EXECUTING with CANCELED")."""
 

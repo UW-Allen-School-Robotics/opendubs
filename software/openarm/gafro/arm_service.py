@@ -68,6 +68,19 @@ MOVE_SECONDS = 5.0
 COMMANDS = ("status", "activate", "park", "follow", "hold", "down", "supervise", "unsupervise")
 
 
+def line_fraction(q, a, b, tolerance):
+    """How far along the straight line from `a` to `b` the arm `q` is (0 to 1), if every joint is within `tolerance` of that line, else None. The stow to ready line is the one the
+    moves travel and the check has cleared, so an arm stopped on it can go on from there; None when a pose is missing."""
+    if a is None or b is None:
+        return None
+    q, a, b = (np.asarray(x, dtype=float) for x in (q, a, b))
+    span = b - a
+    if not np.any(span):
+        return None
+    fraction = float(np.clip(np.dot(q - a, span) / np.dot(span, span), 0.0, 1.0))
+    return fraction if float(np.abs(q - (a + fraction * span)).max()) <= tolerance else None
+
+
 class SharedPermit:
     """One permit keeper for the arm, shared by whatever moves it at the moment (a lifecycle command, a trajectory, a gripper command): started by the first lease, stopped (the
     permit revoked) when the last ends, and revoked at once by `revoke` (`hold`). Without it a gripper cue finishing in the middle of a show would revoke the arm's permit."""
@@ -174,7 +187,7 @@ class ArmService:
 
     # -- commands ------------------------------------------------------------------------------------------------------------------------
 
-    def start(self, name, move_seconds=None):
+    def start(self, name, move_seconds=None, allow_large=False):
         """Run `activate`, `park` or `follow` on a thread; the answer is whether it was started. `move_seconds` (activate, park): this move's time, instead of the service's."""
         if move_seconds is not None and not (name in ("activate", "park") and 0.0 < move_seconds < float("inf")):
             return f"refused: a move time is a positive number of seconds for activate or park, not {move_seconds!r} for {name}"
@@ -193,10 +206,10 @@ class ArmService:
                 return f"refused: {refused}"
             self.cancel.clear()
             self.running = name
-        threading.Thread(target=self._run, args=(name, known, tolerance, gate, move_seconds), daemon=True).start()
+        threading.Thread(target=self._run, args=(name, known, tolerance, gate, move_seconds, allow_large), daemon=True).start()
         return f"{name} started"
 
-    def _run(self, name, known, tolerance, gate, move_seconds=None):
+    def _run(self, name, known, tolerance, gate, move_seconds=None, allow_large=False):
         side, model = self.args.side, self.args.model
         try:
             if name == "follow":
@@ -205,7 +218,7 @@ class ArmService:
                 self.last = "following: " + pose_follow.follow(self.robot, side, controllers, self.source, self.permit.lease(), self.cancel, lambda: self.permit.withheld,
                                                                log=self._log)
                 return
-            self._move(name, known, tolerance, move_seconds)
+            self._move(name, known, tolerance, move_seconds, allow_large)
             self.last = f"{name} done"
         except (guards.Refused, EngageRefused) as refused:
             self.last = f"{name} stopped: {refused}"
@@ -220,7 +233,7 @@ class ArmService:
         directory = getattr(self.args, "record_dir", None)
         return os.path.join(directory, f"arm_service-{self.args.side}-{name}-{time.strftime('%Y%m%d-%H%M%S')}.csv") if directory else None
 
-    def _move(self, name, known, tolerance, move_seconds=None):
+    def _move(self, name, known, tolerance, move_seconds=None, allow_large=False):
         """`activate` (to the model's `ready`) or `park` (to the stow file's pose) as a straight minimum-jerk line in joint space, in POSITION mode.
 
         The line is engage.py's, checked against the collision geometry as engage.py checks it, but it is played by trajectory.follow (the position controller of
@@ -247,7 +260,13 @@ class ArmService:
             try:
                 self._log(f"the arm starts near {guards.require_known_start(start, starts, tolerance)}")
             except guards.Refused as refused:
-                raise EngageRefused(str(refused)) from None
+                along = line_fraction(start, starts.get("stow"), starts.get("ready"), tolerance)
+                if along is not None:
+                    self._log(f"the arm is on the stow-ready line, {along:.0%} of the way from stow: the line is known to be clear")
+                elif allow_large:
+                    self._log("--allow-large: the arm is not near stow, ready or the line between them; the check has no head in its model, so the path is yours to judge by eye")
+                else:
+                    raise EngageRefused(f"{refused} Or pass --allow-large, with a person at the e-stop, to move from here anyway.") from None
         lower = np.asarray(system.get_joint_limits_min().coefficients())[indices]
         upper = np.asarray(system.get_joint_limits_max().coefficients())[indices]
         if np.any(target < lower) or np.any(target > upper):
@@ -337,7 +356,7 @@ class ArmService:
         if command == "status":
             return self.status()
         if command in ("activate", "park", "follow"):
-            return self.start(command, request.get("move_seconds"))
+            return self.start(command, request.get("move_seconds"), bool(request.get("allow_large")))
         if command in ("supervise", "unsupervise"):
             self.args.supervised = command == "supervise"
             return ("supervised: a person is at the e-stop (head tracking off, neck centred); moving commands are allowed while CH5, the e-stop and CH6 permit"
@@ -376,10 +395,10 @@ def listen(service, path):
     return server
 
 
-def send(command, drop=False, path=None, move_seconds=None):
+def send(command, drop=False, path=None, move_seconds=None, allow_large=False):
     with socket.socket(socket.AF_UNIX) as sock:
         sock.connect(path)
-        sock.sendall((json.dumps({"command": command, "drop": drop, "move_seconds": move_seconds}) + "\n").encode())
+        sock.sendall((json.dumps({"command": command, "drop": drop, "move_seconds": move_seconds, "allow_large": allow_large}) + "\n").encode())
         sock.shutdown(socket.SHUT_WR)
         return sock.makefile().read().rstrip("\n")       # the whole reply: `status` is two lines
 
@@ -391,6 +410,7 @@ def main() -> int:
     ctl.add_argument("command", choices=COMMANDS)
     ctl.add_argument("--drop", action="store_true", help="down: end although the arm is not at stow")
     ctl.add_argument("--move-seconds", type=float, default=None, help="activate, park: this move's time in seconds, instead of the service's --move-seconds")
+    ctl.add_argument("--allow-large", action="store_true", help="activate, park: move even though the arm is not near stow, ready or the line between them (a person at the e-stop judges the path)")
     ctl.add_argument("--side", choices=("left", "right"), default="right")
     ctl.add_argument("--socket", default=None, help="default: the side's")
     run = sub.add_parser("run", help="run the service (the default)")
@@ -414,7 +434,7 @@ def main() -> int:
     args.socket = args.socket or socket_for(args.side)
     if args.mode == "ctl":
         try:
-            print(send(args.command, args.drop, args.socket, args.move_seconds))
+            print(send(args.command, args.drop, args.socket, args.move_seconds, args.allow_large))
         except OSError as error:
             print(f"no arm service at {args.socket} ({error})")
             return 1

@@ -179,6 +179,48 @@ def test_park_and_activate_move_the_arm(side):
         robot.shutdown()
 
 
+def test_a_start_off_the_ends_is_allowed_on_the_line_and_by_flag(side="right"):
+    """The start check of a real bus, run in the simulator (it is skipped there by default: `tolerance` None): an arm stopped half way along the stow-ready line goes on,
+    an arm off the line is refused, and --allow-large moves it anyway."""
+    import engage
+
+    robot, indices, position = arm_service.bringup.connect(args_for(side))
+    service = arm_service.ArmService(robot, args_for(side))
+    ready = position().copy()
+    stow = np.zeros(7)
+    known, tolerance = {"stow": stow}, float(np.radians(5.0))
+    conf = os.path.join(tempfile.mkdtemp(prefix="arm_service_stow_"), "stow.conf")
+    with open(conf, "w") as stream:
+        stream.write(f"{side.upper()}_STOW=" + ",".join(f"{v:.4f}" for v in np.degrees(stow)) + "\n")
+    service.args.stow_conf, service.args.move_seconds = conf, 6.0
+    try:
+        def go_to(q):                                  # put the arm there (a trajectory: the simulator has no start check)
+            times = np.linspace(0, 6, 31)
+            s = times / 6
+            shape = s**3 * (10 - 15 * s + 6 * s**2)
+            assert service.follow(times, position() + np.outer(shape, q - position())).code == 0
+
+        go_to(0.5 * ready)                               # half way along the line, where an interrupted move leaves the arm
+        try:
+            service._move("activate", known, tolerance, 6.0)
+        except engage.EngageRefused as refused:
+            raise AssertionError(f"the arm on the stow-ready line was refused: {refused}")
+        assert np.abs(position() - ready).max() < 0.05
+
+        off = 0.5 * ready
+        off[0] += 0.4                                    # 23 deg off the line on joint 1
+        go_to(off)
+        try:
+            service._move("activate", known, tolerance, 6.0)
+            raise AssertionError("an arm off the line was accepted")
+        except engage.EngageRefused as refused:
+            assert "--allow-large" in str(refused), refused
+        service._move("activate", known, tolerance, 6.0, True)
+        assert np.abs(position() - ready).max() < 0.05
+    finally:
+        robot.shutdown()
+
+
 def test_trajectory_and_follow(side):
     import gafro_robot_interface as ri  # noqa: F401
 
@@ -226,6 +268,8 @@ if __name__ == "__main__":
     print("ok move duration")
     test_the_process("left")
     print("ok process (left)")
+    test_a_start_off_the_ends_is_allowed_on_the_line_and_by_flag("right")
+    print("ok start check")
     for side in ("right", "left"):
         test_park_and_activate_move_the_arm(side)
         print("ok park and activate", side)
