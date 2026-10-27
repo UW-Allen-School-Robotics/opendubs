@@ -114,29 +114,48 @@ stuck = np.zeros(len(ts))
 report = track_hand.velocity_report(ts, stuck[:, None] * direction[None, :], np.array([length, 0.0, 0.0]), duration, np.zeros((len(ts), 7)), np.zeros((len(ts), 7)))
 check("track_hand: a move that never starts says breakaway never", "breakaway (hand 1 mm along the move): never" in report, True)
 
-# -- per-robot limits and the stall check (the cables behind the right arm, 2026-10-23) ---------------------------------------------------------------
+# -- the model's joint limits and the stall check (the cables behind the right arm, 2026-10-23) ---------------------------------------------------------------
 import limits as robot_limits  # noqa: E402
 
-with tempfile.TemporaryDirectory() as tmp:
-    path = os.path.join(tmp, "joint_limits.yaml")
-    check("limits: no file is no limits, not an error", robot_limits.load(os.path.join(tmp, "absent.yaml")), {})
-    _, _, note = robot_limits.apply("right", [-1.0] * 7, [1.0] * 7, os.path.join(tmp, "absent.yaml"))
-    check("limits: with no file the plan says the cables are not known", "NOT known" in note, True)
-    with open(path, "w") as handle:
-        handle.write("openarm_right_joint1:\n  lower: 0.0\n  upper: 9.0\nopenarm_left_joint1:\n  lower: -0.5\n  upper: 0.5\n")
-    lo, hi, note = robot_limits.apply("right", [-1.396] * 7, [3.49] * 7, path)
-    check("limits: the right arm's joint 1 is narrowed to the file's lower bound and its upper bound is not widened", [float(lo[0]), float(hi[0])], [0.0, 3.49])
-    check("limits: the other joints and the other arm's entry are untouched, and the note names joint 1", [float(lo[1]), "narrowing joint(s) 1" in note], [-1.396, True])
-    backward = np.linspace(0, 1, 31)[None, :] * np.radians([-5, 0, 0, 0, 0, 0, 5])[:, None]
-    check("goto_hand: a path backward past the cable limit refuses once the file names it", refuses(lambda: goto_hand.check_plan(dict(states=backward), lo, hi, 1.0, 15, 6.0, np.array([-0.04, 0, 0])), "range"), True)
-    with open(path, "w") as handle:
-        handle.write("openarm_right_joint1:\n  lower: oops\n")
-    try:
-        robot_limits.load(path)
-        malformed = "no error"
-    except ValueError:
-        malformed = "refused"
-    check("limits: a malformed file is an error, never silently ignored", malformed, "refused")
+class _Joint:
+    def __init__(self, name, index, actuated):
+        self.name, self.index, self.actuated = name, index, actuated
+
+    def get_name(self):
+        return self.name
+
+    def get_index(self):
+        return self.index
+
+    def is_actuated(self):
+        return self.actuated
+
+
+class _Limits:
+    def __init__(self, values):
+        self.values = values
+
+    def coefficients(self):
+        return np.array(self.values)
+
+
+class _System:
+    """What of_model reads: joints with an index into the limit vectors, one of them not actuated."""
+
+    def get_joints(self):
+        return [_Joint("a", 0, True), _Joint("fixed", 1, False), _Joint("b", 2, True)]
+
+    def get_joint_limits_min(self):
+        return _Limits([-1.0, -9.0, -2.0])
+
+    def get_joint_limits_max(self):
+        return _Limits([1.0, 9.0, 2.5])
+
+
+check("limits: of_model reads each actuated joint's range by its index and skips the others", robot_limits.of_model(_System()), {"a": (-1.0, 1.0), "b": (-2.0, 2.5)})
+lo, hi = np.array([0.0] + [-1.396] * 6), np.array([3.49] * 7)      # a model whose right joint 1 stops at the cables
+backward = np.linspace(0, 1, 31)[None, :] * np.radians([-5, 0, 0, 0, 0, 0, 5])[:, None]
+check("goto_hand: a path backward past a model limit on joint 1 refuses", refuses(lambda: goto_hand.check_plan(dict(states=backward), lo, hi, 1.0, 15, 6.0, np.array([-0.04, 0, 0])), "range"), True)
 
 check("track_hand: the cable case (hand 20 mm behind, 0 mm advanced, 0.83 N m) stalls", track_hand.stall_reason(20.0, -0.8, -0.8, 0.83) is not None, True)
 check("track_hand: a forward move keeping up (lag 8 mm, 1.0 N m) does not stall", track_hand.stall_reason(30.0, 22.0, 12.0, 1.0), None)

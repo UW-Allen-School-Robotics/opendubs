@@ -10,7 +10,7 @@ straight line is clear of the robot's body in the lane's twin (refuse under --mi
 `stow`; the deadman (CH6) must be HELD when it starts, and the permit is renewed only while CH6 and CH5 hold and the e-stop is clear, so letting go stops it
 within the 0.5 s lease and the arm holds where it is.
 
-    python goto_stow.py --side right --model <xml> --hardware-config <yaml> --assets <openarm_assets> --supervised
+    python goto_stow.py --side right --supervised
 
 """
 from __future__ import annotations
@@ -57,10 +57,10 @@ def plan_text(side, start, target, speed, closest, minimum_mm) -> str:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--side", choices=("left", "right"), required=True)
-    p.add_argument("--model", required=True)
+    p.add_argument("--model", default=bringup.DEFAULT_MODEL, help="the robot's gafro model (default: the repo's own description/openarm/gafro/openarm_bimanual.xml)")
     p.add_argument("--backend", choices=("hardware", "mujoco"), default="hardware")
-    p.add_argument("--hardware-config", default="")
-    p.add_argument("--assets", default=None)
+    p.add_argument("--hardware-config", default=os.environ.get("ARM_HW_CONFIG", ""), help="the driver's config (default: $ARM_HW_CONFIG, which env.sh's arm_* functions use)")
+    p.add_argument("--assets", default=None, help="the openarm_assets checkout the twin is built from (default: the repo's own description/openarm/mjcf)")
     p.add_argument("--sim-dir", default=None)
     p.add_argument("--stow-conf", default=None)
     p.add_argument("--speed", type=float, default=0.1, help="rad/s of the largest joint (at most 0.3)")

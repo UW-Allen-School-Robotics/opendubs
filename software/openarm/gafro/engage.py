@@ -40,6 +40,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import guards  # noqa: E402
+
+# This repository's own gafro model of the robot: what the tools bind when no --model is given. Four directories up from this file is the repository root.
+DEFAULT_MODEL = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "description", "openarm", "gafro", "openarm_bimanual.xml")
 MARGIN = 0.003          # how much nearer than at its closer end a pair may come along the path, m
 CLEARANCE = 0.02        # a pair further apart than this along the whole path is clear, however much nearer than at its ends, m
 JOINT_SPEED = 0.3       # rad/s, the largest joint's; RI's default for go_to_*
@@ -386,7 +389,7 @@ def _line_end(start_all: np.ndarray, target_all: np.ndarray, indices: np.ndarray
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--model", required=True, help="the robot's gafro model (description/openarm/gafro/openarm_bimanual.xml)")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="the robot's gafro model (default: the repo's own description/openarm/gafro/openarm_bimanual.xml)")
     parser.add_argument("--side", choices=("left", "right", "both"), required=True)
     parser.add_argument("--keyframe", default="ready")
     parser.add_argument("--park", action="store_true", help="go to the stow pose of the stow file instead, and hold it under `engage`")

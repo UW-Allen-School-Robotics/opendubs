@@ -2,7 +2,7 @@
 """Move one arm's HAND by a small offset, orientation held: the target pose is the arm's current hand pose plus (dx, dy, dz), planned with gafro's iLQR
 and driven in POSITION mode (the driver's gravity feed-forward), under every gate the verified bring-up stages use. Slice 1 of the pose controllers.
 
-    python goto_hand.py --side right --model <xml> --hardware-config <yaml> --assets <openarm_assets> --supervised --offset-cm 3,0,0
+    python goto_hand.py --side right --supervised --offset-cm 3,0,0
 
 The offset is in centimetres in the MODEL frame: +x forward (the way the face looks), +y the robot's left, +z up. Planning (hand_plan.py) is offline and
 takes milliseconds; nothing is commanded until you have read the plan and typed `hand`. The plan is refused if iLQR cannot reach the target (a straight
@@ -85,15 +85,14 @@ def over_torque(torque_peak: np.ndarray, limit: float) -> list:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--side", choices=("left", "right"), required=True)
-    p.add_argument("--model", required=True)
+    p.add_argument("--model", default=bringup.DEFAULT_MODEL, help="the robot's gafro model (default: the repo's own description/openarm/gafro/openarm_bimanual.xml)")
     p.add_argument("--backend", choices=("hardware", "mujoco"), default="hardware")
-    p.add_argument("--hardware-config", default="")
-    p.add_argument("--assets", default=None)
+    p.add_argument("--hardware-config", default=os.environ.get("ARM_HW_CONFIG", ""), help="the driver's config (default: $ARM_HW_CONFIG, which env.sh's arm_* functions use)")
+    p.add_argument("--assets", default=None, help="the openarm_assets checkout the twin is built from (default: the repo's own description/openarm/mjcf)")
     p.add_argument("--sim-dir", default=None)
     p.add_argument("--offset-cm", required=True, help="dx,dy,dz in centimetres, model frame: +x forward, +y left, +z up")
     p.add_argument("--speed", type=float, default=0.05, help="rad/s of the largest joint (at most 0.2)")
     p.add_argument("--weight", type=int, default=10, help="terminal pose weight (the same term added this many times)")
-    p.add_argument("--limits", default=None, help="this robot's joint limits (default $OPENDUBS_ARM_LIMITS or /etc/opendubs/arm-limits/joint_limits.yaml): narrows the model's ranges, never widens them")
     p.add_argument("--max-torque", type=float, default=12.0, help="N m: stop renewing the permit (the arm holds) if any joint's measured torque reaches this. In position mode it is "
                    "kp times the lag behind the target (kp 120 on joint 1: 0.09 rad is 10.8 N m); stiffer gains need a higher cap, on purpose. The driver's own trip is 27 N m on joint 1")
     p.add_argument("--max-offset-cm", type=float, default=6.0)
@@ -132,7 +131,7 @@ def main(argv=None) -> int:
                 raise guards.Refused(str(error)) from None
             lower = np.asarray(system.get_joint_limits_min().coefficients())[np.asarray(task.get_joint_indices())]
             upper = np.asarray(system.get_joint_limits_max().coefficients())[np.asarray(task.get_joint_indices())]
-            lower, upper, limits_note = robot_limits.apply(args.side, lower, upper, args.limits)
+            limits_note = robot_limits.NOTE
             check_plan(plan, lower, upper, args.max_bend_deg, args.max_joint_deg, args.max_offset_cm, offset)
             closest = None
             if not args.skip_clearance:
