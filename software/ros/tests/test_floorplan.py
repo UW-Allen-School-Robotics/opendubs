@@ -36,6 +36,35 @@ class RoomTest(unittest.TestCase):
             self.assertFalse(fp.is_room(w), w)
 
 
+class PlanFileTest(unittest.TestCase):
+    """`floorplan.py plan`: the open plan file (encore.plan/1), built without a PDF library."""
+    P = staticmethod(lambda x, y: types.SimpleNamespace(x=x, y=y))
+
+    def test_strokes_read_lines_curves_and_rectangles(self):
+        P = self.P
+        rect = types.SimpleNamespace(tl=P(0, 0), tr=P(4, 0), br=P(4, 2), bl=P(0, 2))
+        segs = fp.strokes([("l", P(1, 1), P(2, 1)), ("c", P(0, 0), P(9, 9), P(9, 9), P(3, 0)), ("re", rect, 0)])
+        self.assertEqual(segs[0], ((1, 1), (2, 1)))
+        self.assertEqual(segs[1], ((0, 0), (3, 0)))                    # a curve as its chord p1 -> p4
+        self.assertEqual(segs[2:], [((0, 0), (4, 0)), ((4, 0), (4, 2)), ((4, 2), (0, 2)), ((0, 2), (0, 0))])
+
+    def test_walls_are_clipped_to_the_drawing_and_y_flips(self):
+        box = fp.drawing_area(200, 150)                                # x 10..190, y 40..140 (page points)
+        segs = [((0, 100), (100, 100)),                                # crosses the left margin: clipped at x 10
+                ((50, 5), (60, 20)),                                   # in the header: dropped
+                ((80, 90), (80, 90))]                                  # zero length: dropped
+        d = fp.plan_doc(segs, 0.5, {"269": [1.0, -2.0]}, box, "f2", {"file": "x.pdf"}, {"name": "t"}, 100)
+        self.assertEqual(d["walls"], [[[5.0, -50.0], [50.0, -50.0]]])  # metres, y negated
+        self.assertEqual(d["format"], "encore.plan/1")
+        self.assertEqual((d["frame"], d["units"], d["rooms"]), ("f2", "m", {"269": [1.0, -2.0]}))
+        self.assertEqual(d["scale"]["m_per_unit"], 0.5)
+
+    def test_clip_keeps_the_inside_and_rejects_the_outside(self):
+        box = (0, 10, 0, 10)
+        self.assertEqual(fp.clip((5, 5), (15, 5), box), ((5, 5), (10, 5)))
+        self.assertIsNone(fp.clip((11, 0), (20, 0), box))
+
+
 class ModeTest(unittest.TestCase):
     def setUp(self):
         try:
