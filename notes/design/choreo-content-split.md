@@ -100,7 +100,10 @@ robot (**robot**). Both need the user's word. Every other step is an ordinary dr
 | 10 | Retire the composer and studio in one PR | Choreography | — |
 
 **Order.** Steps 1 to 2 can start now. Step 5 must come before step 7: otherwise the robot's face
-loses the Halloween theme and the monster skins at the deploy. Steps 8 to 10 follow the split.
+loses the Halloween theme and the monster skins at the deploy. One exception: `tools/surge/` reaches the robot
+straight **after** step 7, in the same sitting. While the core still has its own Surge files, the
+same tool ids in a pack are a registry error (`effectors.py`: defined in both), and a show with the
+floor hand refuses. Steps 8 to 10 follow the split.
 
 **Blocked today:**
 
