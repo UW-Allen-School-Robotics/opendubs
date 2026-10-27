@@ -254,17 +254,6 @@ arm_move() {  # arm_move <side> <joint> <signed rad> [speed rad/s]
         && _arm_bringup move "$1" --supervised --joint "$2" --delta "$3" ${4:+--speed "$4"} ${ARM_ASSETS:+--assets "$ARM_ASSETS"}
 }
 
-_arm_engage() {  # _arm_engage <side> [engage.py args]
-    local repo side=$1
-    repo=$(_arm_repo) || return 1
-    shift
-    python "$repo/software/openarm/gafro/engage.py" --model "$repo/description/openarm/gafro/openarm_bimanual.xml" --backend hardware \
-        --hardware-config "$ARM_HW_CONFIG" --side "$side" "$@"
-}
-
-arm_engage() { _arm_confirm "Moves the $1 arm from where it is to the ready pose (11 s from stow), then holds it under track. HOLD CH6 (the deadman) from now until it ends." &&_arm_engage "$1" --supervised --speed "${2:-0.15}"; }
-arm_park()   { _arm_confirm "Moves the $1 arm to the stow pose of /etc/opendubs/openarm-stow.conf and holds it. HOLD CH6 (the deadman) from now until it ends." &&_arm_engage "$1" --supervised --park --speed "${2:-0.15}"; }
-
 arm_help() {
     cat <<'EOF'
 building   arm_build_can | arm_install_gafro | arm_install_ri | arm_build_ri_cxx | arm_build_driver | arm_test_driver   (in that order)
@@ -272,8 +261,7 @@ looking    arm_doctor | arm_can_health [args]
 first run  arm_hold <side> [seconds]        stage 3: enabled and held, nothing commanded
            arm_lapse <side> <joint> <+/-rad> [speed] [after]   stage 4: the permit stops being renewed mid-move (no default step or direction)
            arm_move <side> <joint> <+/-rad> [speed]            stage 5: one joint a small step and back (no default step or direction)
-           arm_engage <side|both> [rad/s]   stage 6/7: to the ready pose, then track (default 0.15 rad/s)
-           arm_park <side|both> [rad/s]     back to the stow pose
+           (to the ready pose and back to stow: `arm_service.py ctl --side <side> activate|park`)
 Each first-run function asks first. <side> is left or right. Variables: ARM_CODING ARM_PREFIX ARM_VENV ARM_REPO ARM_DRIVER ARM_HW_CONFIG ARM_JOBS.
 EOF
 }

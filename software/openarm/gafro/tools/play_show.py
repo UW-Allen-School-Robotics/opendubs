@@ -102,13 +102,13 @@ def main(argv=None) -> int:
     p.add_argument("--slow", type=float, default=2.0, help="stretch the show in time by this factor (1 is as written; the default plays it at half speed)")
     p.add_argument("--max-speed", type=float, default=1.3, help="rad/s: refuse a path faster than this on any joint, after --slow")
     p.add_argument("--start-tolerance-deg", type=float, default=3.0)
-    p.add_argument("--gain", type=float, default=20.0, help="the posture error to speed, 1/s, on the controller's own anchor: high is fine, there is no actuator in that loop. "
+    p.add_argument("--gain", type=float, default=None, help="(default: controllers.yaml `follow_path`) the posture error to speed, 1/s, on the controller's own anchor: high is fine, there is no actuator in that loop. "
                    "The plan's own rate is fed forward, so this only corrects the anchor's drift from the show")
-    p.add_argument("--max-lead", type=float, default=0.02, help="rad per joint: how far the offset may take the command from the anchor. The offset closes what the actuator did not do and "
+    p.add_argument("--max-lead", type=float, default=None, help="(default: controllers.yaml `follow_path`) rad per joint: how far the offset may take the command from the anchor. The offset closes what the actuator did not do and "
                    "must exceed friction / kp of the joint or it never breaks away; it hunts against friction by about the lead when --offset-gain is high")
-    p.add_argument("--leash", type=float, default=0.15, help="rad per joint: how far the anchor may get from the measured position; a held joint is never asked for more than kp * leash beyond the show")
-    p.add_argument("--offset-gain", type=float, default=2.0, help="1/s: gain of the offset on the anchor's distance from the measurement")
-    p.add_argument("--max-command-speed", type=float, default=0.5, help="rad/s: cap on the speed the controller's feedback asks for")
+    p.add_argument("--leash", type=float, default=None, help="(default: controllers.yaml `follow_path`) rad per joint: how far the anchor may get from the measured position; a held joint is never asked for more than kp * leash beyond the show")
+    p.add_argument("--offset-gain", type=float, default=None, help="(default: controllers.yaml `follow_path`) 1/s: gain of the offset on the anchor's distance from the measurement")
+    p.add_argument("--max-command-speed", type=float, default=None, help="(default: controllers.yaml `follow_path`) rad/s: cap on the speed the controller's feedback asks for")
     p.add_argument("--no-feedforward", action="store_true")
     p.add_argument("--max-error", type=float, default=0.2, help="rad: stop (the arm holds) if any joint is further than this from the path")
     p.add_argument("--tolerance", type=float, default=0.08, help="rad: the largest tracking error a PASS may have")
@@ -148,6 +148,7 @@ def main(argv=None) -> int:
     except ValueError as error:
         print(f"refused: {error}")
         return 1
+    args.gain, args.max_lead, args.max_command_speed, args.leash, args.offset_gain = position_play.settings(args.gain, args.max_lead, args.max_command_speed, args.leash, args.offset_gain)
     if not 0 < args.max_command_speed:
         print("refused: --max-command-speed must be positive")
         return 1

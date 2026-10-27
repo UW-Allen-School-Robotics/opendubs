@@ -37,11 +37,11 @@ class Limits:
     goal_tolerance: float = 0.05      # rad from the path's end at the end (the simulator ends 0.034 short: position mode has no integral action)
     max_torque: float = 12.0          # N m
     max_joint_speed: float = 2.5      # rad/s for ~12 ms: vibration, stop
-    gain: float = 20.0
-    max_lead: float = 0.02
-    leash: float = 0.15
-    offset_gain: float = 2.0
-    max_command_speed: float = 0.5
+    gain: float | None = None         # the position controller's (`follow_path` of controllers.yaml) unless named: these five
+    max_lead: float | None = None
+    leash: float | None = None
+    offset_gain: float | None = None
+    max_command_speed: float | None = None
     lead_in: float = 0.2              # s between publishing the path and its first knot: the show is this much later than its clock says
 
 

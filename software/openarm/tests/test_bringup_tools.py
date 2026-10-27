@@ -29,7 +29,6 @@ import make_config  # noqa: E402
 import motion_plan  # noqa: E402
 import play_show  # noqa: E402
 import position_play  # noqa: E402
-import torque_probe  # noqa: E402
 import track_hand  # noqa: E402
 
 fails = 0
@@ -89,8 +88,6 @@ check("goto_hand: the force cap names the joints that reached it, and only those
 check("goto_hand: a pull in either direction counts (the cap is on the magnitude)", goto_hand.over_torque(np.array([-13.0, 0, 0, 0, 0, 0, 0]), 12.0), [1])
 
 # -- track_hand --------------------------------------------------------------------------------------------------------------------------------
-code, text = run(track_hand.main, *base, "--offset-cm", "3,0,0", "--controller", "track")
-check("track_hand: the torque `track` controller is refused, saying why", [code, "kicked" in text], [1, True])
 knots = track_hand.reference_knots(line, 2.0)
 steps = np.linalg.norm(np.diff(np.array(knots), axis=0), axis=1)
 check("track_hand: the reference leaves and arrives at rest", [np.allclose(knots[0], line[:, 0]), np.allclose(knots[-1], line[:, -1]), bool(steps[0] < steps[20] and steps[-1] < steps[20])], [True, True, True])
@@ -189,29 +186,17 @@ with tempfile.TemporaryDirectory() as tmp:
     check("make_config: writing over the base refuses", run(make_config.main, "--base", base_yaml, "--out", base_yaml)[0], 1)
     check("make_config: a group the base lacks refuses", run(make_config.main, "--base", base_yaml, "--out", out_yaml, "--set", "middle_arm.kd=1")[0], 1)
 
-# -- torque_probe ------------------------------------------------------------------------------------------------------------------------------
-controllers = {"a": {"stages": [{"law": {"pd": {"natural_frequency": 40, "damping_ratio": 1.0, "max_speed": 0.6}}}, {"stack": [{"law": {"pd": {"natural_frequency": 20}}}]}]}}
-scaled = torque_probe.scale_natural_frequencies(controllers, 0.25)
-check("torque_probe: every natural_frequency is scaled, nothing else, and the original is untouched",
-      [scaled["a"]["stages"][0]["law"]["pd"], scaled["a"]["stages"][1]["stack"][0]["law"]["pd"]["natural_frequency"], controllers["a"]["stages"][0]["law"]["pd"]["natural_frequency"]],
-      [{"natural_frequency": 10.0, "damping_ratio": 1.0, "max_speed": 0.6}, 5.0, 40])
-check("torque_probe: --park is added when missing, so engage's move to ready can never run from it",
-      [torque_probe.ensure_park(["--side", "right"]), torque_probe.ensure_park(["--park", "--side", "right"])], [["--side", "right", "--park"], ["--park", "--side", "right"]])
-t = np.arange(0, 2.0, 0.004)
-q = np.zeros((len(t), 7)); v = np.zeros((len(t), 7)); tau = np.zeros((len(t), 7))
-quiet = torque_probe.analyse(t, q, v, tau)
-check("torque_probe: a quiet record is called quiet", "the transition was quiet" in quiet, True)
-q[100:, 6] = -0.026; v[100:103, 6] = [3.0, 6.1, 2.0]; tau[100:103, 6] = [1.0, 2.5, 1.0]
-kick = torque_probe.analyse(t, q, v, tau)
-check("torque_probe: a 6 rad/s spike on joint 7 is found, with its time, and the window names the joint",
-      ["joint 7  +6.10 rad/s" in kick, "0.400 s" in kick, "window around the first event, joint 7" in kick], [True, True, True])
-
 # -- position_play, play_show ------------------------------------------------------------------------------------------------------------------
 spec = position_play.position_controller(10.0, 0.03, 0.5)
 check("position_play: the spec is a position controller with a lead, a leash and an offset gain, one posture stage, a joint-rates input and the model's velocity limit",
       [spec["type"], spec["maximum_lead"], spec["maximum_error"], spec["offset_gain"], [s["name"] for s in spec["stages"]], spec["inputs"], spec["limits"], spec["stages"][0]["law"]["pd"]["feedforward"]],
       ["position", 0.03, 0.15, 2.0, ["posture"], {"posture": "joints", "posture_rate": "joint_rates"}, {"joint_velocity": "model"}, "posture_rate"])
 check("position_play: the leash and the offset gain are the caller's", [position_play.position_controller(5.0, 0.02, 0.5, maximum_error=0.3, offset_gain=4.0)[k] for k in ("maximum_error", "offset_gain")], [0.3, 4.0])
+check("position_play: with nothing named the numbers are controllers.yaml's `follow_path`, which are the ones the path player always had",
+      position_play.settings(), (20.0, 0.02, 0.5, 0.15, 2.0))
+check("position_play: a number named replaces the yaml's alone", position_play.settings(gain=5.0), (5.0, 0.02, 0.5, 0.15, 2.0))
+check("position_play: naming a number does not change the yaml's own spec for the next caller", [position_play.position_controller(1.0)["stages"][0]["law"]["pd"]["gain"],
+      position_play.position_controller()["stages"][0]["law"]["pd"]["gain"]], [1.0, 20.0])
 plain = position_play.position_controller(10.0, 0.03, 0.5, feedforward=False)
 check("position_play: without feed-forward there is no rates input and no feedforward key", ["posture_rate" in plain["inputs"], "feedforward" in plain["stages"][0]["law"]["pd"]], [False, False])
 ramp = np.outer(np.arange(0, 6), np.full(7, 0.1))                    # 0.1 rad per knot

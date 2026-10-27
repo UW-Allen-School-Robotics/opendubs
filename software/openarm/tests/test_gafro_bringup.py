@@ -192,9 +192,6 @@ for stage in (bringup.lapse, bringup.move):                  # the call that put
     source = inspect.getsource(stage)
     order = [source.find(call) for call in ("authorise(", "deadman_held(", "keeper.start()")]
     check(f"{stage.__name__}: authorise, then deadman_held, then the first permit", order == sorted(order) and min(order) >= 0, True)
-with open(os.path.join(GAFRO, "engage.py")) as f:
-    engage_source = f.read()
-check("engage and park ask for the deadman at launch", "require_motion_permitted(args.supervised, args.dashboard, deadman=True)" in engage_source, True)
 
 # -- the helpers in env.sh ------------------------------------------------------------------------------------------------------------------
 env = os.path.join(GAFRO, "env.sh")

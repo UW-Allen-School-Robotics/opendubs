@@ -2,85 +2,17 @@
 # error it receives, the objective that measures it, the law that decides and what it hands the controller; stages are highest
 # priority first. SI units; natural frequencies in rad/s.
 #
-# STARTING VALUES: the gains and speeds are not tuned on an arm. What is the arm's own (torque and velocity limits, joint ranges) is
-# not here but in the model (openarm_assets), and `limits: {joint_torque: model}` reads it from there. What is this robot's (the head)
-# is in hardware.example.yaml. These are the task's: free-space tracking of a pose, which is what teleop and a policy's pose
-# references drive.
-#
-# The OpenArm does not cancel its own gravity (its driver says so), so a torque controller does: `gravity: 9.81`.
+# Position controllers only. The torque ones (`track`, `engage`, `freedrive`) were removed: torque control does not move this arm
+# (tools/README.md, "What is known"). What is the arm's own (joint velocity limits, joint ranges) is not here but in the model
+# (openarm_assets), and `limits: {joint_velocity: model}` reads it from there. What is this robot's (the head) is in hardware.example.yaml.
+# The driver adds gravity as a feed-forward, so no controller here carries a gravity term.
 
 controllers:
-  # Operational-space control: the hand follows `reference`, the posture stage uses the redundancy, the guards act only near a joint
-  # limit or a singular configuration and are zero otherwise.
-  track:
-    inputs: {reference: pose, posture: joints}
-    type: torque
-    gravity: 9.81
-    regularization: 0.05
-    limits: {joint_torque: model}
-    stages:
-      - name: guards
-        stack:
-          - input: joints
-            objective: {joint_limits: {margin: 0.35}}
-            law: {pd: {natural_frequency: 20, damping_ratio: 1.0, max_speed: 3.0}}
-          - input: singular_values
-            objective: {singular_values: {floor: 0.06}}
-            law: {pd: {natural_frequency: 10, damping_ratio: 1.0, max_speed: 3.0}}
-        output: acceleration
-      - name: pose
-        input: pose
-        objective: {pose: {target: reference}}
-        # The speed of the hand: DEC-16 keeps 1.0 m/s as the working limit and a lower one for events; this is the lower one.
-        law: {pd: {natural_frequency: 40, damping_ratio: 1.0, max_speed: {linear: 0.5, angular: 1.5}}}
-        output: acceleration
-      - name: posture
-        input: joints
-        objective: {posture: {target: posture}}
-        law: {pd: {natural_frequency: 4, damping_ratio: 1.0, max_speed: 0.5}}
-        output: acceleration
-
-  # Joint-space move: the arm follows a posture reference through joint space, under gravity from the model. This is how the arm gets
-  # from where it is (stow, or wherever it was frozen) to the ready pose before `track` takes over: `track` itself would have the
-  # singular-value guard swing a straight stow arm. The reference is a time-parameterized straight line in joint space (engage.py), so
-  # the path is the one that was checked for self-contact; `max_speed` only bounds how far the arm may run ahead of it. The stiffness is what
-  # the wrist needs: the model's joint friction (0.1 N m) beats a posture PD at 20 rad/s on a wrist joint (inertia of a few thousandths), which
-  # stalls 0.07 rad short, and at 6 rad/s 0.75 rad short. A starting value; the real arm's friction is not this model's.
-  engage:
-    inputs: {posture: joints}
-    type: torque
-    gravity: 9.81
-    regularization: 0.05
-    limits: {joint_torque: model}
-    stages:
-      - name: posture
-        input: joints
-        objective: {posture: {target: posture}}
-        law: {pd: {natural_frequency: 40, damping_ratio: 1.0, max_speed: 0.6}}
-        output: acceleration
-
-  # Hand-guiding (FREE, DEC-11): no stiffness, so the arm goes where it is pushed, gravity from the model so it does not fall, and joint
-  # damping so it does not run away. In simulation from the ready pose it floats: 5.6 mm and 0.011 rad of creep in 4 s, against the arm falling
-  # 554 mm with gravity 0. The pose and the posture are not tracked, so there is no `reference`; `posture` is only the target the (zero)
-  # stiffness is about. NOT SAFE ON ITS OWN: in zero stiffness a stack that dies leaves near-zero torque and the arm falls
-  # (notes/design/arm-manual-control.md), so it needs the authority layer's exit conditions, and that is not built.
-  freedrive:
-    inputs: {posture: joints}
-    type: torque
-    gravity: 9.81
-    regularization: 0.05
-    stages:
-      - name: damping
-        input: joints
-        objective: {posture: {target: posture}}
-        law: {pd: {stiffness: 0.0, damping: 3.0, max_speed: 1.0}}
-        output: acceleration
-
-  # The same task as `track`, as a POSITION controller, for live pose targets (arm_service.py `ctl follow`): the stages are a velocity controller's (output velocity,
+  # Free-space tracking of a pose, as a POSITION controller, for live pose targets (arm_service.py `ctl follow`): the stages are a velocity controller's (output velocity,
   # resolved through the kinematics), run on an anchor that their own velocity moves, and the integrated anchor is the command -- joint positions and velocities,
   # like the MIT frame the driver sends (position, dq_ref, the motor's own kp and kd, gravity as a feed-forward). The motor's PD supplies the stiffness, so no loop
-  # here is closed over the bus and the gains can be high; it needs no gravity term, the driver adds its own. This is what the torque `track` cannot be on this arm.
-  # STARTING VALUES, not tuned on an arm: it had not run on one, or in the simulator, before arm_service.py.
+  # here is closed over the bus and the gains can be high; it needs no gravity term, the driver adds its own.
+  # STARTING VALUES, not tuned on an arm: the redundancy (the posture stage) is what is being tuned.
   follow_pose:
     inputs: {reference: pose, posture: joints}
     type: position
@@ -104,4 +36,23 @@ controllers:
         input: joints
         objective: {posture: {target: posture}}
         law: {pd: {gain: 2.0, max_speed: 0.5}}
+        output: velocity
+
+  # Playing a PATH: a joint-space path (a trajectory, `activate` and `park`, a choreography show, a planned hand move) is a posture reference, given whole, with the joint rates along it.
+  # Same machinery as `follow_pose` (a position controller: the stage's velocity moves an anchor, the integrated anchor is the command, the motor's PD and the driver's gravity
+  # feed-forward close the loop), but the reference is known ahead, so its rate is fed forward and the anchor follows without the lag rate / gain. play_show and track_hand
+  # take flags over these (`--gain`, `--max-lead`, `--leash`, `--offset-gain`, `--max-command-speed`, `--no-feedforward`); position_play.py builds it.
+  follow_path:
+    inputs: {posture: joints, posture_rate: joint_rates}
+    type: position
+    maximum_lead: 0.02          # rad per joint: the offset that closes what the actuator did not do (friction dead band)
+    maximum_error: 0.15         # rad per joint: the leash of the anchor on the measured position; a held joint is never asked for more than kp * this beyond the path
+    offset_gain: 2.0            # 1/s: low, a high gain hunts against friction
+    regularization: 0.05
+    limits: {joint_velocity: model}
+    stages:
+      - name: posture
+        input: joints
+        objective: {posture: {target: posture}}
+        law: {pd: {gain: 20.0, max_speed: 0.5, feedforward: posture_rate}}   # gain: no actuator is in this loop, so it can be high; max_speed caps what the feedback asks for
         output: velocity
