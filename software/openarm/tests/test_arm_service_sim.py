@@ -135,7 +135,11 @@ def test_the_process(side="left"):
                 break
             time.sleep(0.3)
         assert "activate done" in arm_service.send("status", path=path)
+        assert "supervised: no" in arm_service.send("status", path=path)
+        arm_service.send("supervise", path=path)
+        assert "supervised: yes" in arm_service.send("status", path=path), "status does not say it is supervised"
         assert "unsupervised" in arm_service.send("unsupervise", path=path)
+        assert "supervised: no" in arm_service.send("status", path=path)
         assert arm_service.send("down", path=path) == "down"
         assert process.wait(timeout=20) == 0, process.stdout.read()
         assert not os.path.exists(path), "the socket was left behind"

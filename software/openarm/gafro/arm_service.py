@@ -344,7 +344,7 @@ class ArmService:
     def status(self):
         q = self._position()
         return (f"{self.args.side} arm, {self.args.backend}: " + (f"{self.running} running" if self.running else "held") + f"; last: {self.last or 'none'}\n"
-                + "joints (deg) " + " ".join(f"{np.degrees(v):+.1f}" for v in q))
+                + "joints (deg) " + " ".join(f"{np.degrees(v):+.1f}" for v in q) + f"\nsupervised: {'yes' if self.args.supervised else 'no'}")
 
     def handle(self, request):
         command = request.get("command")
