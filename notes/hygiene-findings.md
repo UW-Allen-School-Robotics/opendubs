@@ -43,12 +43,10 @@ history.
 
 ### Urgent / high
 
-**S1 · Live secret: robot Wi-Fi password hard-coded.** · literal **removed from `main` (PR #126,
-merged)**. **NOT ROTATED as of 2026-10-15:** the password in the maintainers' current
-`ops/wifi.env` still matches the leaked one. It remains in history, and at the tip of 193 refs
-(82 branches, 111 PR heads, which GitHub keeps), so rotation is the only fix · owner: the
-**user** (router key, then re-provision the Wi-Fi devices and update `ops/wifi.env`); the literal
-was the Face & HRI lane's.
+**S1 · Live secret: robot Wi-Fi password hard-coded.** · **CLEARED 2026-10-26 by the user**: the
+pre-shared key was rotated at the router, and the old one works nowhere ("the leaked password is
+dead"). The literal was removed from `main` in PR #126. It stays in history and in PR refs, where it
+is now harmless. The old-against-new comparison with `ops/wifi.env` is dropped by decision.
 - `firmware/tab5_face/src/main.cpp:316` passes the robot network's SSID and pre-shared key as
   string literals to `WiFi.begin()` (value redacted).
 - It was added in `4d64282` (2026-09-03) and is the only copy in the tree or in history.
@@ -322,8 +320,16 @@ through the project rule. To cover what scanners miss, the audit also did these:
 - **File types:** inventoried every path ever committed for media, fonts, models, archives and
   keys.
 
-**Blocker:**
-- **S1.** Not rotated (see S1 above). This is the user's action.
+**Blockers (2026-10-26):**
+- **S1:** cleared by the user (rotated; see S1 above).
+- **Dependabot, 42 alerts** in the arm-image lock: **accepted for now** by the user (not
+  reachable from outside the arm container). #445 closes them after the bench build.
+- **Hat vendor models:** the four branches were deleted by the user on 2026-10-26. The GitHub
+  Support request to purge `refs/pull/39`, `57` and `184` is the user's, and is not yet confirmed.
+- **Content split:** on hold while the maintainers rethink its structure around the ENCORE tool.
+  #542 stays a draft. The content is still on `main` until then.
+- **Copyright holder** (whether UW is also one): to be added later; not a blocker.
+- **Names in `notes/punch-list.md`:** fixed in #573.
 
 **Decide before publishing.** Each of these becomes irreversible once public, because of clones,
 forks, public-archive crawlers, and PR refs that GitHub keeps.
@@ -365,13 +371,25 @@ forks, public-archive crawlers, and PR refs that GitHub keeps.
 - `main` has no GPS-tagged images. Four older versions with the lab's location remain at the tips
   of stale refs, which is low risk.
 
-**Suggested order:**
-1. Rotate S1, and Hygiene re-verifies.
-2. Decide 1 and 6.
-3. Merge #194.
-4. Lanes clear 3 and 4, and the maintainers edit the PR texts and optionally delete stale branches.
-5. Licence texts.
-6. Flip the visibility.
+**Early scan, 2026-10-26** (read-only, every ref: 56 branches, 571 PR heads, 2,085 commits; all
+PR, issue and review text; 60 run logs since 10-15; artifacts; releases):
+- No new secret. Gitleaks and trufflehog found only S1 (cleared) and one false positive: a model
+  file's SHA-256 checksum flagged as an API key, on an unmerged branch.
+- None of the private `ops/` values appears anywhere outside the recorded S1 file.
+- No new media, model, font or large file. Only the known hat models (in PR refs) and the
+  synthetic wake WAV.
+- No new GPS image (only the known D1 originals in history).
+- No secrets, personal emails or home paths in run logs or PR text. PR or issue texts naming a
+  person: still 15, unchanged.
+- On `main`, apart from `AUTHORS` and licence-required copyright lines, only `notes/punch-list.md`
+  names anyone (#573). The email addresses in `notes/design/network-uplinks.md` are institutional
+  help-desk addresses, not personal.
+- New: an unmerged contributor branch adds `software/architect/`, which is unowned. It holds
+  holiday content (a content-split item), a robot-side arm service outside the Arms lane, and a
+  public arXiv link for ARCHITECT. Reported to the orchestrator.
+
+**Order now:** the content move (after the ENCORE rethink), GitHub Support's confirmation for the
+hat PR refs, then the definitive final scan, then the user's word to flip visibility.
 
 ## Workplan
 
