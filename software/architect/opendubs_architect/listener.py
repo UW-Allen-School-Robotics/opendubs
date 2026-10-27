@@ -74,6 +74,10 @@ PRE_ROLL_MS = 2500          # kept before a hit: the phrase itself, for Parakeet
                             # "trick" of a slow "trick ... or treat" on the robot: Parakeet heard "or treat."
 TRICK_TAIL_MS = 400         # after a "trick or treat" hit, so the last word is whole in the clip
 PHRASE_MS = 800             # "OpenDubs" ends about this long before the spotter fires
+WAKE_MAX_MS = 5000          # a wake turn ends this long after the phrase, silence or not: with people
+                            # talking nearby the 0.8 s of silence never came, and one turn ran 19.6 s
+_STAGES = ("light", "posted", "greeted", "replied", "held", "not_confirmed", "not_addressed", "dropped",
+           "turn_capped")   # events the page shows with their time after the spotter's hit
 OPEN_LEAD_MS = 800          # kept before Silero says speech has begun: it says so late, and a 300 ms
                             # lead cut "yes" and "no" to nothing on the second take
 OPEN_END_SILENCE_MS = 800
@@ -188,6 +192,7 @@ class Listener:
         self.light = light                      # Light: the base strip shows that it heard
         self.feed = feed                        # Feed: the page's events, transcripts included
         self.level_db = -120.0                  # the microphone's recent peak, for the page
+        self._hit_at = None                     # when the spotter last fired (self.clock), for the timings
         self.log_heard = log_heard              # tuning only: what Parakeet wrote for a refused hit
         self._held_at, self._held_line = -1e9, None
         self.make_vad, self.clock, self._log_fn = make_vad, clock, log
@@ -204,9 +209,13 @@ class Listener:
         if background:
             threading.Thread(target=self._work, daemon=True).start()
 
+    def _after(self) -> dict:
+        return {"after_s": round(self.clock() - self._hit_at, 2)} if self._hit_at is not None else {}
+
     def _log(self, event: str, **kw) -> None:
         if self._log_fn:
-            self._log_fn({"t": round(time.time(), 3), "event": event, **kw})
+            self._log_fn({"t": round(time.time(), 3), "event": event, **kw,
+                          **(self._after() if event in _STAGES else {})})
 
     def said(self) -> None:
         """The robot has finished a line."""
@@ -232,6 +241,13 @@ class Listener:
             self.spotter.reset()
         self.ring.append(pcm)
         hits = self.spotter.feed(pcm)           # every frame: its streaming decoder does not survive a gap
+        if hits:
+            self._hit_at = self.clock()
+        if kws.TRICK in hits and self.turn is not None and self.turn[0] == "wake":
+            # "OpenDubs, trick or treat": the spotter has the phrase, so the turn need not wait for silence
+            self._log("spotted", keyword=kws.TRICK, state=self.state, within="wake turn")
+            self.turn = ["wake_tail", self.turn[1] + [pcm], TRICK_TAIL_MS, self.turn[3]]
+            return
         if kws.WAKE in hits:
             self._log("spotted", keyword=kws.WAKE)
             if self.turn is not None:           # a new "OpenDubs" ends the turn in hand, before it
@@ -260,6 +276,9 @@ class Listener:
         frames.append(pcm)
         if kind == "wake":
             end = rest.feed(pcm)
+            if not end and rest.heard_ms - rest.pre_roll_ms >= WAKE_MAX_MS:
+                end = "end"
+                self._log("turn_capped", seconds=WAKE_MAX_MS / 1000)
             if end == "no_speech":
                 self._log("not_addressed", why="nothing said after the wake word")
             if end:
@@ -270,7 +289,7 @@ class Listener:
             self.turn[2] = rest - FRAME_MS
             if self.turn[2] <= 0:
                 self.turn = None
-                self._submit(kind, b"".join(frames), state)
+                self._submit("wake" if kind == "wake_tail" else kind, b"".join(frames), state)
 
     def _open_window(self, pcm: bytes) -> None:
         if self.state not in OPEN_STATES:
@@ -308,7 +327,8 @@ class Listener:
     def _decide(self, kind: str, clip: bytes, state) -> None:
         text = self.transcribe(clip)
         if self.feed is not None:               # the page shows every transcript; the log only what was posted
-            self.feed.add({"t": round(time.time(), 3), "event": "heard", "kind": kind, "text": text})
+            self.feed.add({"t": round(time.time(), 3), "event": "heard", "kind": kind, "text": text,
+                           **self._after()})
         if kind == "wake":
             rest = wake_rest(text)
             if rest is not None:                    # the phrase confirmed, with or without words after it
@@ -694,6 +714,7 @@ const fmt = (e) => {
     case "said": return ["minor", "spoke on the Jabra", ""];
     case "light": return ["minor", e.ok ? "base strip: purple" : "base strip: flash not accepted", ""];
     case "not_confirmed": return ["minor", "not confirmed as trick or treat", ""];
+    case "turn_capped": return ["minor", "stopped listening after " + e.seconds + " s", ""];
     case "not_addressed": return ["minor", "no wake phrase: " + (e.why || ""), ""];
     case "dropped": return ["minor", "ignored" + (e.why ? ": " + e.why : ""), ""];
     default: return ["minor", e.event + (e.error ? ": " + e.error : ""), ""];
@@ -712,7 +733,8 @@ async function tick() {
     for (const e of r.events) {
       const [cls, text, note] = fmt(e);
       const li = document.createElement("li"); li.className = cls;
-      const t = document.createElement("span"); t.className = "t"; t.textContent = new Date(e.t * 1000).toLocaleTimeString();
+      const t = document.createElement("span"); t.className = "t";
+      t.textContent = e.event === "spotted" ? new Date(e.t * 1000).toLocaleTimeString() : (e.after_s != null ? "+" + e.after_s.toFixed(2) + " s" : new Date(e.t * 1000).toLocaleTimeString());
       const x = document.createElement("span"); x.className = "x"; x.textContent = text;
       if (note) { const n = document.createElement("div"); n.className = "quiet"; n.style.fontSize = "13px"; n.textContent = note; x.appendChild(n); }
       li.append(t, x); $("feed").prepend(li);

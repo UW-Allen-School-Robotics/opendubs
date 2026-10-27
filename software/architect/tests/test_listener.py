@@ -114,6 +114,21 @@ class Wake(Case):
         self.feed(li, QUIET[:5] + SPEECH + QUIET)
         self.assertEqual(self.posted, [("instruction", "hand out candy.")])
 
+    def test_a_wake_turn_ends_after_five_seconds_however_noisy(self):
+        """With people talking nearby the end-of-speech silence never came; one turn ran 19.6 s."""
+        li = self.make("OpenDubs, hand out candy.")
+        self.spotter.fire(kws.WAKE)
+        self.feed(li, QUIET[:5] + (SPEECH * 6)[:int(ls.WAKE_MAX_MS / ls.FRAME_MS) + 10])   # talk, no silence
+        self.assertEqual(self.posted, [("instruction", "hand out candy.")])
+
+    def test_trick_or_treat_inside_a_wake_turn_does_not_wait_for_silence(self):
+        li = self.make("OpenDubs, trick or treat!", "ARMED")
+        self.spotter.fire(kws.WAKE)
+        self.feed(li, QUIET[:5] + SPEECH[:20])
+        self.spotter.fire(kws.TRICK)
+        self.feed(li, SPEECH[20:20 + ls.TRICK_TAIL_MS // ls.FRAME_MS + 1])  # still talking: no silence yet
+        self.assertEqual(self.posted, [("trigger", "trick or treat")])
+
     def test_a_near_miss_posts_nothing(self):
         li = self.make("Hey doves, hand out candy.")
         self.spotter.fire(kws.WAKE)
