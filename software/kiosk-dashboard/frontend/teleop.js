@@ -106,7 +106,15 @@ const ARM_BUTTONS = [
   { id: "btnArmUnsupR", url: "/api/arms/unsupervise?arm=right", op: "unsupervise right", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION R", sup: { side: "right", on: false }, instant: true },
   { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE L" },
   { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE R" },
+  // The hand follows the pose target the viewer (or the ROS bridge) publishes. The service refuses it until SUPERVISE, and `hold`, CH6 or the e-stop ends it.
+  { id: "btnArmFollowL", url: "/api/arms/follow?arm=left",  op: "follow left",  confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW L" },
+  { id: "btnArmFollowR", url: "/api/arms/follow?arm=right", op: "follow right", confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW R" },
   { id: "btnArmDown",  url: "/api/arms/down",               op: "down both",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE" },
+  { id: "btnArmDownL", url: "/api/arms/down?arm=left",     op: "down left",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE L" },
+  { id: "btnArmDownR", url: "/api/arms/down?arm=right",    op: "down right",     confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE R" },
+  // Reads only (`arm doctor`): is the service up, is /joint_states publishing, is a viewer on the graph. It finds things, so its words are shown whatever its status was.
+  { id: "btnArmDoctorL", url: "/api/arms/doctor?arm=left",  op: "doctor left",  confirm: "RUN CHECK", pending: "CHECKING…", label: "CHECK L", report: true },
+  { id: "btnArmDoctorR", url: "/api/arms/doctor?arm=right", op: "doctor right", confirm: "RUN CHECK", pending: "CHECKING…", label: "CHECK R", report: true },
   // Shown only while that arm's CAN link is missing a restart can fix; the backend and openarm-up
   // refuse it during a show and under an energized arm.
   { id: "btnArmRelinkL", url: "/api/arms/relink?arm=left",  op: "relink left",  confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK L", side: "left" },
@@ -115,6 +123,8 @@ const ARM_BUTTONS = [
 let lastService = null;        // /api/arms/status "service": per arm, the arm service's status text (null if it does not answer)
 let lastLinks = null;          // /api/arms/status "links": per arm, its CAN link and any message
 let lastOp = null;             // the backend's op, from the last status poll
+let lastViewers = null;        // /api/arms/status "viewers": per arm, {state: stopped|starting|running|failed, port, error}
+let viewerNote = "";           // a refused or failed viewer, in words
 let requested = null;          // { id, at } -- pressed, and the poll has not shown it running yet
 const flash = {};              // id -> { text, until } -- REFUSED / DONE / FAILED, shown briefly
 
@@ -155,6 +165,47 @@ function paintArmButtons() {
     }
   }
 }
+/* The viewer (viser) is its own thing and not an arm action: it moves nothing, so it takes no confirmation and does not wait for a running move. One button per arm: it starts
+ * the viewer, and once that runs it opens it (this host's address, the viewer's port) in a new tab; STOP VIEWER shows only while this dashboard's own viewer runs. */
+function paintViewers() {
+  for (const [side, L] of [["left", "L"], ["right", "R"]]) {
+    const open = $("btnViewer" + L), stop = $("btnViewerStop" + L);
+    if (!open) continue;
+    const v = lastViewers && lastViewers[side];
+    const state = v ? v.state : "stopped";
+    open.textContent = state === "running" ? `OPEN VIEWER ${L}` : state === "starting" ? `STARTING VIEWER ${L}…` : `VIEWER ${L}`;
+    open.disabled = state === "starting";
+    open.title = state === "failed" && v.error ? `failed: ${v.error}` : "";
+    if (stop) stop.hidden = state !== "running";
+  }
+  paintReport();
+}
+
+function paintReport() {
+  const el = $("tpDoctor");
+  if (!el) return;
+  const parts = [];
+  if (lastOp && !lastOp.running && lastOp.name && lastOp.name.startsWith("doctor") && lastOp.out) parts.push(`${lastOp.name}:\n${lastOp.out.trim()}`);
+  for (const side of ["left", "right"]) {
+    const v = lastViewers && lastViewers[side];
+    if (v && v.error) parts.push(`viewer ${side}: ${v.state}: ${v.error}`);
+  }
+  if (viewerNote) parts.push(viewerNote);
+  el.textContent = parts.join("\n\n");
+  el.hidden = parts.length === 0;
+}
+
+async function viewerPress(op, side) {
+  const v = lastViewers && lastViewers[side];
+  if (op === "viewer" && v && v.state === "running") { window.open(`http://${location.hostname}:${v.port}/`, "_blank"); return; }
+  viewerNote = "";
+  try {
+    const r = await fetch(`/api/arms/${op}?arm=${side}`, { method: "POST" });
+    if (!r.ok) { let why = `HTTP ${r.status}`; try { why = (await r.json()).error || why; } catch (e) { /* keep the status */ } viewerNote = `${op} ${side} refused: ${why}`; }
+  } catch (e) { viewerNote = `${op} ${side}: the dashboard did not answer`; }
+  paintReport(); pollStatus();
+}
+
 function opOf(id) { const b = ARM_BUTTONS.find((x) => x.id === id); return b ? b.op : null; }
 
 function noteArm(text, cls) {
@@ -205,6 +256,11 @@ function wire() {
     const el = $(b.id);
     if (el) cb(el, { url: () => b.url, confirm: b.confirm, pending: b.pending,
                      label: paintArmButtons, onResponse: (r) => onArmResponse(b, r) });
+  }
+  for (const [side, L] of [["left", "L"], ["right", "R"]]) {
+    const open = $("btnViewer" + L), stop = $("btnViewerStop" + L);
+    if (open) open.addEventListener("click", () => viewerPress("viewer", side));
+    if (stop) stop.addEventListener("click", () => viewerPress("viewer-stop", side));
   }
   const mk = (id, url, confirmText, pending, label) => {
     const el = $(id);
@@ -316,11 +372,13 @@ async function pollStatus() {
       lastOp = s.op || null;
       lastLinks = s.links || null;
       lastService = s.service || null;
+      lastViewers = s.viewers || null;
+      paintViewers();
       // An op just finished: say how, on its own button, for a few seconds.
       if (prev && prev.running && lastOp && !lastOp.running && prev.name === lastOp.name) {
         const b = ARM_BUTTONS.find((x) => x.op === lastOp.name);
         if (b) {
-          const ok = lastOp.rc === 0 && !lastOp.error;
+          const ok = (lastOp.rc === 0 || b.report) && !lastOp.error;
           flash[b.id] = { text: ok ? "DONE" : "FAILED — SEE BELOW", until: Date.now() + (ok ? 2500 : 6000) };
           noteArm(ok ? `${b.label}: done in ${Math.round(lastOp.elapsed || 0)} s` : "", ok ? "ok" : "sub");
           setTimeout(paintArmButtons, ok ? 2600 : 6100);

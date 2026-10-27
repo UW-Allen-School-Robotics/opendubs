@@ -55,7 +55,12 @@ def _sudo(argv):
 # ---- long operations -----------------------------------------------------------------------
 
 #: name -> (argv, timeout seconds, human description of what MOVES). Only `relink`: the others go to the arm service (SERVICE_OPS).
+ARM_CLI = "/usr/local/bin/arm"            # software/openarm/arm, installed by provision-arm-service.sh
+
 OPS = {
+    # What `arm doctor <side>` says: is the service up and answering, is /joint_states publishing, is a viewer on the ROS graph. Reads only. A nonzero status means it found
+    # something, and its words are the answer, so start_op keeps them as output and not as an error.
+    "doctor":    (lambda arm: [ARM_CLI, "doctor", arm], 25, "reads the service and ROS; moves nothing"),
     # One arm's CAN link (openarm-can@arm_<side>). Moves nothing; openarm-up refuses it under an
     # energized arm, and start_op refuses it while a show runs.
     "relink":    (lambda arm: _sudo([OPENARM_UP, "relink", arm]), 30, "restarts one arm's CAN link"),
@@ -66,6 +71,9 @@ SERVICE_OPS = {
     "park":     "moves the arm to its stow pose",
     "activate": "moves the arm to its ready pose",
     "hold":     "stops the arm where it is",
+    # Starts the arm following pose targets (`<side>/target`): the hand goes where the target is, at the stage's speed limits. It refuses without a person at the e-stop (supervise), and
+    # ends with `hold`, CH6 or the e-stop.
+    "follow":   "starts following pose targets: the hand goes where the target is",
     "down":     "ends the arm service; the motors stay stiff until the e-stop",
     # An attestation, not a movement: "a person is at the e-stop, head tracking is off, the neck centred". Until it is made the service refuses every moving command on a real bus.
     "supervise":   "says a person is at the e-stop, so the arm service allows moving commands",
@@ -110,6 +118,97 @@ _SERVICE_TIMEOUT = 180.0
 SYSTEMCTL = "/usr/bin/systemctl"
 UNIT_OPS = {"start": "enables the arm's motors and holds it where it is"}
 _UNIT_TIMEOUT = 60.0
+
+
+# The viewer (viser, `arm viewer <side> <port>`): the browser view of an arm and its pose target. The dashboard starts it and stops it, and only ever stops one it started: a port that is
+# already open is somebody else's (a person's own session, another lane's twin) and is neither reused nor killed. 8080 is this dashboard.
+VIEWER_PORTS = {"right": 8090, "left": 8091}
+_VIEWER_STARTUP_S = 25.0
+_viewers = {}                       # side -> {"proc", "state": starting|running|failed|stopped, "error"}
+
+
+def _viewer_log(side):
+    return os.path.join(__import__("tempfile").gettempdir(), f"opendubs-viewer-{side}.log")
+
+
+def _viewer_alive(side):
+    v = _viewers.get(side)
+    return bool(v and v.get("proc") and v["proc"].poll() is None)
+
+
+def _viewer_tail(side, lines=6):
+    try:
+        with open(_viewer_log(side)) as f:
+            return " | ".join(l.strip() for l in f.read().strip().splitlines()[-lines:] if l.strip())
+    except OSError:
+        return ""
+
+
+def _watch_viewer(side, port):
+    """starting -> running once it listens, failed if it ends first or never listens; then stopped when it ends."""
+    with _lock:
+        proc = _viewers[side]["proc"]
+    deadline = time.time() + _VIEWER_STARTUP_S
+    while time.time() < deadline and proc.poll() is None and not _port_open(port):
+        time.sleep(0.4)
+    if proc.poll() is None and _port_open(port):
+        with _lock:
+            _viewers[side].update(state="running", error=None)
+        proc.wait()
+        with _lock:
+            _viewers[side].update(state="stopped", error=None if proc.returncode in (0, -15) else f"ended with status {proc.returncode}: {_viewer_tail(side)}")
+        return
+    if proc.poll() is None:
+        _kill_group(proc)
+    with _lock:
+        _viewers[side].update(state="failed", error=_viewer_tail(side) or f"it did not listen on port {port} in {int(_VIEWER_STARTUP_S)} s")
+
+
+def _kill_group(proc):
+    import signal
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=5)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def viewer_start(side):
+    """Start the side's viewer in the background. Returns (accepted, detail); the state is in snapshot()["viewers"]."""
+    port = VIEWER_PORTS[side]
+    with _lock:
+        if _viewer_alive(side):
+            return True, f"the {side} viewer is already running on port {port}"
+        if _port_open(port):
+            return False, (f"port {port} is already in use, and not by this dashboard's {side} viewer: it is left alone (stop it, or ask whoever started it; "
+                           f"`ss -ltnp 'sport = :{port}'` says which process)")
+        try:
+            with open(_viewer_log(side), "w") as log:
+                proc = subprocess.Popen([ARM_CLI, "viewer", side, str(port)], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        except FileNotFoundError:
+            return False, f"{ARM_CLI} not found: the arm tooling is not installed here (software/openarm/provision-arm-service.sh)"
+        _viewers[side] = {"proc": proc, "state": "starting", "error": None}
+    threading.Thread(target=_watch_viewer, args=(side, port), name=f"viewer-{side}", daemon=True).start()
+    return True, f"starting the {side} viewer on port {port}"
+
+
+def viewer_stop(side):
+    """Stop the viewer this dashboard started for `side`, and only that one. Returns (accepted, detail)."""
+    with _lock:
+        v = _viewers.get(side)
+    if not _viewer_alive(side):
+        return True, f"the {side} viewer is not running" + (" (the one on that port is not this dashboard's, and is left alone)" if _port_open(VIEWER_PORTS[side]) else "")
+    _kill_group(v["proc"])
+    return True, f"stopped the {side} viewer"
+
+
+def viewer_state():
+    with _lock:
+        return {side: {"state": (_viewers.get(side) or {}).get("state", "stopped"), "port": port, "error": (_viewers.get(side) or {}).get("error")}
+                for side, port in VIEWER_PORTS.items()}
 
 
 def _unit(side):
@@ -211,7 +310,7 @@ def _show_running():
 def start_op(name, arm="both"):
     """Begin a long arm operation. Returns (accepted, detail)."""
     spec = OPS.get(name)
-    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS:
+    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS and name not in ("viewer", "viewer-stop"):
         return False, f"unknown operation {name!r}"
     if arm not in ("left", "right", "both"):
         return False, f"arm must be left|right|both, got {arm!r}"
@@ -224,6 +323,12 @@ def start_op(name, arm="both"):
         if not sides or any(side not in served for side in sides):
             return False, (f"no arm service for the {arm} arm (one per arm: `arm_service.py run --side <left|right> ...`; the dashboard has no other way to move an arm). "
                            f"Running: {', '.join(served) or 'none'}")
+    if name in ("viewer", "viewer-stop"):
+        if arm not in ("left", "right"):
+            return False, "the viewer is per arm: left or right"
+        return viewer_start(arm) if name == "viewer" else viewer_stop(arm)
+    if name == "doctor" and arm not in ("left", "right"):
+        return False, "the check is per arm: left or right"
     if name == "relink":
         if arm not in ("left", "right"):
             return False, "RESTART LINK is per arm: left or right"
@@ -257,7 +362,7 @@ def start_op(name, arm="both"):
             with _lock:
                 _op["rc"] = r.returncode
                 _op["out"] = ((r.stdout or "") + (r.stderr or ""))[-4000:]
-                if r.returncode != 0:
+                if r.returncode != 0 and name != "doctor":
                     # The whole `openarm-up: ...` message, not its last line: the diagnosis comes
                     # first and the fix last, and the last line alone read as a fragment.
                     lines = r.stderr.strip().splitlines()
@@ -512,6 +617,7 @@ def snapshot():
     journal = _journal_tail()
     return {
         "op": op_status(),
+        "viewers": viewer_state(),
         "service": {side: _service_status(side) for side in arm_client.sides_served()},   # per arm: its status text, None if it does not answer
         "motors": counts or None,
         "links": link_status(),

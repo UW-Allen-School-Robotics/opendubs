@@ -13,6 +13,7 @@ commands. Full walkthrough: [docs/openarm-setup.md](../../docs/openarm-setup.md)
 | `openarm-motors` | `/usr/local/lib/openarm/` (+ `/usr/local/bin` link) | direct CAN check of all 16 motors; can only query or disable |
 | `opendubs-arm@.service` | `/etc/systemd/system/` | the arm service on gafro for one arm (`right` / `left`); not enabled at boot. See below |
 | `opendubs-arm` | `/usr/local/lib/opendubs/` | what that unit runs: the gafro environment, the old-stack check, then `gafro/arm_service.py` |
+| `arm` | `/usr/local/bin/` | the operator's command for the service: `arm start`, `arm status`, `arm activate`, `arm follow`, `arm viewer`, `arm doctor` (below) |
 | `opendubs-arm.env.example` | `/etc/opendubs/arm-service.env` | this robot's settings for the unit (the checkout, the driver's config); per robot, never overwritten |
 | `opendubs-arm.sudoers` | `/etc/sudoers.d/opendubs-arm` | lets `kiosk` start, stop and restart the arm units, and nothing else of systemd |
 | `provision-arm-service.sh` | — | installs the four files above; run by `provision-openarm.sh`, or alone |
@@ -25,6 +26,17 @@ because the arms are an optional payload.
 
 `gafro/arm_service.py` is one process per arm that does what ros2_control and `openarm-up` did (the lifecycle by command, `FollowJointTrajectory`, `GripperCommand`,
 pose targets). `opendubs-arm@right.service` / `opendubs-arm@left.service` run it as the user `kiosk`.
+
+Day to day, with the settings file in place, one command does all of it (the side is `right` unless given):
+
+```sh
+arm start right            # the service; enables the arm's motors and holds it where it is
+arm status                 # what it is doing; likewise activate, park, follow, hold, supervise, unsupervise, down
+arm viewer 8090            # the viser viewer on that port (8080 is the dashboard), with the model the service runs
+arm doctor                 # the viewer shows nothing: is the service up and answering, is /joint_states publishing, is a viewer on the graph
+```
+
+`arm` adds no gate: every command goes to the service over its socket and is gated there exactly as before. `ARM_DRY_RUN=1 arm <command>` prints what it would run.
 
 ```sh
 sudo /opt/opendubs/openarm/provision-arm-service.sh     # installs the unit, the wrapper, the settings file (if absent) and the sudoers rule; provision-openarm.sh runs it too

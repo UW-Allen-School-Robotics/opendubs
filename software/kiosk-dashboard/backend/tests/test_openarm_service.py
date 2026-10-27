@@ -247,3 +247,73 @@ def test_effector_status_reports_each_arm_from_its_service(arms):
 def test_an_arm_whose_service_stopped_answering_is_down(arms):
     arms("right").stop()
     assert openarm.effector_status()["arm_right"]["state"] == "down"
+
+
+def test_follow_goes_to_the_service_and_nowhere_else(arms):
+    right = arms("right")
+    assert openarm.start_op("follow", "right")[0]
+    op = wait()
+    assert op["error"] is None and right.received == ["follow"], (op, right.received)
+
+
+def _free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_viewer(side, state, seconds=15):
+    end = time.time() + seconds
+    while openarm.viewer_state()[side]["state"] != state and time.time() < end:
+        time.sleep(0.1)
+    return openarm.viewer_state()[side]
+
+
+def test_a_port_that_is_not_the_dashboards_is_left_alone(monkeypatch):
+    import socket
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(16)
+    port = listener.getsockname()[1]
+    monkeypatch.setitem(openarm.VIEWER_PORTS, "right", port)
+    try:
+        ok, detail = openarm.start_op("viewer", "right")
+        assert not ok and f"port {port}" in detail and "left alone" in detail, detail
+        ok, detail = openarm.start_op("viewer-stop", "right")
+        assert ok and "not this dashboard's" in detail, detail
+        assert openarm._port_open(port), "the other process's port was closed"
+    finally:
+        listener.close()
+
+
+def test_a_viewer_starts_runs_and_stops_without_leaving_a_process(tmp_path, monkeypatch):
+    port = _free_port()
+    stub = tmp_path / "arm"
+    stub.write_text('#!/bin/bash\nexec python3 -m http.server "$3" --bind 127.0.0.1\n')
+    stub.chmod(0o755)
+    monkeypatch.setattr(openarm, "ARM_CLI", str(stub))
+    monkeypatch.setitem(openarm.VIEWER_PORTS, "left", port)
+    try:
+        assert openarm.start_op("viewer", "left")[0]
+        assert _wait_viewer("left", "running")["state"] == "running" and openarm._port_open(port)
+        assert openarm.start_op("viewer", "left")[0], "a second start is not a second process"
+        assert openarm.start_op("viewer-stop", "left")[0]
+        assert _wait_viewer("left", "stopped")["state"] == "stopped"
+        end = time.time() + 5
+        while openarm._port_open(port) and time.time() < end:
+            time.sleep(0.1)
+        assert not openarm._port_open(port), "the viewer's process outlived its stop"
+    finally:
+        openarm.viewer_stop("left")
+
+
+def test_a_viewer_that_ends_at_once_says_why(tmp_path, monkeypatch):
+    stub = tmp_path / "arm"
+    stub.write_text("#!/bin/bash\necho 'gafro ABI mismatch' >&2\nexit 3\n")
+    stub.chmod(0o755)
+    monkeypatch.setattr(openarm, "ARM_CLI", str(stub))
+    monkeypatch.setitem(openarm.VIEWER_PORTS, "right", _free_port())
+    assert openarm.start_op("viewer", "right")[0]
+    state = _wait_viewer("right", "failed")
+    assert state["state"] == "failed" and "ABI mismatch" in state["error"], state
