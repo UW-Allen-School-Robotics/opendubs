@@ -38,6 +38,7 @@ class Reach:
             v = np.array([b[2], -b[1], b[0]])          # the dual of the generator (e12, e13, e23): the axis
             axes.append(v / np.linalg.norm(v))
         transforms = [poses[0]] + [np.linalg.inv(poses[i - 1]) @ poses[i] for i in range(1, len(poses))] + [np.linalg.inv(poses[-1]) @ end]
+        self.names = names
         self.lower = np.asarray(system.get_joint_limits_min().coefficients(), dtype=float)[indices]
         self.upper = np.asarray(system.get_joint_limits_max().coefficients(), dtype=float)[indices]
         self.manipulator = ssik.Manipulator.from_transforms(np.array(transforms), joint_axis=np.array(axes), limits=np.stack([self.lower, self.upper], axis=1))
