@@ -71,6 +71,35 @@ SERVICE_OPS = {
     "supervise":   "says a person is at the e-stop, so the arm service allows moving commands",
     "unsupervise": "withdraws that: the arm service refuses moving commands again",
 }
+def _pose_deg(status):
+    """The seven joint angles, degrees, from a service's status text (`joints (deg) +1.0 ...`), or None."""
+    for line in (status or "").splitlines():
+        if line.startswith("joints (deg)"):
+            try:
+                values = [float(v) for v in line.partition(")")[2].split()]
+            except ValueError:
+                return None
+            return values if len(values) == 7 else None
+    return None
+
+
+def effector_status():
+    """Each arm and gripper as the show runner's preflight reads them (choreo_proxy `effectors`): {part: {state, why, pose_deg?, excluded?}}.
+
+    An arm is `ok` when its arm service answers: it is up, its motors are enabled and it is holding or moving (supervision is a separate thing, and the service refuses
+    moving commands without it). An arm with no service is `down`, and says so. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
+    on and calibrated in its hardware config, and nothing here reports that yet. A part is never reported `ok` without an answer."""
+    out = {}
+    for side in arm_client.SIDES:
+        status = _service_status(side)
+        if status is None:
+            out[f"arm_{side}"] = {"state": "down", "why": f"no arm service for the {side} arm (start opendubs-arm@{side})"}
+        else:
+            out[f"arm_{side}"] = {"state": "ok", **({"pose_deg": pose} if (pose := _pose_deg(status)) else {})}
+        out[f"grip_{side}"] = {"state": "down", "excluded": True, "why": f"the {side} gripper is not enabled in the arm service (use_gripper, and its calibration)"}
+    return out
+
+
 #: Operations that only take capability away. They do not wait for, or count as, "the" running operation: a HOLD refused as "busy" while a move runs would be the one
 #: button that must always work, and ending supervision is the same. They answer at once, so the request returns the service's answer.
 INSTANT_OPS = ("hold", "unsupervise")
