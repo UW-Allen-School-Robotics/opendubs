@@ -559,4 +559,6 @@ DOCS_DIR = FRONTEND_DIR.parent / "docs-site"
 if DOCS_DIR.is_dir():
     app.mount("/docs", NoCacheStaticFiles(directory=str(DOCS_DIR), html=True), name="docs")
 
-app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")
+# follow_symlink: in a checkout frontend/assets/arm is a symlink into description/openarm (the arm view's chain.json and meshes), which StaticFiles refuses by default, so the pose view
+# could not load anywhere but on the robot, where deploy.sh copies the files and there is no symlink.
+app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True, follow_symlink=True), name="static")
