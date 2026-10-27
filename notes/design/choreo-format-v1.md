@@ -81,6 +81,13 @@ order (workplan 1.13). So a palette routine must **end in the rejoin state**: ev
 deadman) and its first move, shown on the face; 0 to 60 s, default 5. A run may override it. How a run
 starts is the runner's business, not the show's (`software/choreo/README.md`, "How a run starts").
 
+**`generated:`** — present only on a sheet another tool made from its own source, such as ENCORE
+(`notes/design/choreo-content-split.md`): `{ by: encore, source: encore/shows/<id>.yaml, sha256:
+"<64 hex digits, the source file's bytes>", revision: "<the tool's commit>" }`. The source is the
+original, and the sheet is made again from it at every push. So the composer and studio open a
+marked sheet read-only and save it only as a new show, which drops the marker. `cue.py` checks the
+marker's shape only. Quote the hash and the revision: a value of digits alone reads as a number.
+
 **`requires:`** — `arms: active`, `tab5: true|false`, `rc_authority: STANDBY|MANUAL|AUTO`, and no
 other keys. A show that moves anything (arms, grippers, head, lift, dance) must say
 `rc_authority: AUTO`; arm or gripper cues need `arms: active`; head or face cues need `tab5: true`.
