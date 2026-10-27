@@ -11,7 +11,8 @@ state with no change of their own. At start the bus must be to ourselves (bringu
 
 Built so far / next (the order is in notes/design/arm-gafro.md):
   1. one arm held, `/joint_states`.
-  2. lifecycle: `ctl activate` takes the arm to `ready` (engage.py's sequence), `ctl park` to the stow file's pose, `ctl hold` stops what is running (the permit
+  2. lifecycle: `ctl activate` takes the arm to `ready` and `ctl park` to the stow file's pose, as engage.py's checked straight line but in POSITION mode (engage.py's own torque
+     controller does not move this arm), `ctl hold` stops what is running (the permit
      lapses, the arm holds where it is), `ctl down` ends the service and is refused unless the arm is at stow (`--drop` to override). Every command that moves the arm
      is gated as engage.py is: `--supervised` at start, CH5 / e-stop / CH6 held at the command and before every permit renewal, the arm starting near stow or ready.
      The commands go over a unix socket (owner only), so ROS is not needed to run them.
@@ -196,11 +197,7 @@ class ArmService:
                 self.last = "following: " + pose_follow.follow(self.robot, side, controllers, self.source, self.permit.lease(), self.cancel, lambda: self.permit.withheld,
                                                                log=self._log)
                 return
-            with self.permit.lease():
-                if name == "park":
-                    engage.park(self.robot, side, model, self.args.stow_conf, start_tolerance=tolerance, log=self._log)
-                else:
-                    engage.engage(self.robot, side, model, "ready", known_starts=known, start_tolerance=tolerance, then="hold", log=self._log)
+            self._move(name, known, tolerance)
             self.last = f"{name} done"
         except (guards.Refused, EngageRefused) as refused:
             self.last = f"{name} stopped: {refused}"
@@ -209,6 +206,55 @@ class ArmService:
         finally:
             self.running = None
         print(self.last, flush=True)
+
+    def _move(self, name, known, tolerance):
+        """`activate` (to the model's `ready`) or `park` (to the stow file's pose) as a straight minimum-jerk line in joint space, in POSITION mode.
+
+        The line is engage.py's, checked against the collision geometry as engage.py checks it, but it is played by trajectory.follow (the position controller of
+        `play_show`, which passed on the arm) and NOT by engage.py's torque controller: that one does not move this arm (tools/README.md, "What is known"; on the Thor
+        it clicked and stayed put). Raises EngageRefused with the reason; the arm then holds."""
+        robot, side = self.robot, self.args.side
+        system = robot.get_system()
+        indices = np.asarray(system.get_task_space(side).get_joint_indices())
+        start_all = np.asarray(robot.get_state().get_position(), dtype=float).copy()
+        start = start_all[indices]
+        ready = system.get_keyframe("ready")
+        if name == "park":
+            target, label = self._stow(), "stow"
+            if target is None:
+                raise EngageRefused(f"no stow pose configured in {self.args.stow_conf or engage.STOW_CONF} (a line `{side.upper()}_STOW=<7 angles in degrees>`)")
+        else:
+            if ready is None:
+                raise EngageRefused("the model has no keyframe 'ready'")
+            target, label = np.asarray(ready.qpos, dtype=float)[: len(start_all)][indices], "ready"
+        if tolerance is not None:       # a real bus: the collision check has no head in it, so a move starts only where the line is known to be clear
+            starts = dict(known or {})
+            if ready is not None:
+                starts["ready"] = np.asarray(ready.qpos, dtype=float)[: len(start_all)][indices]
+            try:
+                self._log(f"the arm starts near {guards.require_known_start(start, starts, tolerance)}")
+            except guards.Refused as refused:
+                raise EngageRefused(str(refused)) from None
+        lower = np.asarray(system.get_joint_limits_min().coefficients())[indices]
+        upper = np.asarray(system.get_joint_limits_max().coefficients())[indices]
+        if np.any(target < lower) or np.any(target > upper):
+            raise EngageRefused(f"the {label} pose is outside the {side} arm's joint limits")
+        end_all = start_all.copy()
+        end_all[indices] = target
+        refusal = engage.PathCheck(self.args.model, [a.joint_name for a in system.get_actuators()]).refusal(start_all, end_all)
+        if refusal:
+            raise EngageRefused(f"the straight line to {label} is not clear: {refusal}")
+
+        duration = engage.duration_for(start, target, engage.JOINT_SPEED)
+        self._log(f"{name} {side}: {np.round(start, 2)} -> {np.round(target, 2)} in {duration:.1f} s, in position mode")
+        times = np.linspace(0.0, duration, 41)
+        fraction = times / duration
+        shape = fraction**3 * (10.0 - 15.0 * fraction + 6.0 * fraction**2)
+        slope = 30.0 * fraction**2 * (1.0 - fraction) ** 2 / duration
+        result = trajectory.follow(robot, side, times, start + np.outer(shape, target - start), np.outer(slope, target - start), self.permit.lease(), self.cancel,
+                                   log=self._log)
+        if result.code != trajectory.SUCCESSFUL or result.cancelled:
+            raise EngageRefused(result.message)
 
     def follow(self, times, positions, velocities=None):
         """Play a joint trajectory (the show runner's goal) and return a trajectory.Result. Refused while anything else runs; gated as `activate` is, and the gate is asked
