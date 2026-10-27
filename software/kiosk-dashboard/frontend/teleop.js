@@ -92,6 +92,11 @@ async function boot() {
  * disabled meanwhile (one arm action at a time -- a second would be refused with 409), and a press
  * that is refused anyway says so instead of looking like success. */
 const ARM_BUTTONS = [
+  // One tap for the three steps a show needs, per arm or both: START (enables the motors), SUPERVISE (the person's word that they are at the e-stop) and ACTIVATE (to ready). The
+  // confirmation names all three, because the second is an attestation. The first refusal stops the chain; nothing runs while a show does.
+  { id: "btnArmPrepL",    url: "/api/arms/prepare?arm=left",  op: "prepare left",  confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE L" },
+  { id: "btnArmPrepR",    url: "/api/arms/prepare?arm=right", op: "prepare right", confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE R" },
+  { id: "btnArmPrepBoth", url: "/api/arms/prepare?arm=both",  op: "prepare both",  confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE BOTH" },
   { id: "btnArmPark",  url: "/api/arms/park?arm=both",      op: "park both",      confirm: "CONFIRM PARK",  pending: "PARKING…",    label: "PARK BOTH" },
   { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L", instant: true },
   { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R", instant: true },

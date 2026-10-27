@@ -293,6 +293,20 @@ def _service_work(name, sides):
     return "\n".join(out), "\n".join(errors) or None
 
 
+def _prepare_work(sides):
+    """Bring each arm to ready for a show: start its service, attest that a person is at the e-stop, move it to `ready`. The three steps are the three buttons they used to be, one
+    arm after the other, and the first refusal ends it with the arms where they are: an arm the chain did not get to is not touched, and one it did stays at ready. Returns (output, error).
+    The confirmation that starts this names all three (teleop.js): the attestation is the person's, so it is never made on a path that did not say so."""
+    out = []
+    for side in sides:
+        for step, work in (("start", lambda: _start_unit(side)), ("supervise", lambda: _service_work("supervise", [side])), ("activate", lambda: _service_work("activate", [side]))):
+            text, error = work()
+            out.append(text)
+            if error:
+                return "\n".join(t for t in out if t), f"{side}: {step} did not go through, and the chain stopped there: {error}"
+    return "\n".join(t for t in out if t), None
+
+
 RUNNER_URL = os.environ.get("OPENDUBS_RUNNER_URL", "http://127.0.0.1:8092")
 
 
@@ -310,11 +324,16 @@ def _show_running():
 def start_op(name, arm="both"):
     """Begin a long arm operation. Returns (accepted, detail)."""
     spec = OPS.get(name)
-    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS and name not in ("viewer", "viewer-stop"):
+    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS and name not in ("viewer", "viewer-stop", "prepare"):
         return False, f"unknown operation {name!r}"
     if arm not in ("left", "right", "both"):
         return False, f"arm must be left|right|both, got {arm!r}"
     sides = []
+    if name == "prepare":
+        show = _show_running()
+        if show:
+            return False, f"a show is running ({show}): preparing the arms moves them, and waits until it ends"
+        sides = ["left", "right"] if arm == "both" else [arm]
     if name in UNIT_OPS and arm not in ("left", "right"):
         return False, "START is per arm: left or right (starting a service enables that arm's motors)"
     if name in SERVICE_OPS:
@@ -348,9 +367,9 @@ def start_op(name, arm="both"):
                     "rc": None, "out": "", "error": None})
 
     def work():
-        if name in SERVICE_OPS or name in UNIT_OPS:
+        if name in SERVICE_OPS or name in UNIT_OPS or name == "prepare":
             try:
-                out, error = _start_unit(arm) if name in UNIT_OPS else _service_work(name, sides)
+                out, error = (_prepare_work(sides) if name == "prepare" else _start_unit(arm) if name in UNIT_OPS else _service_work(name, sides))
             except Exception as e:                       # noqa: BLE001 - surfaced to the operator
                 out, error = "", f"{type(e).__name__}: {e}"
             with _lock:
