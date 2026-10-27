@@ -255,6 +255,25 @@ class Shows(unittest.TestCase):
             self.shows({"/api/choreo/routines": (200, [{"id": "monster_mash", "valid": False}])}).check()
 
 
+class Page(Case):
+    """The page's feed: every transcript, even one the log leaves out, and whether the robot is deaf."""
+
+    def test_the_feed_has_what_parakeet_wrote_and_what_was_done(self):
+        li = self.make("the trick is to eat", "ARMED")
+        li.feed = ls.Feed()
+        li.log = None
+        li._log_fn = li.feed.add
+        self.spotter.fire(kws.TRICK, at=40)
+        self.feed(li, SPEECH + QUIET[:40])
+        events = [(e["event"], e.get("text")) for e in li.feed.since(0)]
+        self.assertIn(("heard", "the trick is to eat"), events)              # the log would not hold this
+        self.assertIn("not_confirmed", [e for e, _ in events])
+        self.assertEqual(li.feed.since(li.feed.seq), [])
+        self.assertFalse(li.status()["deaf"])
+        li.speaking = True
+        self.assertTrue(li.status()["deaf"])
+
+
 class BaseLight(Case):
     """The strip flashes purple when the phrase is CONFIRMED, never on a bare spotter hit, and never
     in a reserved state colour (orange reads as DEGRADED amber)."""

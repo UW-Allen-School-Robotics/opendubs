@@ -173,6 +173,7 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
       2>&1 | tee /data/listener.log"
   if [ -n "${SHOW:-}" ]; then echo "started ${LISTENER}: the Jabra; trick or treat plays ${SHOW} (start ${START:-deadman})"
   else echo "started ${LISTENER}: the Jabra, say on 127.0.0.1:8099; start the runner with LISTEN=1"; fi
+  echo "what it hears, live: ssh -L 8099:127.0.0.1:8099 <you>@opendubs2, then http://localhost:8099/"
 }
 
 case "${1:-}" in

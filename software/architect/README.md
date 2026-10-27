@@ -115,6 +115,12 @@ check (`spoken.Gate`), so the robot never promises a move it will not make. Noth
 and nothing is kept between visitors. Each takes 0.2 to 0.5 s; if the model is slow or down, a
 fixed line is said. `--no-chat` turns it off.
 
+**What it hears, live:** the listener serves a page on its own port, 8099 (`GET /`; tunnel it with
+`ssh -L 8099:127.0.0.1:8099`): each clip Parakeet transcribed and what the listener did with it, the
+phrases the spotter caught, the robot's lines, the base-light flash, a microphone meter and whether it is
+deaf while the robot talks. The last 200 events, in memory only: the log keeps no transcript a person
+did not post. A menu item and page on the dashboard itself is the ARCHITECT page task below.
+
 **On the night: a pre-selected program, no model calls.** `--agent program --program handout.py`
 offers that file for any instruction, so ARCHITECT and its API are not called at all (the local
 Qwen still greets each visitor; it is on the robot and costs no API calls). Once, at the

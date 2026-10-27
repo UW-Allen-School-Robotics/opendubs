@@ -43,9 +43,11 @@ what was posted, not what was dropped.
 from __future__ import annotations
 
 import argparse
+import array
 import asyncio
 import collections
 import json
+import math
 import os
 import queue
 import random
@@ -150,18 +152,37 @@ def _not_armed(state) -> str:
         f"trick or treat while nothing is armed ({state})"
 
 
+class Feed:
+    """The last N events, in memory only, for the listener's page (GET /, GET /api/feed). It holds
+    what Parakeet wrote for each clip it was given, which the log does not; nothing is written to disk."""
+
+    def __init__(self, n: int = 200):
+        self.lock, self.items, self.seq = threading.Lock(), collections.deque(maxlen=n), 0
+
+    def add(self, ev: dict) -> None:
+        with self.lock:
+            self.seq += 1
+            self.items.append(dict(ev, seq=self.seq))
+
+    def since(self, seq: int) -> list:
+        with self.lock:
+            return [e for e in self.items if e["seq"] > seq]
+
+
 class Listener:
     """Transport-free: `frame` for each 20 ms of capture, `state` set from the runner, `speaking`
     while the robot talks. `transcribe(pcm) -> str` and `post(kind, text) -> str | None` (the
     runner's new state) reach the models and the runner."""
 
     def __init__(self, spotter, transcribe, post, make_vad=vad.make_vad, clock=time.monotonic,
-                 log=None, background=True, chat=None, say=None, log_heard=False, light=None):
+                 log=None, background=True, chat=None, say=None, log_heard=False, light=None, feed=None):
         """`chat` (chat.Chat) and `say(text)`, when given, let the robot greet each visitor and answer
         questions while armed; without them it only listens for the runner."""
         self.spotter, self.transcribe, self.post = spotter, transcribe, post
         self.chat, self.say = chat, say
         self.light = light                      # Light: the base strip shows that it heard
+        self.feed = feed                        # Feed: the page's events, transcripts included
+        self.level_db = -120.0                  # the microphone's recent peak, for the page
         self.log_heard = log_heard              # tuning only: what Parakeet wrote for a refused hit
         self._held_at, self._held_line = -1e9, None
         self.make_vad, self.clock, self._log_fn = make_vad, clock, log
@@ -189,6 +210,12 @@ class Listener:
 
     # ---- capture ----------------------------------------------------------------------------------
     def frame(self, pcm: bytes) -> None:
+        if self.feed is not None:               # the page's level meter: a peak that falls 1.5 dB a frame
+            a = array.array("h")
+            a.frombytes(pcm[:len(pcm) - len(pcm) % 2])
+            peak = max((abs(v) for v in a), default=0)
+            db = 20 * math.log10(peak / 32768) if peak else -120.0
+            self.level_db = max(db, self.level_db - 1.5)
         if self.speaking or self.clock() < self.quiet_until:
             if not self._deaf:
                 self._deaf = True
@@ -275,6 +302,8 @@ class Listener:
 
     def _decide(self, kind: str, clip: bytes, state) -> None:
         text = self.transcribe(clip)
+        if self.feed is not None:               # the page shows every transcript; the log only what was posted
+            self.feed.add({"t": round(time.time(), 3), "event": "heard", "kind": kind, "text": text})
         if kind == "wake":
             rest = wake_rest(text)
             if rest is not None:                    # the phrase confirmed, with or without words after it
@@ -334,6 +363,10 @@ class Listener:
     def _flash(self) -> None:
         if self.light is not None:
             self._log("light", ok=self.light.flash())
+
+    def status(self) -> dict:
+        return {"state": self.state, "deaf": bool(self.speaking or self.clock() < self.quiet_until),
+                "speaking": self.speaking, "level_db": round(self.level_db, 1)}
 
     def _hold_on(self) -> None:
         """A "trick or treat" that started no run gets a word, not silence, at most every HOLD_ON_EVERY_S.
@@ -499,8 +532,11 @@ def main(argv=None) -> int:
     from opendubs_architect import alsa, chat
     import speech
 
+    feed = Feed()
+
     def log(ev):
         print(json.dumps(ev), flush=True)
+        feed.add(ev)
 
     stt, tts = speech.make_stt(a.stt), speech.make_tts(a.tts)
     if a.show:
@@ -512,7 +548,7 @@ def main(argv=None) -> int:
     listener = Listener(kws.Spotter(a.kws_models or a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
                         chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]),
-                        log_heard=a.log_heard, light=None if a.no_light else Light(a.dashboard))
+                        log_heard=a.log_heard, light=None if a.no_light else Light(a.dashboard), feed=feed)
 
     async def play(out, text):              # whole, then louder: Kokoro synthesises a sentence at once anyway
         out.write(loud(b"".join([chunk async for chunk in tts.speak(text)])))
@@ -555,6 +591,26 @@ def main(argv=None) -> int:
         def log_message(self, *args):
             pass
 
+        def _send(self, code, body, ctype="application/json"):
+            data = body.encode() if isinstance(body, str) else json.dumps(body).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            path, _, query = self.path.partition("?")
+            if path == "/":
+                return self._send(200, PAGE, "text/html; charset=utf-8")
+            if path == "/api/feed":
+                after = int((dict(p.split("=", 1) for p in query.split("&") if "=" in p).get("after") or 0))
+                return self._send(200, {"status": dict(listener.status(), **(
+                    {"show": a.show, "start": a.start} if a.show else {"runner": a.runner})),
+                    "seq": feed.seq, "events": feed.since(after)})
+            self._send(404, {"error": "not found"})
+
         def do_POST(self):
             if self.path != "/api/say":
                 self.send_response(404)
@@ -583,6 +639,86 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     return 0
+
+
+PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenDubs listener</title>
+<style>
+  :root { --bg: #fafaf8; --ink: #1d1d1b; --quiet: #6b6b66; --line: #d9d8d3; --accent: #5b3fd1; --ok: #2e7d4f; --warn: #a15c00; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #171716; --ink: #ecebe6; --quiet: #a3a29b; --line: #393936; --accent: #a996ff; --ok: #6fcf97; --warn: #f2b45c; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .quiet { color: var(--quiet); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0 14px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 13px; }
+  .chip.on { border-color: var(--ok); color: var(--ok); } .chip.off { border-color: var(--warn); color: var(--warn); }
+  .meter { flex: 1; min-width: 160px; height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
+  .meter > div { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li { border-top: 1px solid var(--line); padding: 8px 0; display: grid; grid-template-columns: 72px 1fr; gap: 10px; }
+  li .t { color: var(--quiet); font-size: 13px; font-variant-numeric: tabular-nums; }
+  li.heard .x { font-size: 19px; }
+  li.said .x { color: var(--accent); }
+  li.act .x { font-weight: 600; }
+  li.minor .x { color: var(--quiet); font-size: 13px; }
+</style></head>
+<body><main>
+<h1>What the listener hears</h1>
+<p class="quiet" id="what">...</p>
+<div class="row"><span class="chip" id="state">runner ...</span><span class="chip" id="ears">...</span>
+  <span class="quiet">mic</span><div class="meter"><div id="level"></div></div><span class="quiet" id="db"></span></div>
+<ol id="feed"></ol>
+<p class="quiet">Kept in memory on the robot only, the last 200 events: what Parakeet wrote for each clip it was given (after the
+spotter heard a phrase, or while the robot waits for a yes or runs a program), and what the listener did with it.</p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let after = 0;
+const fmt = (e) => {
+  const kinds = {wake: "after Hey OpenDubs", trick: "trick or treat check", open: "open window"};
+  switch (e.event) {
+    case "heard": return ["heard", e.text ? "\\u201c" + e.text + "\\u201d" : "(nothing intelligible)", kinds[e.kind] || e.kind];
+    case "spotted": return ["minor", "spotter caught " + e.keyword.replace(/_/g, " ").toLowerCase(), ""];
+    case "posted": return ["act", "sent " + e.kind + (e.kind === "trigger" ? "" : ": " + e.text), e.state ? "runner now " + e.state : ""];
+    case "show_started": return ["act", "show armed: " + e.routine, "press the deadman fresh to start it"];
+    case "show_refused": return ["act", "show refused", e.why || ("status " + e.status)];
+    case "show_stopped": return ["act", "show stopped", ""];
+    case "greeted": case "replied": case "held": return ["said", "robot: " + e.text, e.event === "held" ? "no run started" : ""];
+    case "said": return ["minor", "spoke on the Jabra", ""];
+    case "light": return ["minor", e.ok ? "base strip: purple" : "base strip: flash not accepted", ""];
+    case "not_confirmed": return ["minor", "not confirmed as trick or treat", ""];
+    case "not_addressed": return ["minor", "no wake phrase: " + (e.why || ""), ""];
+    case "dropped": return ["minor", "ignored" + (e.why ? ": " + e.why : ""), ""];
+    default: return ["minor", e.event + (e.error ? ": " + e.error : ""), ""];
+  }
+};
+async function tick() {
+  try {
+    const r = await (await fetch("/api/feed?after=" + after)).json();
+    const s = r.status;
+    $("what").textContent = s.show ? "Trick or treat plays the show " + s.show + " (start: " + s.start + ")" : "Posts to the ARCHITECT runner at " + s.runner;
+    $("state").textContent = "runner " + (s.state || "unreachable");
+    $("ears").textContent = s.deaf ? (s.speaking ? "deaf: robot talking" : "deaf: just spoke") : "listening";
+    $("ears").className = "chip " + (s.deaf ? "off" : "on");
+    const pct = Math.max(0, Math.min(100, (s.level_db + 60) / 60 * 100));
+    $("level").style.width = pct + "%"; $("db").textContent = Math.round(s.level_db) + " dBFS";
+    for (const e of r.events) {
+      const [cls, text, note] = fmt(e);
+      const li = document.createElement("li"); li.className = cls;
+      const t = document.createElement("span"); t.className = "t"; t.textContent = new Date(e.t * 1000).toLocaleTimeString();
+      const x = document.createElement("span"); x.className = "x"; x.textContent = text;
+      if (note) { const n = document.createElement("div"); n.className = "quiet"; n.style.fontSize = "13px"; n.textContent = note; x.appendChild(n); }
+      li.append(t, x); $("feed").prepend(li);
+      while ($("feed").children.length > 200) $("feed").lastChild.remove();
+    }
+    after = r.seq;
+  } catch (err) { $("state").textContent = "listener unreachable"; }
+}
+tick(); setInterval(tick, 500);
+</script></body></html>
+"""
 
 
 if __name__ == "__main__":
