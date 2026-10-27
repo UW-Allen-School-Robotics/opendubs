@@ -4,6 +4,7 @@
     $PY software/openarm/gafro/arm_service.py --side right --hardware-config /etc/opendubs/hardware.yaml --supervised
     ros2 topic echo /joint_states
     $PY software/openarm/gafro/arm_service.py ctl --side right status|activate|park|follow|hold|down|supervise|unsupervise    # to the running service, as `openarm-up` took them
+    $PY software/openarm/gafro/arm_service.py ctl --side right activate --move-seconds 5      # this move's time (activate, park); the service's own is `run --move-seconds`, 7 s
 
 The service owns the RobotInterface. It holds the arm where it is (the driver enables and holds on `initialize()`, with no permit, so nothing is commanded)
 and publishes `/joint_states` through gafro-ri-ros2-bridge, which is only the ROS side and knows nothing of a permit. The runner and the dashboard can read gafro's
@@ -173,8 +174,10 @@ class ArmService:
 
     # -- commands ------------------------------------------------------------------------------------------------------------------------
 
-    def start(self, name):
-        """Run `activate`, `park` or `follow` on a thread; the answer is whether it was started."""
+    def start(self, name, move_seconds=None):
+        """Run `activate`, `park` or `follow` on a thread; the answer is whether it was started. `move_seconds` (activate, park): this move's time, instead of the service's."""
+        if move_seconds is not None and not (name in ("activate", "park") and 0.0 < move_seconds < float("inf")):
+            return f"refused: a move time is a positive number of seconds for activate or park, not {move_seconds!r} for {name}"
         with self.lock:
             if self.running:
                 return f"refused: {self.running} is running (`hold` stops it)"
@@ -190,10 +193,10 @@ class ArmService:
                 return f"refused: {refused}"
             self.cancel.clear()
             self.running = name
-        threading.Thread(target=self._run, args=(name, known, tolerance, gate), daemon=True).start()
+        threading.Thread(target=self._run, args=(name, known, tolerance, gate, move_seconds), daemon=True).start()
         return f"{name} started"
 
-    def _run(self, name, known, tolerance, gate):
+    def _run(self, name, known, tolerance, gate, move_seconds=None):
         side, model = self.args.side, self.args.model
         try:
             if name == "follow":
@@ -202,7 +205,7 @@ class ArmService:
                 self.last = "following: " + pose_follow.follow(self.robot, side, controllers, self.source, self.permit.lease(), self.cancel, lambda: self.permit.withheld,
                                                                log=self._log)
                 return
-            self._move(name, known, tolerance)
+            self._move(name, known, tolerance, move_seconds)
             self.last = f"{name} done"
         except (guards.Refused, EngageRefused) as refused:
             self.last = f"{name} stopped: {refused}"
@@ -217,7 +220,7 @@ class ArmService:
         directory = getattr(self.args, "record_dir", None)
         return os.path.join(directory, f"arm_service-{self.args.side}-{name}-{time.strftime('%Y%m%d-%H%M%S')}.csv") if directory else None
 
-    def _move(self, name, known, tolerance):
+    def _move(self, name, known, tolerance, move_seconds=None):
         """`activate` (to the model's `ready`) or `park` (to the stow file's pose) as a straight minimum-jerk line in joint space, in POSITION mode.
 
         The line is engage.py's, checked against the collision geometry as engage.py checks it, but it is played by trajectory.follow (the position controller of
@@ -255,7 +258,7 @@ class ArmService:
         if refusal:
             raise EngageRefused(f"the straight line to {label} is not clear: {refusal}")
 
-        duration = float(getattr(self.args, "move_seconds", MOVE_SECONDS))
+        duration = float(move_seconds if move_seconds is not None else getattr(self.args, "move_seconds", MOVE_SECONDS))
         self._log(f"{name} {side}: {np.round(start, 2)} -> {np.round(target, 2)} in {duration:.1f} s, in position mode")
         times = np.linspace(0.0, duration, 41)
         fraction = times / duration
@@ -334,7 +337,7 @@ class ArmService:
         if command == "status":
             return self.status()
         if command in ("activate", "park", "follow"):
-            return self.start(command)
+            return self.start(command, request.get("move_seconds"))
         if command in ("supervise", "unsupervise"):
             self.args.supervised = command == "supervise"
             return ("supervised: a person is at the e-stop (head tracking off, neck centred); moving commands are allowed while CH5, the e-stop and CH6 permit"
@@ -373,10 +376,10 @@ def listen(service, path):
     return server
 
 
-def send(command, drop=False, path=None):
+def send(command, drop=False, path=None, move_seconds=None):
     with socket.socket(socket.AF_UNIX) as sock:
         sock.connect(path)
-        sock.sendall((json.dumps({"command": command, "drop": drop}) + "\n").encode())
+        sock.sendall((json.dumps({"command": command, "drop": drop, "move_seconds": move_seconds}) + "\n").encode())
         sock.shutdown(socket.SHUT_WR)
         return sock.makefile().read().rstrip("\n")       # the whole reply: `status` is two lines
 
@@ -387,6 +390,7 @@ def main() -> int:
     ctl = sub.add_parser("ctl", help="send a command to the running service")
     ctl.add_argument("command", choices=COMMANDS)
     ctl.add_argument("--drop", action="store_true", help="down: end although the arm is not at stow")
+    ctl.add_argument("--move-seconds", type=float, default=None, help="activate, park: this move's time in seconds, instead of the service's --move-seconds")
     ctl.add_argument("--side", choices=("left", "right"), default="right")
     ctl.add_argument("--socket", default=None, help="default: the side's")
     run = sub.add_parser("run", help="run the service (the default)")
@@ -410,7 +414,7 @@ def main() -> int:
     args.socket = args.socket or socket_for(args.side)
     if args.mode == "ctl":
         try:
-            print(send(args.command, args.drop, args.socket))
+            print(send(args.command, args.drop, args.socket, args.move_seconds))
         except OSError as error:
             print(f"no arm service at {args.socket} ({error})")
             return 1
