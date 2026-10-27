@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Play one arm's part of a choreography show through the driver and gafro, in POSITION mode, without ROS.
 
-    python play_show.py --show software/choreo/shows/shrug.yaml --side right --model <xml> --hardware-config <yaml> --assets <openarm_assets> --supervised --slow 2
+    python play_show.py --show software/choreo/shows/shrug.yaml --side right --supervised --slow 2
 
 What the choreography runner sends the real arm as one ROS goal (`arm_output.track_points`: the show's keyframes, each reached at its time along the smoothed path of `motion.py`)
 is played here by a gafro position controller (position_play.py) that is given the WHOLE path at once and its analytic rate. The motor's own PD and the driver's gravity feed-forward
 close the error, as under the choreography stack's impedance controller. The arm's part only: the show's other slots (head, face, grippers, sound, the base) are not played.
 
-Gates, in addition to every gate of goto_hand.py (bus, CH5, e-stop, --supervised, per-robot limits, CH6 held at the start and for every permit renewal, the twin clearance --
+Gates, in addition to every gate of goto_hand.py (bus, CH5, e-stop, --supervised, the model's joint limits, CH6 held at the start and for every permit renewal, the twin clearance --
 here along the whole path -- and a typed confirmation):
-  * the show must validate against the arm software's joint limits (the same file the choreography validator reads);
+  * the show must validate against the model's joint limits (the MJCF's ranges, in the validator's format);
   * the arm must start where the show's path starts: zero, the stow pose, within --start-tolerance-deg (the runner moves it there first; here `goto_stow.py` does);
   * the path must stay in the joint ranges and under --max-speed, which --slow stretches in time;
   * while it runs, the run stops (the arm holds) if the tracking error passes --max-error, a joint's measured torque reaches --max-torque, or a joint is vibrating.
@@ -94,10 +94,10 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--show", required=True, help="a choreography show (software/choreo/shows/*.yaml)")
     p.add_argument("--side", choices=("left", "right"), required=True)
-    p.add_argument("--model", required=True)
+    p.add_argument("--model", default=bringup.DEFAULT_MODEL, help="the robot's gafro model (default: the repo's own description/openarm/gafro/openarm_bimanual.xml)")
     p.add_argument("--backend", choices=("hardware", "mujoco"), default="hardware")
-    p.add_argument("--hardware-config", default="")
-    p.add_argument("--assets", default=None)
+    p.add_argument("--hardware-config", default=os.environ.get("ARM_HW_CONFIG", ""), help="the driver's config (default: $ARM_HW_CONFIG, which env.sh's arm_* functions use)")
+    p.add_argument("--assets", default=None, help="the openarm_assets checkout the twin is built from (default: the repo's own description/openarm/mjcf)")
     p.add_argument("--sim-dir", default=None)
     p.add_argument("--slow", type=float, default=2.0, help="stretch the show in time by this factor (1 is as written; the default plays it at half speed)")
     p.add_argument("--max-speed", type=float, default=1.3, help="rad/s: refuse a path faster than this on any joint, after --slow")
@@ -114,8 +114,6 @@ def main(argv=None) -> int:
     p.add_argument("--tolerance", type=float, default=0.08, help="rad: the largest tracking error a PASS may have")
     p.add_argument("--max-torque", type=float, default=12.0, help="N m: stop if any joint's measured torque reaches this")
     p.add_argument("--max-joint-speed", type=float, default=2.5, help="rad/s: a joint faster than this for ~12 ms is vibrating: stop")
-    p.add_argument("--limits", default=None, help="this robot's joint limits (default $OPENDUBS_ARM_LIMITS or /etc/opendubs/arm-limits/joint_limits.yaml): the show is validated against "
-                   "them and the model's ranges are narrowed by them")
     p.add_argument("--min-clearance-mm", type=float, default=motion_plan.DEFAULT_MIN_CLEARANCE_MM)
     p.add_argument("--skip-clearance", action="store_true")
     p.add_argument("--csv", default=None, help="the raw samples (default ~/play_show-<time>.csv)")
@@ -125,17 +123,16 @@ def main(argv=None) -> int:
     p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS)
     args = p.parse_args(argv)
 
-    limits_path = args.limits or robot_limits.DEFAULT
-    if not os.path.exists(limits_path):
-        print(f"refused: no joint-limits file at {limits_path}: the show cannot be validated without the arm software's limits (--limits, or $OPENDUBS_ARM_LIMITS)")
-        return 1
+    from gafro import serialization
+
+    model_limits = robot_limits.of_model(serialization.load(args.model))
     sys.path.insert(0, CHOREO)
     import cue
 
     slot = SLOTS[args.side]
     try:
         show = cue.load_show(args.show)
-        timeline = show.export(cue.load_limits(limits_path))
+        timeline = show.export(model_limits)
     except Exception as error:                                   # a show that does not even parse is refused with the reason, not a traceback
         print(f"refused: the show does not load: {error}")
         return 1
@@ -167,7 +164,7 @@ def main(argv=None) -> int:
         try:
             lower = np.asarray(system.get_joint_limits_min().coefficients())[indices]
             upper = np.asarray(system.get_joint_limits_max().coefficients())[indices]
-            lower, upper, limits_note = robot_limits.apply(args.side, lower, upper, limits_path)
+            limits_note = robot_limits.NOTE
             why = start_refusal(start, joints[0], args.start_tolerance_deg) or path_refusal(joints, rates, lower, upper, args.max_speed)
             if why:
                 raise guards.Refused(why)

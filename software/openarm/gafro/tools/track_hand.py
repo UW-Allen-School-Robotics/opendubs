@@ -2,7 +2,7 @@
 """Move one arm's HAND by a small offset under a gafro CONTROLLER that takes the target POSE as its input. Slice 2 of the pose controllers (velocity);
 the torque `track` controller of controllers.yaml uses the same runner (slice 3, not run on the arm yet: see engage_probe.py's kick).
 
-    python track_hand.py --controller velocity --side right --model <xml> --hardware-config <yaml> --assets <assets> --supervised --offset-cm 4,0,0
+    python track_hand.py --controller position --side right --supervised --offset-cm 4,0,0
 
 What differs from goto_hand.py: there the arm replays a straight joint-space line in the driver's POSITION mode. Here a spec-built controller (the YAML spec of
 gafro.control.spec, built the way engage.py builds `track`) runs in the interface's own loop. Its target pose is a MotorReferenceSource, which this publishes: the
@@ -147,10 +147,10 @@ def main(argv=None) -> int:
     p.add_argument("--controller", choices=("velocity", "track", "position"), default="velocity", help="`velocity` is built here; `track` is the torque controller of controllers.yaml; "
                    "`position` is built here too: a posture controller that plays the planned path (not a straight line) in the driver's POSITION mode, the rate along it fed forward")
     p.add_argument("--side", choices=("left", "right"), required=True)
-    p.add_argument("--model", required=True)
+    p.add_argument("--model", default=bringup.DEFAULT_MODEL, help="the robot's gafro model (default: the repo's own description/openarm/gafro/openarm_bimanual.xml)")
     p.add_argument("--backend", choices=("hardware", "mujoco"), default="hardware")
-    p.add_argument("--hardware-config", default="")
-    p.add_argument("--assets", default=None)
+    p.add_argument("--hardware-config", default=os.environ.get("ARM_HW_CONFIG", ""), help="the driver's config (default: $ARM_HW_CONFIG, which env.sh's arm_* functions use)")
+    p.add_argument("--assets", default=None, help="the openarm_assets checkout the twin is built from (default: the repo's own description/openarm/mjcf)")
     p.add_argument("--sim-dir", default=None)
     p.add_argument("--offset-cm", required=True)
     p.add_argument("--speed", type=float, default=0.1, help="the largest joint's peak-average speed of the reference, rad/s (at most 0.2)")
@@ -173,7 +173,6 @@ def main(argv=None) -> int:
     p.add_argument("--max-joint-speed", type=float, default=1.5, help="rad/s: if any joint stays faster than this for ~12 ms the run stops renewing the permit (the arm holds): a joint that fast during a 4 cm hand move is vibrating")
     p.add_argument("--csv", default=None, help="the raw samples (default ~/track_hand-<time>.csv)")
     p.add_argument("--weight", type=int, default=10)
-    p.add_argument("--limits", default=None, help="this robot's joint limits (default $OPENDUBS_ARM_LIMITS or /etc/opendubs/arm-limits/joint_limits.yaml): narrows the model's ranges, never widens them")
     p.add_argument("--max-offset-cm", type=float, default=6.0)
     p.add_argument("--max-joint-deg", type=float, default=15.0)
     p.add_argument("--max-bend-deg", type=float, default=1.0)
@@ -221,7 +220,7 @@ def main(argv=None) -> int:
                 raise guards.Refused(str(error)) from None
             lower = np.asarray(system.get_joint_limits_min().coefficients())[indices]
             upper = np.asarray(system.get_joint_limits_max().coefficients())[indices]
-            lower, upper, limits_note = robot_limits.apply(args.side, lower, upper, args.limits)
+            limits_note = robot_limits.NOTE
             goto_hand.check_plan(plan, lower, upper, 180.0 if args.controller == "position" else args.max_bend_deg, args.max_joint_deg, args.max_offset_cm, offset)
             closest = None
             if not args.skip_clearance:

@@ -39,7 +39,7 @@ sys.path.insert(0, HERE)
 
 import guards  # noqa: E402
 import motion_plan  # noqa: E402
-from engage import PermitKeeper, permit_groups  # noqa: E402
+from engage import DEFAULT_MODEL, PermitKeeper, permit_groups  # noqa: E402
 
 HOLD_TOLERANCE = 0.02      # rad, how far an arm that is only held may drift in the hold stage
 LAPSE_TOLERANCE = 0.01     # rad, how far an arm may still travel after its permit stops being renewed
@@ -218,7 +218,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("stage", choices=("hold", "lapse", "move"))
     parser.add_argument("--side", choices=("left", "right"), required=True)
-    parser.add_argument("--model", required=True, help="the robot's gafro model (description/openarm/gafro/openarm_bimanual.xml)")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="the robot's gafro model (default: the repo's own description/openarm/gafro/openarm_bimanual.xml)")
     parser.add_argument("--backend", choices=("hardware", "mujoco"), default="hardware")
     parser.add_argument("--hardware-config", default="", help="the robot's copy of hardware.example.yaml")
     parser.add_argument("--seconds", type=float, default=20.0, help="hold: how long to watch")
@@ -232,7 +232,7 @@ def main() -> int:
     parser.add_argument("--min-clearance-mm", type=float, default=motion_plan.DEFAULT_MIN_CLEARANCE_MM,
                         help="refuse if the path comes nearer than this to anything in the lane's twin")
     parser.add_argument("--skip-clearance", action="store_true", help="do not check the path in the twin (it says so in the plan)")
-    parser.add_argument("--assets", default=None, help="the openarm_assets checkout the twin is built from (or $OPENARM_ASSETS)")
+    parser.add_argument("--assets", default=None, help="the openarm_assets checkout the twin is built from (default: the repo's own description/openarm/mjcf, or $OPENARM_ASSETS)")
     parser.add_argument("--sim-dir", default=None, help="the sim/ directory of an opendubs checkout whose twin builds (or $OPENDUBS_SIM_DIR); "
                         "default: this checkout's own")
     parser.add_argument("--confirm", default=None, help="the joint and direction to start with (3+ or 3-), for a script that has read the plan; "
