@@ -233,3 +233,17 @@ def test_hold_and_end_supervision_are_not_kept_waiting_by_a_running_move(arms):
 def test_a_hold_with_no_service_says_so_at_once(arms):
     ok, detail = openarm.start_op("hold", "right")
     assert not ok and "no arm service" in detail
+
+
+def test_effector_status_reports_each_arm_from_its_service(arms):
+    arms("right")
+    eff = openarm.effector_status()
+    assert eff["arm_right"]["state"] == "ok" and eff["arm_right"]["pose_deg"] == [0.0] * 7, eff["arm_right"]
+    assert eff["arm_left"]["state"] == "down" and "no arm service for the left arm" in eff["arm_left"]["why"], eff["arm_left"]
+    for side in ("left", "right"):
+        assert eff[f"grip_{side}"]["state"] == "down" and eff[f"grip_{side}"]["excluded"], "a gripper nobody enabled must not read ok"
+
+
+def test_an_arm_whose_service_stopped_answering_is_down(arms):
+    arms("right").stop()
+    assert openarm.effector_status()["arm_right"]["state"] == "down"
