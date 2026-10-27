@@ -75,16 +75,17 @@ def test_a_move_takes_the_time_asked():
         stow[0] += np.radians(30.0)
         with open(conf, "w") as stream:
             stream.write(f"{side.upper()}_STOW=" + ",".join(f"{v:.4f}" for v in np.degrees(stow)) + "\n")
-        args.stow_conf, args.move_seconds = conf, 3.0
+        args.stow_conf = conf
+        assert service.start("park", -1.0).startswith("refused") and service.start("follow", 3.0).startswith("refused"), "a bad move time was accepted"
         for name, expected in (("park", 3.0), ("activate", 3.0)):
             began = time.time()
-            assert service.start(name) == f"{name} started"
+            assert service.start(name, 3.0) == f"{name} started"        # this move's time, not the service's 7 s
             wait(service)
             took = time.time() - began
             assert service.last == f"{name} done" and expected <= took < expected + 2.5, f"{name} took {took:.1f} s, asked {expected:g}: {service.last}"
         assert np.abs(position() - ready).max() < 0.05
-        args.stow_conf, args.move_seconds = conf, 0.4          # 0.52 rad in 0.4 s peaks at 2.4 rad/s: over the 1.3 limit
-        assert service.start("park") == "park started"
+        args.stow_conf = conf                                   # 0.52 rad in 0.4 s peaks at 2.4 rad/s: over the 1.3 limit
+        assert service.start("park", 0.4) == "park started"
         wait(service)
         assert "rad/s" in service.last and "park stopped" in service.last, service.last
         assert np.abs(position() - ready).max() < 0.05, "a refused move moved the arm"
@@ -106,7 +107,7 @@ def test_the_process(side="left"):
         first = arm_service.send("status", path=path)
         assert "held" in first and "joints (deg)" in first, f"the reply was cut short: {first!r}"
         assert "refused" in arm_service.send("follow", path=path), "follow needs ROS (the pose reference), so it must refuse without it"
-        assert arm_service.send("activate", path=path) == "activate started"
+        assert arm_service.send("activate", path=path, move_seconds=2.5) == "activate started", "ctl activate --move-seconds"
         assert "refused" in arm_service.send("park", path=path), "two moving commands at once"
         for _ in range(100):
             if "held" in arm_service.send("status", path=path):
