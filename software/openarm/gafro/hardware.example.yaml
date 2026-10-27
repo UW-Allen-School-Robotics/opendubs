@@ -19,7 +19,7 @@ left_arm:
   require_permit: true
   auto_reengage: false             # an arm that heals itself after an e-stop is a decision (DEC-28, Q10), not a default
 
-  # The head cap on joint 2 (contact at 182 deg, a show leaves 25) is in the MODEL, not here: description/openarm/gafro/, built by
+  # The head cap on joint 2 (contact at 180 deg, a show leaves 25) is in the MODEL, not here: description/openarm/gafro/, built by
   # tools/arm_gafro_model.py. The controllers' joint-limit guard reads the model's limits, and the driver takes the same ones from the
   # bound model, so there is one place for it. lower_limits / upper_limits here would only add a second.
   joint_limit_margin: 0.0

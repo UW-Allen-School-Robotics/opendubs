@@ -2,8 +2,8 @@
 """Build the arms' gafro model: the OpenArm model of `openarm_assets`, with joint 2 narrowed to what the head allows and its own `ready` pose.
 
 The arm's own limits (joint ranges, rated torque and velocity, gains) are the model's, in `openarm_assets`. What is this robot's is the
-head: contact with it is at J2 = 182 deg with the elbow folded, measured, and a show leaves 25 deg (software/choreo/cue.py), so the arm
-is not driven past 157 deg. Left joints 1 to 3 are mirrored (sim/scene.py): the outward cap is a lower bound on the left, an upper one on
+head: contact with it is at J2 = 180 deg with the elbow folded and the neck centred, measured, and a show leaves 25 deg (software/choreo/cue.py), so the arm
+is not driven past 155 deg. Left joints 1 to 3 are mirrored (sim/scene.py): the outward cap is a lower bound on the left, an upper one on
 the right.
 
 It has to be in the model and not only in the driver's config: gafro's joint-limit guard reads each joint's own limits from the model, and
@@ -32,7 +32,7 @@ sys.path.insert(0, str(REPO / "software" / "choreo"))
 # joints 1 to 3 negated (sim/scene.py). It is not stow: stow is the zero pose, where the elbow is straight and the arm is exactly singular, so
 # a controller cannot start there. This one has the elbow bent 103 deg and the hand in front of the chest, the tool pointing forward:
 #   smallest Jacobian singular value 0.128 (the controllers' guard floor is 0.06), smallest joint margin 0.57 rad (their guard margin is
-#   0.35), 78 mm to the head and 188 mm between the arms at every lift height (tools/arm_ready_pose.py verify).
+#   0.35), 59 mm to the head (neck neutral; 39 mm at the worst neck pose) and 188 mm between the arms at every lift height (tools/arm_ready_pose.py verify).
 # Picked by sampling the self-motion manifolds of candidate hand poses with ssik and scoring each posture (tools/arm_ready_pose.py pick).
 READY_RIGHT = (0.0, 0.70, -0.50, 1.80, -1.00, -0.10, -0.55)
 MIRRORED = (-1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0)

@@ -108,8 +108,8 @@ The test for where a setting goes is whose fact it is.
 
 - **The arm service**, which grants the driver's permit and runs the authority layer.
 - **A workspace box and the head in the collision model.** gafro's control spec has no position box; the choreography's rule that J2
-  stays under 135 deg while the elbow is extended (the 1.2 m box) is not enforced here. The 157 deg cap in `hardware.example.yaml`
-  is the backstop for the head contact only.
+  stays under 135 deg while the elbow is extended (the 1.2 m box) is not enforced here. The 155 deg cap in the arm's model (`description/openarm/gafro/`)
+  is the backstop for the head contact only, with the neck centred.
 - **`limits: {joint_torque: model}` does not bind yet.** gafro reads a joint's torque limit from the model, and until the change that
   derives it from the actuators (ga-robotics-research/gafro-research#51) is published, the OpenArm's joints report none. The
   controllers build and run; the bound is not applied.
