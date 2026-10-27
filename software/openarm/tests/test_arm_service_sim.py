@@ -90,6 +90,35 @@ def test_the_process(side="left"):
             process.kill()
 
 
+def test_park_and_activate_move_the_arm(side):
+    """`park` and `activate` are POSITION-mode lines: the arm leaves ready for a stow file's pose 15 degrees off on joint 1 and comes back. (engage.py's torque controller did not
+    move the real arm: it clicked and stayed put; the simulator moved it all the same, so only a test that asserts the arm really moved can tell the two apart.)"""
+    robot, indices, position = arm_service.bringup.connect(args_for(side))
+    service = arm_service.ArmService(robot, args_for(side))
+    ready = position().copy()
+    stow = ready.copy()
+    stow[0] += np.radians(15.0)
+    conf = os.path.join(tempfile.mkdtemp(prefix="arm_service_stow_"), "stow.conf")
+    with open(conf, "w") as stream:
+        stream.write(f"{side.upper()}_STOW=" + ",".join(f"{v:.4f}" for v in np.degrees(stow)) + "\n")
+    service.args.stow_conf = conf
+    try:
+        assert service.start("park") == "park started", "park was not started"
+        wait(service)
+        assert service.last == "park done", service.last
+        assert np.abs(position() - stow).max() < 0.05 and abs(position()[0] - ready[0]) > 0.2, "the arm did not move to the stow pose"
+        assert service.start("activate") == "activate started"
+        wait(service)
+        assert service.last == "activate done", service.last
+        assert np.abs(position() - ready).max() < 0.05, "the arm did not come back to ready"
+        service.args.stow_conf = os.path.join(os.path.dirname(conf), "missing.conf")
+        assert service.start("park") == "park started"
+        wait(service)
+        assert "no stow pose configured" in service.last, service.last
+    finally:
+        robot.shutdown()
+
+
 def test_trajectory_and_follow(side):
     import gafro_robot_interface as ri  # noqa: F401
 
@@ -136,5 +165,7 @@ if __name__ == "__main__":
     test_the_process("left")
     print("ok process (left)")
     for side in ("right", "left"):
+        test_park_and_activate_move_the_arm(side)
+        print("ok park and activate", side)
         test_trajectory_and_follow(side)
         print("ok trajectory and follow", side)
