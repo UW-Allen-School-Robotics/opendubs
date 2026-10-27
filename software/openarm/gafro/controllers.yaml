@@ -75,3 +75,33 @@ controllers:
         objective: {posture: {target: posture}}
         law: {pd: {stiffness: 0.0, damping: 3.0, max_speed: 1.0}}
         output: acceleration
+
+  # The same task as `track`, as a POSITION controller, for live pose targets (arm_service.py `ctl follow`): the stages are a velocity controller's (output velocity,
+  # resolved through the kinematics), run on an anchor that their own velocity moves, and the integrated anchor is the command -- joint positions and velocities,
+  # like the MIT frame the driver sends (position, dq_ref, the motor's own kp and kd, gravity as a feed-forward). The motor's PD supplies the stiffness, so no loop
+  # here is closed over the bus and the gains can be high; it needs no gravity term, the driver adds its own. This is what the torque `track` cannot be on this arm.
+  # STARTING VALUES, not tuned on an arm: it had not run on one, or in the simulator, before arm_service.py.
+  follow_pose:
+    inputs: {reference: pose, posture: joints}
+    type: position
+    maximum_lead: 0.02          # rad per joint: the offset that closes what the actuator did not do (friction dead band)
+    maximum_error: 0.15         # rad per joint: the leash of the anchor on the measured position
+    offset_gain: 2.0            # 1/s
+    regularization: 0.05
+    limits: {joint_velocity: model}
+    stages:
+      - name: guards
+        input: joints
+        objective: {joint_limits: {margin: 0.35}}
+        law: {pd: {gain: 5.0, max_speed: 1.0}}
+        output: velocity
+      - name: pose
+        input: pose
+        objective: {pose: {target: reference}}
+        law: {pd: {gain: 10.0, max_speed: {linear: 0.5, angular: 1.5}}}
+        output: velocity
+      - name: posture
+        input: joints
+        objective: {posture: {target: posture}}
+        law: {pd: {gain: 2.0, max_speed: 0.5}}
+        output: velocity
