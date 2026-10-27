@@ -33,16 +33,38 @@ function paintStow() {
   }
 }
 
-window.onJointStates = (msg) => {
-  if (!view || !msg || !msg.name) return;
+let lastRosMs = 0;             // when /joint_states (rosbridge) last delivered: while it does, it is the source and the arm service's own report is not used
+
+function applyJoints(msg, source) {
   const angles = {};
   for (let i = 0; i < msg.name.length; i++) angles[msg.name[i]] = msg.position?.[i];
   view.setJoints(angles);
   lastJointMs = Date.now();
   const b = $("tpPoseSrc");
-  if (b) { b.textContent = "live"; b.className = "badge good"; }
+  if (b) { b.textContent = source === "ros" ? "live" : "live · arm service"; b.className = "badge good"; }
   paintStow();
+}
+
+window.onJointStates = (msg) => {
+  if (!view || !msg || !msg.name) return;
+  lastRosMs = Date.now();
+  applyJoints(msg, "ros");
 };
+
+/* The arm service reports its joints in its status text (`joints (deg) +1.0 ...`, the arm's seven in order), which this page polls anyway. When /joint_states is not arriving (no ROS
+ * on this machine, a different DDS domain, a service started --no-ros) the pose view would say "no joint data" about an arm that is answering, so it is drawn from that report and the
+ * badge says where it came from. /joint_states wins while it arrives. A report older than the poll's own failure shows as STALE exactly as before: lastJointMs is only set here. */
+function feedFromService() {
+  if (!view || !lastService || Date.now() - lastRosMs < 1500) return;
+  const name = [], position = [];
+  for (const side of ["left", "right"]) {
+    const m = (lastService[side] || "").match(/^joints \(deg\)\s+(.+)$/m);
+    const deg = m ? m[1].trim().split(/\s+/).map(Number) : [];
+    if (deg.length !== 7 || deg.some(Number.isNaN)) continue;
+    deg.forEach((d, i) => { name.push(`openarm_${side}_joint${i + 1}`); position.push(d * Math.PI / 180); });
+  }
+  if (name.length) applyJoints({ name, position }, "service");
+}
 
 /* Stale joint data must read as STALE, never as a pose. A frozen render showing a plausible arm is
  * the failure this whole panel exists to prevent — the same reason the view is driven from
@@ -379,6 +401,7 @@ async function pollStatus() {
       lastService = s.service || null;
       lastViewers = s.viewers || null;
       paintViewers();
+      feedFromService();
       // An op just finished: say how, on its own button, for a few seconds.
       if (prev && prev.running && lastOp && !lastOp.running && prev.name === lastOp.name) {
         const b = ARM_BUTTONS.find((x) => x.op === lastOp.name);

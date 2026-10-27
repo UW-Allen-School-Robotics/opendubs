@@ -631,9 +631,9 @@ body.op-faulted .op-clearfault{ display:inline-flex; }
 .tp-ctl { padding: 8px 11px; flex: 0 0 auto; }
 /* ARM POWER is the group that MOVES an arm, so it is set apart from RECOVER rather than lined up
    beside it — a reach for PARK must not land on DE-ENERGIZE. */
-.tp-ctl.tp-power { border-color: #2a1f1f; margin-left: auto; }
+.tp-ctl.tp-power { border-color: #2a1f1f; margin-left: auto; flex: 1 1 100%; }   /* the full row, so its buttons wrap inside it and not past the edge */
 .tp-warn { color: var(--warn); font-weight: 400; }
-.tp-btns { display: flex; gap: 6px; }
+.tp-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 .tp-btns .sysbtn { min-height: 44px; }
 .tp-accent { border-color: var(--accent); color: var(--accent); }
 

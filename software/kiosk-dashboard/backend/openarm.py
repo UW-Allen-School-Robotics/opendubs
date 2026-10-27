@@ -94,8 +94,8 @@ def _pose_deg(status):
 def effector_status():
     """Each arm and gripper as the show runner's preflight reads them (choreo_proxy `effectors`): {part: {state, why, pose_deg?, excluded?}}.
 
-    An arm is `ok` when its arm service answers: it is up, its motors are enabled and it is holding or moving (supervision is a separate thing, and the service refuses
-    moving commands without it). An arm with no service is `down`, and says so. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
+    An arm is `ok` when its arm service answers AND a person has said they are at the e-stop (supervised): the service refuses every moving command without that, and the runner sends
+    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
     on and calibrated in its hardware config, and nothing here reports that yet. A part is never reported `ok` without an answer."""
     out = {}
     for side in arm_client.SIDES:
@@ -103,7 +103,15 @@ def effector_status():
         if status is None:
             out[f"arm_{side}"] = {"state": "down", "why": f"no arm service for the {side} arm (start opendubs-arm@{side})"}
         else:
-            out[f"arm_{side}"] = {"state": "ok", **({"pose_deg": pose} if (pose := _pose_deg(status)) else {})}
+            pose = {"pose_deg": p} if (p := _pose_deg(status)) else {}
+            if "supervised: yes" in status.splitlines():
+                out[f"arm_{side}"] = {"state": "ok", **pose}
+            else:
+                # Up, enabled and holding, but the service refuses every moving command until a person is at the e-stop (SUPERVISE), so the runner's goal for this arm would be rejected
+                # and a live show ended by it. Not ok: the show is refused up front with a reason that says what to do, or offered without this arm if it can do without. Its pose stays,
+                # so a skipped arm can still be checked to be at rest. Activating (`ready`) is not needed: a show moves each arm to zero from where it is.
+                letter = side[0].upper()
+                out[f"arm_{side}"] = {"state": "degraded", **pose, "why": f"the {side} arm service is up but nobody is supervising it, so it refuses every moving command (PREPARE {letter}, or SUPERVISE {letter})"}
         out[f"grip_{side}"] = {"state": "down", "excluded": True, "why": f"the {side} gripper is not enabled in the arm service (use_gripper, and its calibration)"}
     return out
 
