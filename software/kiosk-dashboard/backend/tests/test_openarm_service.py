@@ -220,6 +220,9 @@ def test_hold_and_end_supervision_are_not_kept_waiting_by_a_running_move(arms):
     right.supervised = True
     assert openarm.start_op("park", "right")[0]
     assert openarm.op_status()["running"]
+    end = time.time() + 5                       # start_op returns once its thread is started, not once the park has reached the service: a hold sent first reads as the first command
+    while "park" not in right.received and time.time() < end:
+        time.sleep(0.01)
     ok, detail = openarm.start_op("hold", "right")
     assert ok and "holding" in detail, (ok, detail)
     ok, detail = openarm.start_op("unsupervise", "right")
@@ -317,3 +320,30 @@ def test_a_viewer_that_ends_at_once_says_why(tmp_path, monkeypatch):
     assert openarm.start_op("viewer", "right")[0]
     state = _wait_viewer("right", "failed")
     assert state["state"] == "failed" and "ABI mismatch" in state["error"], state
+
+
+def test_prepare_supervises_then_activates_each_arm(arms, monkeypatch):
+    monkeypatch.setattr(openarm, "_show_running", lambda: None)
+    left, right = arms("left", busy=0.3), arms("right", busy=0.3)
+    assert openarm.start_op("prepare", "both")[0]
+    op = wait()
+    assert op["error"] is None and op["rc"] == 0, op
+    for fake in (left, right):
+        assert [c for c in fake.received if c != "status"] == ["supervise", "activate"], fake.received
+        assert fake.supervised
+
+
+def test_prepare_stops_at_the_first_refusal_and_does_not_move_the_arm(arms, monkeypatch):
+    monkeypatch.setattr(openarm, "_show_running", lambda: None)
+    right = arms("right", refusal="no person at the e-stop")
+    assert openarm.start_op("prepare", "right")[0]
+    op = wait()
+    assert op["error"] and "supervise did not go through" in op["error"] and "no person at the e-stop" in op["error"], op
+    assert "activate" not in right.received, right.received
+
+
+def test_prepare_waits_for_a_show_to_end(arms, monkeypatch):
+    right = arms("right")
+    monkeypatch.setattr(openarm, "_show_running", lambda: "shrug")
+    ok, detail = openarm.start_op("prepare", "right")
+    assert not ok and "shrug" in detail and right.received == [], (ok, detail, right.received)
