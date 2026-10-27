@@ -75,6 +75,31 @@ class Gates(unittest.TestCase):
             a.set_gripper("right", 0.0)
         self.assertEqual((a.arms.sent, a.arms.grips), ([], []))
 
+    def test_every_request_that_moves_refuses_without_the_deadman(self):
+        """Every path to an arm or gripper goal honours the deadman, not only the ones above."""
+        for name, request in (("move_to_point", lambda a: a.move_to_point("right", [0.4, -0.2, 0.9])),
+                              ("move_by", lambda a: a.move_by("right", [0.0, 0.0, -0.05])),
+                              ("move_to_named", lambda a: a.move_to_named("right", "stow")),
+                              ("stow", lambda a: a.stow()),
+                              ("set_gripper", lambda a: a.set_gripper("left", 1.0))):
+            a = live(runner.FakeRobotState(deadman=False))
+            with self.assertRaises(la.Refused, msg=name):
+                request(a)
+            self.assertEqual((a.arms.sent, a.arms.grips), ([], []), name)
+
+    def test_deadman_released_mid_grip_cancels_it(self):
+        class SilentGrip(la.FollowingFakeArms):
+            def send_grip(self, slot, metres):
+                gid = super().send_grip(slot, metres)
+                del self.goal_status[gid]               # the grip is still closing
+                return gid
+        arms = SilentGrip()
+        a = live(FlipState(after=3), arms=arms)
+        with self.assertRaises(la.Refused) as e:
+            a.set_gripper("right", 0.0)
+        self.assertEqual(e.exception.code, "DEADMAN")
+        self.assertEqual((len(arms.grips), arms.cancelled), (1, 1))
+
     def test_deadman_released_mid_move_cancels_it(self):
         arms = la.FollowingFakeArms()
         arms.silent.add("ARM_R")                # the goal never reports: it is still running

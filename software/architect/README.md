@@ -172,6 +172,52 @@ the operator sees on the dashboard what "trick or treat" will run, without a sec
 `--agent ssa` (the default) has ARCHITECT write the program. Its tools may read the robot and ask
 camera questions while writing, but every motion refuses until a program is approved.
 
+## On the real arms: what must stay true
+
+Read this before any run that moves the arms, whichever way it is started.
+
+**The deadman, every time anything moves.** Every path that sends an arm or gripper goal applies the
+show runner's own gates. Each move or grip is checked before it is sent: `runner.preflight`, meaning
+the e-stop clear, no fault, CH5 in AUTO, the arms active and the deadman held. While it runs,
+`runner.monitor` re-checks the same gates every tick, and the moment one fails or stops being known
+every goal is cancelled and the arms hold where they are. The paths are:
+
+- **The live arm service** (`live_arms.LiveArms`, served by `robot_node.py`):
+  - **Moves:** every move (`move_to_point`, `move_by`, `move_to_named`, `stow`) is checked twice
+    before it is sent, before planning and again just before the goal goes out.
+  - **Grips:** every grip (`set_gripper`) is checked before it is sent.
+  - **Watching:** both are watched by the same `_watch`.
+  - **Tests:** `tests/test_live_arms.py` (`Gates`) pins this down for every request.
+- **Shows, including the listener's show mode** (`listener --show`, `SHOW=` in `dev.sh listen`): the
+  show runner itself runs them. It applies the same gates and monitoring, and its deadman start:
+  "trick or treat" only arms the run, and the supervisor's fresh deadman press is the go.
+- **A move routed around the body** (`routing.py`) is for a recorded show only: it refuses to become
+  live points, so it reaches the arms only through the show runner.
+
+Keep it so. A change that sends arm goals by any other way is not ready for the robot.
+
+**One motion source at a time.** The arm lease (plan 5.3) is not built, so nothing stops the show
+runner and the live arm service from sending goals at once. Run one or the other, never both.
+
+- `ARMS=ros dev.sh live` refuses while `opendubs-runner` is active. Stop it with whoever runs it,
+  and start it again after the run.
+- The show path (the Shows page, or `listener --show`) uses the show runner alone. Keep the live arm
+  service (`archit-architect-arms`) down while it runs: `dev.sh down`.
+
+**The head centred and the lift down, and left there.** The dashboard does not serve the head's pan
+and tilt or the lift's height yet. So every clearance check here, and the clearance sweep of a
+recorded show, assumes the arm config's `head` poses (default `[[0, 0]]`, centred) and `lift_mm`
+(default 0, down).
+
+- **Before a run:** centre the head and lower the lift fully.
+- **During the run:** nothing may move them: no head tracking or gaze, no lift commands, no show
+  that moves the head or the lift.
+- **If either is elsewhere,** the twin's clearance is not the robot's.
+
+**Also:** the workspace boxes must be measured for this robot (`tools/workspace_box.py`, then a look
+at the robot), never widened past the arm column's front (x 0.423 in the chassis frame). The Arms lane
+reviews the live arm service, since it is a second way of driving the arms.
+
 ## First runs on the robot: ARCHITECT writes a show
 
 The first profile for the physical robot has no perception and moves nothing itself. ARCHITECT
