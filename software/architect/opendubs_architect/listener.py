@@ -548,6 +548,8 @@ def main(argv=None) -> int:
     ap.add_argument("--stt", default=os.environ.get("VOICE_STT", "parakeet"))
     ap.add_argument("--tts", default=os.environ.get("VOICE_TTS", "kokoro"))
     ap.add_argument("--no-chat", action="store_true", help="no greetings or replies from the local model")
+    ap.add_argument("--program", metavar="FILE", help="show mode: the ARCHITECT program the show was recorded from, "
+                    "for the dashboard's ARCHITECT tab (display only; the show is what runs)")
     ap.add_argument("--no-light", action="store_true", help="do not flash the base strip purple when the phrase is heard")
     ap.add_argument("--log-heard", action="store_true", help="tuning: log what Parakeet wrote when it does not "
                     "confirm a spotter hit (about 2 s of speech, only after a hit; off by default)")
@@ -558,6 +560,14 @@ def main(argv=None) -> int:
     import speech
 
     feed = Feed()
+    program = None
+    if a.program:                               # read once: the show is what runs, this is what it came from
+        with open(a.program, encoding="utf-8") as f:
+            code = f.read()
+        import hashlib
+        m = re.search(r"^\s*#\s*Summary:\s*(.+?)\s*$", code, re.M)
+        program = {"code": code, "summary": m.group(1) if m else None, "path": a.program,
+                   "sha": hashlib.sha256(code.encode()).hexdigest()[:12]}
 
     def log(ev):
         print(json.dumps(ev), flush=True)
@@ -633,7 +643,7 @@ def main(argv=None) -> int:
                 after = int((dict(p.split("=", 1) for p in query.split("&") if "=" in p).get("after") or 0))
                 return self._send(200, {"status": dict(listener.status(), **(
                     {"show": a.show, "start": a.start} if a.show else {"runner": a.runner})),
-                    "seq": feed.seq, "events": feed.since(after)})
+                    "program": program, "seq": feed.seq, "events": feed.since(after)})
             self._send(404, {"error": "not found"})
 
         def do_POST(self):

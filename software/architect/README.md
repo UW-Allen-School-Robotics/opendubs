@@ -28,6 +28,7 @@ handout triggered by "trick or treat".
 | `opendubs_architect/demo_runner.py` | The Halloween runner: instruction, spoken yes, frozen program, "trick or treat" runs; a browser page shows the code |
 | `opendubs_architect/listener.py` | The runner's ears and voice on the Jabra speakerphone: "OpenDubs", "trick or treat", yes and stop, each checked by Parakeet before it is posted |
 | `opendubs_architect/chat.py` | What the robot says to visitors, from its own local model (the voice service's Qwen on vLLM): a varied greeting as each run starts, short answers while armed; words only, never posted to the runner |
+| `opendubs_architect/camera_feed.py` | The Orbbec's colour image as a small JPEG on 127.0.0.1:8097 for the dashboard's ARCHITECT tab; subscribed only while asked (`dev.sh camera`) |
 | `opendubs_architect/kws.py`, `alsa.py` | Keyword spotting on the Thor (sherpa-onnx, the face page's pinned model), and the speakerphone through libasound |
 | `opendubs_architect/ssa_agent.py` | ARCHITECT (ssa's session) behind the runner, with library helpers copied into each program |
 | `opendubs_architect/show_backend.py` | The fallback backend: a program's arm calls recorded as a show |

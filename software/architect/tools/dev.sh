@@ -17,6 +17,9 @@
 #                                  SHOW=<routine>: "trick or treat" plays that show-palette routine through
 #                                  the dashboard instead (the Shows page's gates; START=deadman, the default,
 #                                  makes the supervisor's fresh deadman press the go; or countdown)
+#   dev.sh camera                  the Orbbec's colour image as a small JPEG on 127.0.0.1:8097/frame.jpg, for the
+#                                  dashboard's ARCHITECT tab (archit-architect-camera; read-only, subscribed only
+#                                  while asked; joins archit-perception-camera's IPC, as the perception server does)
 #   dev.sh logs                    follow the runner log
 #   dev.sh shows                   the shows written so far
 #   dev.sh down                    stop and remove the container
@@ -61,6 +64,8 @@ BASE_IMAGE="${BASE_IMAGE:-archit-perception:dev}"
 MODELS="${MODELS:-/var/lib/opendubs/models}"
 LISTENER=archit-architect-listener
 ARMS_NAME=archit-architect-arms
+CAMERA_NAME=archit-architect-camera
+PERCEPTION_CAMERA=archit-perception-camera
 
 # The arm stack's joint_limits.yaml, the file the show runner validates against: its drop-in binds the
 # arm stack's hw_validation/ directory to /etc/opendubs/arm-limits (provision-runner.sh). Read in
@@ -154,10 +159,24 @@ arms() {  # the arm service for the live backend, on the runner's ROS domain ($D
   echo "started ${ARMS_NAME} (ARMS=${mode}, ROS domain ${DOMAIN})"
 }
 
+camera() {  # the colour image for the dashboard tab, from the perception stack's camera driver
+  ${DOCKER} inspect -f '{{.State.Running}}' "${PERCEPTION_CAMERA}" 2>/dev/null | grep -q true \
+    || { echo "dev.sh: ${PERCEPTION_CAMERA} is not running (software/perception: tools/grasp_stack.sh up)" >&2; exit 1; }
+  if ${DOCKER} inspect "${CAMERA_NAME}" >/dev/null 2>&1; then
+    echo "dev.sh: ${CAMERA_NAME} is already running; 'dev.sh down' first" >&2; exit 1
+  fi
+  # The driver hands frames over by shared memory: a container of its own discovers the topic and gets none.
+  ${DOCKER} run -d --rm --name "${CAMERA_NAME}" --network host --ipc "container:${PERCEPTION_CAMERA}" \
+    -e ROS_DOMAIN_ID=0 -e PYTHONPATH=/work/software/architect -v "${REPO}:/work:ro" \
+    "${IMAGE}" python3 -u -m opendubs_architect.camera_feed
+  echo "started ${CAMERA_NAME}: http://127.0.0.1:8097/frame.jpg"
+}
+
 listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner on 127.0.0.1:${PORT}
   local gid tts=() show="" ; gid=$(getent group audio | cut -d: -f3)
   [ -n "${SHOW:-}" ] && show="--show ${SHOW} --start ${START:-deadman}"
   [ "${LOG_HEARD:-0}" = 1 ] && show="${show} --log-heard"     # tuning: what Parakeet wrote for a refused hit
+  [ -n "${SHOW:-}" ] && [ -n "${PROGRAM:-}" ] && show="${show} --program /work/${PROGRAM}"   # the tab shows its code
   [ -f "${DATA}/models/kws-gigaspeech-3.3m/tokens.txt" ] || { echo "dev.sh: no spotter model; run 'dev.sh kws' first" >&2; exit 1; }
   if ${DOCKER} inspect "${LISTENER}" >/dev/null 2>&1; then
     echo "dev.sh: ${LISTENER} is already running; 'dev.sh down' first" >&2; exit 1
@@ -190,6 +209,9 @@ case "${1:-}" in
   listen)
     listen
     ;;
+  camera)
+    camera
+    ;;
   live)
     [ -n "${PROGRAM:-}" ] || echo "dev.sh: PROGRAM not set; the fixed program is examples/arms_wave.py" >&2
     run live --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
@@ -212,9 +234,10 @@ case "${1:-}" in
     ${DOCKER} stop -t 5 "${NAME}" >/dev/null 2>&1 && echo "stopped ${NAME}"
     ${DOCKER} stop -t 5 "${ARMS_NAME}" >/dev/null 2>&1 && echo "stopped ${ARMS_NAME}"
     ${DOCKER} stop -t 5 "${LISTENER}" >/dev/null 2>&1 && echo "stopped ${LISTENER}"
+    ${DOCKER} stop -t 5 "${CAMERA_NAME}" >/dev/null 2>&1 && echo "stopped ${CAMERA_NAME}"
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}" 2>/dev/null || true
     ;;
   *)
-    sed -n '2,42p' "$0"; exit 1
+    sed -n '2,45p' "$0"; exit 1
     ;;
 esac
