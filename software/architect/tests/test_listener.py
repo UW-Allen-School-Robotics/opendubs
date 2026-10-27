@@ -255,6 +255,36 @@ class Shows(unittest.TestCase):
             self.shows({"/api/choreo/routines": (200, [{"id": "monster_mash", "valid": False}])}).check()
 
 
+class BaseLight(Case):
+    """The strip flashes purple when the phrase is CONFIRMED, never on a bare spotter hit, and never
+    in a reserved state colour (orange reads as DEGRADED amber)."""
+
+    def lit(self, heard, keyword, state="ARMED"):
+        li = self.make(heard, state)
+        self.flashes = []
+        li.light = ls.Light(call=lambda body: self.flashes.append(body) or True)
+        self.spotter.fire(keyword, at=40 if keyword == kws.TRICK else 0)
+        self.feed(li, QUIET[:5] + SPEECH + QUIET)
+        return li
+
+    def test_purple_on_a_confirmed_phrase(self):
+        self.lit("Trick or treat!", kws.TRICK)
+        self.assertEqual(self.flashes, [{"rgb": [150, 0, 255], "br": 100, "lease_ms": 2000}])
+        self.lit("Hey OpenDubs, what is your name?", kws.HEY, "IDLE")
+        self.assertEqual(len(self.flashes), 1)
+
+    def test_not_on_a_hit_parakeet_does_not_confirm(self):
+        self.lit("the trick is to eat", kws.TRICK)
+        self.assertEqual(self.flashes, [])
+        self.lit("hey doves", kws.HEY)
+        self.assertEqual(self.flashes, [])
+
+    def test_a_reserved_colour_is_refused(self):
+        for rgb in ((255, 120, 0), (240, 150, 40), (255, 35, 35)):     # orange, DEGRADED amber, E-STOP red
+            with self.assertRaises(ValueError):
+                ls.Light(rgb=rgb, call=lambda body: True)
+
+
 class Loudness(unittest.TestCase):
     def test_a_quiet_line_is_brought_up(self):
         """Kokoro's lines, peaking near -19 dBFS, were not heard through the Jabra."""

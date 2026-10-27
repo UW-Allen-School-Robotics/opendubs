@@ -79,7 +79,9 @@ YES_MAX_WORDS = 3
 HOLD_ON = ("Hold on, I'm thinking!", "One moment, let me think.", "Hmm, give me a second.",
            "Just a moment, I'm thinking it over.", "Hang on, my circuits are whirring!",
            "Wait a second, I'm thinking.", "Hold your horses, I'm thinking!", "Give me a moment to think.")
-HOLD_ON_EVERY_S = 4.0       # a crowd shouting "trick or treat" hears one, not a queue of them
+HOLD_ON_EVERY_S = 4.0
+LIGHT_RGB = (150, 0, 255)   # purple: Halloween, and no state's colour (white, green, cyan, amber, red)
+LIGHT_S = 2.0               # the dashboard's longest lease: it lapses by itself, nothing to release       # a crowd shouting "trick or treat" hears one, not a queue of them
 PEAK_DBFS = -3.0            # each spoken line is brought up to this: Kokoro's own peaks near -19 dBFS
 MAX_GAIN = 8.0              # were not heard through the Jabra at its volume 6 of 11 (2026-10-24)
 OPEN_STATES = ("AWAITING_YES", "RUNNING")
@@ -154,11 +156,12 @@ class Listener:
     runner's new state) reach the models and the runner."""
 
     def __init__(self, spotter, transcribe, post, make_vad=vad.make_vad, clock=time.monotonic,
-                 log=None, background=True, chat=None, say=None, log_heard=False):
+                 log=None, background=True, chat=None, say=None, log_heard=False, light=None):
         """`chat` (chat.Chat) and `say(text)`, when given, let the robot greet each visitor and answer
         questions while armed; without them it only listens for the runner."""
         self.spotter, self.transcribe, self.post = spotter, transcribe, post
         self.chat, self.say = chat, say
+        self.light = light                      # Light: the base strip shows that it heard
         self.log_heard = log_heard              # tuning only: what Parakeet wrote for a refused hit
         self._held_at, self._held_line = -1e9, None
         self.make_vad, self.clock, self._log_fn = make_vad, clock, log
@@ -274,6 +277,8 @@ class Listener:
         text = self.transcribe(clip)
         if kind == "wake":
             rest = wake_rest(text)
+            if rest is not None:                    # the phrase confirmed, with or without words after it
+                self._flash()
             if not rest:
                 self._log("not_addressed", why="no wake phrase in the transcript" if rest is None
                           else "only the wake phrase was said")
@@ -291,6 +296,8 @@ class Listener:
             else:
                 self._send("instruction" if self.state == "IDLE" else "speech", rest)
         elif kind == "trick":
+            if is_trick_or_treat(text):
+                self._flash()                       # heard, whether or not a run can start now
             if is_trick_or_treat(text) and self.state == "ARMED":
                 self._send("trigger", "trick or treat")
             elif is_trick_or_treat(text):
@@ -324,6 +331,10 @@ class Listener:
         elif kind == "trigger" and got != "RUNNING":
             self._hold_on()                         # refused: the deadman not held, or not yet armed
 
+    def _flash(self) -> None:
+        if self.light is not None:
+            self._log("light", ok=self.light.flash())
+
     def _hold_on(self) -> None:
         """A "trick or treat" that started no run gets a word, not silence, at most every HOLD_ON_EVERY_S.
         Not while the runner waits for a yes: it would talk over the approval."""
@@ -355,6 +366,37 @@ class Runner:
                 return json.load(r).get("state")
         except (OSError, ValueError):
             return None
+
+
+class Light:
+    """The base's LED strip says "I heard you": LIGHT_RGB for LIGHT_S, through the dashboard's show-light
+    layer (software/kiosk-dashboard/backend/show_light.py: loopback only, a lease that lapses by itself,
+    the reserved states always shown over it). The colour must not read as a reserved state colour (the
+    show validator's own rule, cue.light_reserved_clash: E-STOP red and DEGRADED amber, so not orange).
+    A show that drives the light takes it over by renewing its own lease. `call(body) -> bool` is a seam."""
+
+    def __init__(self, dashboard: str = "http://127.0.0.1:8080", rgb=None, br: int = 100, call=None):
+        self.url, self.rgb, self.br = dashboard.rstrip("/"), list(rgb or LIGHT_RGB), int(br)
+        choreo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "choreo")
+        if os.path.abspath(choreo) not in sys.path:
+            sys.path.insert(0, os.path.abspath(choreo))
+        import cue
+        clash = cue.light_reserved_clash(self.rgb)
+        if clash:
+            raise ValueError(f"the listener's light {self.rgb} reads as {clash}, a reserved state colour")
+        self.call = call or self._post
+
+    def _post(self, body: dict) -> bool:
+        req = urllib.request.Request(self.url + "/api/choreo/light", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=1.0) as r:
+                return r.status == 200
+        except (OSError, ValueError):
+            return False
+
+    def flash(self) -> bool:
+        return self.call({"rgb": self.rgb, "br": self.br, "lease_ms": int(LIGHT_S * 1000)})
 
 
 class Shows:
@@ -448,6 +490,7 @@ def main(argv=None) -> int:
     ap.add_argument("--stt", default=os.environ.get("VOICE_STT", "parakeet"))
     ap.add_argument("--tts", default=os.environ.get("VOICE_TTS", "kokoro"))
     ap.add_argument("--no-chat", action="store_true", help="no greetings or replies from the local model")
+    ap.add_argument("--no-light", action="store_true", help="do not flash the base strip purple when the phrase is heard")
     ap.add_argument("--log-heard", action="store_true", help="tuning: log what Parakeet wrote when it does not "
                     "confirm a spotter hit (about 2 s of speech, only after a hit; off by default)")
     a = ap.parse_args(argv)
@@ -469,7 +512,7 @@ def main(argv=None) -> int:
     listener = Listener(kws.Spotter(a.kws_models or a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
                         chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]),
-                        log_heard=a.log_heard)
+                        log_heard=a.log_heard, light=None if a.no_light else Light(a.dashboard))
 
     async def play(out, text):              # whole, then louder: Kokoro synthesises a sentence at once anyway
         out.write(loud(b"".join([chunk async for chunk in tts.speak(text)])))
