@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=9f38be46" />
+  <link rel="stylesheet" href="style.css?v=2af87b29" />
 </head>
 <body>
   <div id="app">
@@ -330,6 +330,31 @@
       </section>
     </main>
 
+    <!-- ARCHITECT: the program it wrote, the Orbbec's image, what the listener hears (architect.js; read-only) -->
+    <main id="view-architect" class="view architectview">
+      <div class="arch-left">
+      <section class="card arch-cam">
+        <h2>CAMERA <span id="archCamBadge" class="badge dimbadge">—</span></h2>
+        <img id="archCam" alt="The Orbbec colour camera's latest frame">
+        <div id="archCamNote" class="sub">—</div>
+      </section>
+      <section class="card arch-speech">
+        <h2>SPEECH <span id="archEars" class="badge dimbadge">—</span></h2>
+        <div class="arch-meter" title="The Jabra microphone's level"><div id="archLevel"></div></div>
+        <div id="archHeardNote" class="sub">—</div>
+        <ol id="archFeed" class="arch-feed"></ol>
+        <div class="sub">What Parakeet wrote for each clip it was given (after the spotter heard a phrase, or while the robot waits for a yes or runs a program) and what the listener did; times are after the spotter's hit. Kept in memory on the robot only.</div>
+      </section>
+      </div>
+      <section class="card arch-prog">
+        <h2>PROGRAM <span id="archProgBadge" class="badge dimbadge">—</span></h2>
+        <div id="archSummary" class="arch-summary">—</div>
+        <div id="archMeta" class="sub"></div>
+        <div id="archCode" class="arch-code"></div>
+        <details id="archDiffBox" hidden><summary id="archDiffNote">Changes</summary><div id="archDiff" class="arch-code"></div></details>
+      </section>
+    </main>
+
     <!-- ARMS view (placeholder) -->
     <main id="view-arms" class="view placeholder">
       <div class="ph"><h1>ARMS</h1><p>Dual OpenArm 7-DOF</p><p class="dim">telemetry pending — layout to be designed</p></div>
@@ -536,6 +561,7 @@
     <div class="ditem" data-view="payload">Payload / mast<span class="ch">›</span></div>
     <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
     <div class="ditem" data-view="shows">Shows — routines<span class="ch">›</span></div>
+    <div class="ditem" data-view="architect">ARCHITECT — program, camera, speech<span class="ch">›</span></div>
     <div class="ditem" data-view="headface">Head &amp; face — idle, looks, sound<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
@@ -543,6 +569,7 @@
   <script src="operate.js?v=a416f5b7"></script>
   <script type="module" src="teleop.js?v=88924ca4"></script>
   <script src="show_audio.js?v=b2f6a4e4"></script>
+  <script src="architect.js?v=7cb6d07d"></script>
   <script src="choreo.js?v=e4aa7cbc"></script>
   <script src="headface.js?v=ea3f18f3"></script>
   <script src="projector.js"></script>
