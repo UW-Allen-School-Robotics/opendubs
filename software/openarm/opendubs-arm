@@ -30,8 +30,12 @@ fi
 
 setup="${OPENDUBS_GAFRO_SETUP:-/opt/gafro/setup.bash}"
 if [ -r "$setup" ]; then
+    # The ROS and venv setup scripts read variables they never set (ROS: AMENT_TRACE_SETUP_FILES), so `set -u` would end this wrapper inside them with exit 1, 46 ms
+    # after the start and with nothing said (seen on the Thor, 2026-10-26). Strictness is off for the source and back on after it.
+    set +eu
     # shellcheck disable=SC1090
     . "$setup"
+    set -eu
 elif [ "$setup" != /dev/null ]; then
     echo "opendubs-arm: no $setup: the gafro environment is not installed (set OPENDUBS_GAFRO_SETUP=/dev/null to use the python on PATH)" >&2
     exit 78
