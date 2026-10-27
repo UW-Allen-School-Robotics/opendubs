@@ -1067,12 +1067,14 @@ export const name = "ghost";
 const POLL_MS = 500;
 const PERSON_FRESH_S = 1.2;         // a tracker target older than this is nobody
 const EEK_S = 3.15;                 // EEK!'s length in the renderer: in 0.25 + hold 2.4 + out 0.5
+const SELECTED_S = 3;               // then SMILE at the person who asked, before FOCUS takes over
 const HAPPY_S = 5;                  // HAPPY after a run that ended
 const PUZZLED_S = 5;                // PUZZLED after a run that failed, or a trigger the runner refused
 
 // The runner's state -> the ghost's presentation stage (the renderer's task stages). Pure; the test
 // holds it (tests/test_ghost_skin.mjs). `runner` is /api/architect/state's body, or null.
-//   RUNNING, the first EEK_S of it    accepted   EEK!, then SMILE (a "trick or treat" was taken)
+//   RUNNING, the first EEK_S          accepted   EEK! (a "trick or treat" was taken), and then,
+//     and SELECTED_S after it                      for SELECTED_S, SMILE at the person who asked
 //   RUNNING after that                picking    FOCUS (the arm is getting the candy)
 //   ARMED just after run_ended        complete   HAPPY
 //   ARMED just after run_failed,      puzzled    PUZZLED (it could not do it)
@@ -1083,7 +1085,7 @@ export function ghostStage(runner) {
   if (!runner || !runner.available) return "idle";
   const since = Number.isFinite(runner.since_s) ? runner.since_s : Infinity;
   switch (runner.state) {
-    case "RUNNING": return since < EEK_S ? "accepted" : "picking";
+    case "RUNNING": return since < EEK_S + SELECTED_S ? "accepted" : "picking";
     case "GENERATING": case "CHECK_FAILED": return "puzzled";
   }
   if (runner.last === "run_ended" && since < HAPPY_S) return "complete";

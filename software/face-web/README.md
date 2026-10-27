@@ -52,7 +52,7 @@ A content code skin for the Halloween demo: a ghost with ten expressions (DOZE, 
 SMILE, PEEK, EEK!, FOCUS, HAPPY, PUZZLED for THINK, and the flame mouth that never stops). Which one
 shows follows the face tracker (someone in view) and the ARCHITECT demo runner (a "trick or treat"
 taken, the arm getting the candy, done, or could not). **The state machine, with every expression
-animated:** [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
+animated** (tabs: V1, the design; V2, as built): [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
 (download it and open it in a browser; it needs nothing else).
 
 | | |
