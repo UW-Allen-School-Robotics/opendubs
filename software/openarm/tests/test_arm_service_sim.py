@@ -60,9 +60,13 @@ def wait(service, seconds=30.0):
     assert not service.running, f"{service.running} did not finish"
 
 
+def trajectory_limit():
+    return arm_service.trajectory.Limits().max_speed
+
+
 def test_a_move_takes_the_time_asked():
-    """`activate` takes --move-seconds (7 s by default: stow to ready peaks at 0.48 rad/s, under the driver's 1.0 slew), and a time the distance cannot allow is refused."""
-    assert arm_service.MOVE_SECONDS == 7.0 and 1.875 * 1.8 / arm_service.MOVE_SECONDS < 1.0
+    """`activate` takes --move-seconds (5 s by default: stow to ready peaks at 0.68 rad/s, under the driver's 1.0 limit), and a time the distance cannot allow is refused."""
+    assert arm_service.MOVE_SECONDS == 5.0 and 1.875 * 1.8 / arm_service.MOVE_SECONDS < trajectory_limit()
     side = "right"
     robot, indices, position = arm_service.bringup.connect(args_for(side))
     args = args_for(side)
@@ -79,16 +83,33 @@ def test_a_move_takes_the_time_asked():
         assert service.start("park", -1.0).startswith("refused") and service.start("follow", 3.0).startswith("refused"), "a bad move time was accepted"
         for name, expected in (("park", 3.0), ("activate", 3.0)):
             began = time.time()
-            assert service.start(name, 3.0) == f"{name} started"        # this move's time, not the service's 7 s
+            assert service.start(name, 3.0) == f"{name} started"        # this move's time, not the service's 5 s
             wait(service)
             took = time.time() - began
             assert service.last == f"{name} done" and expected <= took < expected + 2.5, f"{name} took {took:.1f} s, asked {expected:g}: {service.last}"
         assert np.abs(position() - ready).max() < 0.05
-        args.stow_conf = conf                                   # 0.52 rad in 0.4 s peaks at 2.4 rad/s: over the 1.3 limit
+        args.stow_conf = conf                                   # 0.52 rad in 0.4 s peaks at 2.4 rad/s: over the limit
         assert service.start("park", 0.4) == "park started"
         wait(service)
         assert "rad/s" in service.last and "park stopped" in service.last, service.last
         assert np.abs(position() - ready).max() < 0.05, "a refused move moved the arm"
+
+        # the case measured on the arm: 1.8 rad on joint 4 in 3 s peaks at 1.125 rad/s, over what the driver follows (1.0): refused; in 4 s it peaks at 0.84: played
+        far = ready.copy()
+        far[3] = 0.0
+        with open(conf, "w") as stream:
+            stream.write(f"{side.upper()}_STOW=" + ",".join(f"{v:.4f}" for v in np.degrees(far)) + "\n")
+        assert service.start("park", 3.0) == "park started"
+        wait(service)
+        assert "park stopped" in service.last and "rad/s" in service.last, service.last
+        assert np.abs(position() - ready).max() < 0.05, "a refused move moved the arm"
+        assert service.start("park", 4.0) == "park started"
+        wait(service)
+        assert service.last == "park done", service.last
+        assert abs(position()[3]) < 0.05
+        assert service.start("activate", 4.0) == "activate started"
+        wait(service)
+        assert service.last == "activate done" and np.abs(position() - ready).max() < 0.05, service.last
     finally:
         robot.shutdown()
 

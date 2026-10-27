@@ -4,7 +4,7 @@
     $PY software/openarm/gafro/arm_service.py --side right --hardware-config /etc/opendubs/hardware.yaml --supervised
     ros2 topic echo /joint_states
     $PY software/openarm/gafro/arm_service.py ctl --side right status|activate|park|follow|hold|down|supervise|unsupervise    # to the running service, as `openarm-up` took them
-    $PY software/openarm/gafro/arm_service.py ctl --side right activate --move-seconds 5      # this move's time (activate, park); the service's own is `run --move-seconds`, 7 s
+    $PY software/openarm/gafro/arm_service.py ctl --side right activate --move-seconds 5      # this move's time (activate, park); the service's own is `run --move-seconds`, 5 s
 
 The service owns the RobotInterface. It holds the arm where it is (the driver enables and holds on `initialize()`, with no permit, so nothing is commanded)
 and publishes `/joint_states` through gafro-ri-ros2-bridge, which is only the ROS side and knows nothing of a permit. The runner and the dashboard can read gafro's
@@ -61,10 +61,10 @@ def socket_for(side):
 
 
 SOCKET = None     # (the default is per side: socket_for)
-# How long `activate` and `park` take, seconds, whatever the distance: stow to ready (joint 4 travels 1.8 rad, the most) peaks at 1.875 * 1.8 / 7 = 0.48 rad/s. engage.py's own
-# speed took 11.2 s for that; both runs on the arm tracked within 9 mrad at that pace (recordings of 2026-10-26). The driver slews at 1.0 rad/s, and trajectory.Limits refuses
-# a path over 1.3 rad/s, so a shorter time than the distance allows is refused, not played.
-MOVE_SECONDS = 7.0
+# How long `activate` and `park` take, seconds, whatever the distance. Stow to ready (joint 4 travels 1.8 rad, the most) peaks at 1.875 * 1.8 / 5 = 0.68 rad/s. Measured on the
+# arm (2026-10-26): 11.2 s and 7 s track within 10 mrad, 5 s within 11 mrad, and 3 s does not: the path asks 1.15 rad/s and the driver tops out at 1.0, so the arm lags by up to
+# 79 mrad. trajectory.Limits therefore refuses a path over 1.0 rad/s (stow to ready: under about 3.4 s), so a time the arm cannot follow is refused, not played.
+MOVE_SECONDS = 5.0
 COMMANDS = ("status", "activate", "park", "follow", "hold", "down", "supervise", "unsupervise")
 
 
@@ -406,7 +406,7 @@ def main() -> int:
         p.add_argument("--start-tolerance-deg", type=float, default=float(np.degrees(guards.START_TOLERANCE)))
         p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
         p.add_argument("--socket", default=None, help="default: the side's (one service per arm)")
-        p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 7 s from stow to ready)")
+        p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 5 s from stow to ready; under about 3.4 s the arm cannot follow and the move is refused)")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--no-ros", action="store_true", help="no /joint_states or action server: the lifecycle only (they need ROS)")
     args = parser.parse_args()
