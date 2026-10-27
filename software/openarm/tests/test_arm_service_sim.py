@@ -302,6 +302,53 @@ def test_trajectory_and_follow(side):
         robot.shutdown()
 
 
+def test_a_target_outside_the_reach_is_not_followed(side="right"):
+    """The behaviour tree holds the arm while the target is outside its reach and follows again when it is back. A Sequence left at its default Memory keeps running the
+    follow action after its condition has turned false (the arm would chase the target), so this is the test of the tree being re-read every tick."""
+    import reach as reach_module
+
+    robot, indices, position = arm_service.bringup.connect(args_for(side))
+    service = arm_service.ArmService(robot, args_for(side))
+    try:
+        task = robot.get_system().get_task_space(side)
+        ji = np.asarray(task.get_joint_indices())
+        q0 = np.asarray(robot.get_state().get_position(), dtype=float).copy()
+        start = np.asarray(task.compute_ee_motor(q0[ji]).to_position_quaternion(), dtype=float)[:3]
+
+        class Within:       # reachable: within 5 cm of where the hand starts
+            def reachable(self, motor):
+                return float(np.linalg.norm(np.asarray(motor.to_position_quaternion(), dtype=float)[:3] - start)) < 0.05
+
+        service.reach, service.source = Within(), pose_follow.reference_source(robot, side)
+        assert service.start("follow") == "follow started"
+        time.sleep(0.5)
+        hand = lambda: np.asarray(task.compute_ee_motor(np.asarray(robot.get_state().get_position(), dtype=float)[ji]).to_position_quaternion(), dtype=float)[:3]  # noqa: E731
+
+        def aim(joint_zero):
+            q = q0.copy()
+            q[ji[0]] += joint_zero
+            service.source.publish(control.MotorReferenceChunk(control.monotonic_now(), 0.1, [task.compute_ee_motor(q[ji])]))
+
+        aim(0.05)
+        time.sleep(3.0)
+        near = hand()
+        assert np.linalg.norm(near - start) > 0.01 and service.behaviour == "following", (service.behaviour, near - start)
+        aim(0.4)       # about 15 cm away: outside
+        time.sleep(1.5)
+        assert service.behaviour.startswith("holding"), service.behaviour
+        held = hand()
+        time.sleep(1.5)
+        assert np.linalg.norm(hand() - held) < 0.002, "the arm kept moving toward a target outside the reach"
+        aim(0.05)
+        time.sleep(3.0)
+        assert service.behaviour == "following" and np.linalg.norm(hand() - near) < 0.005, (service.behaviour, hand() - near)
+        assert reach_module.Gate(Within(), ticks=2).update is not None
+        service.hold()
+        wait(service, 5)
+    finally:
+        robot.shutdown()
+
+
 def trajectory_refusal():
     return arm_service.trajectory.INVALID_GOAL
 
@@ -320,3 +367,5 @@ if __name__ == "__main__":
         print("ok park and activate", side)
         test_trajectory_and_follow(side)
         print("ok trajectory and follow", side)
+    test_a_target_outside_the_reach_is_not_followed("right")
+    print("ok reach gate")

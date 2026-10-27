@@ -72,7 +72,7 @@ def reference_source(robot, side: str):
 
 
 def start_controller(robot, side: str, controllers: dict, source):
-    """Build `NAME` at the arm's pose now, hold `source` at that pose, and hand the controller to the interface's loop. Returns the joint indices and the twist source the estimator feeds."""
+    """Build `NAME` at the arm's pose now, hold `source` at that pose, and hand the controller to the interface's loop. Returns the joint indices, the twist source the estimator feeds and the controller."""
     from gafro import control
 
     import engage
@@ -87,23 +87,82 @@ def start_controller(robot, side: str, controllers: dict, source):
     posture.set_staleness(control.Staleness.Hold)
     posture.prime(2)
     twist = control.TwistReferenceSource(np.zeros(6), horizon=5 * TWIST_PERIOD)    # unknown means still: the default staleness decays it
-    robot.control(engage.build(NAME, controllers, system, side, q, pose, source, posture, twist=twist), False)
-    return indices, twist
+    controller = engage.build(NAME, controllers, system, side, q, pose, source, posture, twist=twist)
+    robot.control(controller, False)
+    return indices, twist, controller
 
 
-def follow(robot, side: str, controllers: dict, source, lease, cancel: threading.Event, withheld, limits: trajectory.Limits = trajectory.Limits(), log=print) -> str:
+BEHAVIOUR_PERIOD = 0.02         # s between ticks of the behaviour tree (the reach test is about 2 ms)
+
+
+def behave(robot, side: str, controllers: dict, source, follow_controller, reach, done: threading.Event, status=lambda text: None, log=print) -> None:
+    """The arm's behaviour, as gafro's own behaviour tree (`gafro.control.task`): follow the target while it is inside the arm's reach, otherwise hold where the arm is.
+
+        Fallback[ Sequence[ Condition(the target is reachable), Action(follow_pose) ],
+                  Condition(always) ]                                                   # nothing active: the arm holds
+
+    The tree only schedules (`get_active` names what to step), and it is ticked here, on a thread of its own, so that nothing in the control loop calls Python. When the active
+    controller changes, `robot.control` hands the loop the new one: a hold built at the arm's pose now, or the follow controller again (its anchor sat still with the arm, and the
+    pose stage walks to the target at its speed limit, which is now inside the reach). `status` is told what the arm is doing, for the dashboard.
+
+    While the arm is held nothing samples the request source, so this samples it itself; while it follows, the controller does and this reads what it sampled last.
+    """
+    import reach as reach_module
+    from gafro import control
+
+    gate = reach_module.Gate(reach)
+    restart = control.Memory.Restart       # the guard is re-read every tick (the default keeps running the action once it has started)
+    tree = control.Fallback([control.Sequence([control.Condition(lambda state: gate.ok), control.Action(follow_controller)], memory=restart), control.Condition(lambda state: True)],
+                            memory=restart)
+    state = control.SystemState(robot.get_system().get_dof())
+    following, dt = True, BEHAVIOUR_PERIOD
+    status("following")
+    while not done.wait(dt):
+        target = source.get_last() if following else source.sample(control.monotonic_now())
+        gate.update(target)
+        measured = robot.get_state()
+        state.set_position(np.asarray(measured.get_position(), dtype=float))
+        state.set_velocity(np.asarray(measured.get_velocity(), dtype=float))
+        state.set_torque(np.asarray(measured.get_torque(), dtype=float))
+        tree.tick(state, dt)
+        wanted = tree.get_active() is follow_controller
+        if wanted == following:
+            continue
+        if wanted:
+            robot.control(follow_controller, False)
+            status("following")
+            log("reach: the target is inside the reach again: following")
+        else:
+            start_controller(robot, side, controllers, reference_source(robot, side))
+            status("holding: the target is outside the arm's reach")
+            log("reach: the target is outside the arm's reach: holding where the arm is")
+        following = wanted
+
+
+def follow(robot, side: str, controllers: dict, source, lease, cancel: threading.Event, withheld, limits: trajectory.Limits = trajectory.Limits(), log=print, reach=None,
+           status=lambda text: None) -> str:
     """Follow until the run ends; returns why. `lease` is this run's share of the permit (started here, released on every way out); `withheld()` is how many permit renewals the
-    gate has refused so far."""
+    gate has refused so far. With a `reach` (reach.py) the target is followed only while it is inside it (`behave`); without one, as far as the joint limits allow."""
     import guards
 
     try:
         lease.start()
     except guards.Refused as refused:
         return f"refused: {refused}"
-    done, vibrating, torque = threading.Event(), {"run": 0, "joints": []}, {"peak": np.zeros(7)}
+    done, vibrating, torque, behaviour_error = threading.Event(), {"run": 0, "joints": []}, {"peak": np.zeros(7)}, []
     try:
-        indices, twist = start_controller(robot, side, controllers, source)
+        indices, twist, controller = start_controller(robot, side, controllers, source)
         threading.Thread(target=TwistEstimator(source, twist).run, args=(done,), daemon=True).start()
+        if reach is not None:
+            def behaving():
+                try:
+                    behave(robot, side, controllers, source, controller, reach, done, status, log)
+                except Exception as error:  # noqa: BLE001 -- a gate that died must not leave the arm following whatever comes: end the run, and the arm holds
+                    import traceback
+                    log(traceback.format_exc())
+                    behaviour_error.append(f"{type(error).__name__}: {error}")
+
+            threading.Thread(target=behaving, daemon=True).start()
 
         def record():
             while not done.is_set():
@@ -122,6 +181,8 @@ def follow(robot, side: str, controllers: dict, source, lease, cancel: threading
             time.sleep(0.01)
             if withheld() > before:
                 return "stopped: CH5, the e-stop or the deadman stopped permitting motion; the arm holds. Start following again to continue"
+            if behaviour_error:
+                return f"stopped: the behaviour tree failed ({behaviour_error[0]}); the arm holds"
             if vibrating["joints"]:
                 return f"stopped: VIBRATION in joint(s) {vibrating['joints']} (over {limits.max_joint_speed:g} rad/s); the arm holds"
             if torque["peak"].max() >= limits.max_torque:
