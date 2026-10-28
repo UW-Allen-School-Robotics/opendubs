@@ -235,14 +235,20 @@ class PalmFilter:
         return self.x + self.v * ahead
 
 
-def reach_goal(palm, shoulder, r_min=0.25, r_max=0.62, standoff=0.10, min_fwd=0.12, box=None):
+def reach_goal(palm, shoulder, r_min=0.25, r_max=0.57, standoff=0.10, min_fwd=0.30, max_up=0.35, box=None):
     """The TCP goal for a palm (arm_mount). Left/right and up/down follow the palm 1:1 while the arm can reach them
     (beyond, scaled onto the reach); only the depth is cut: toward the palm as far as the arm reaches, `standoff` short of
-    it, never nearer the robot than `min_fwd` ahead of the shoulder. A person 1.2 m away moving their hand 30 cm
+    it, never nearer the robot than `min_fwd` ahead of the shoulder, nor over `max_up` above it. A person 1.2 m away moving their hand 30 cm
     sideways moves the arm's hand 30 cm sideways, which reaching TOWARD the palm along a line from the shoulder does
-    not (it compresses that to a few centimetres)."""
+    not (it compresses that to a few centimetres).
+
+    Why the limits: r_max 0.57 keeps the elbow bent ~50 deg or more (0.62 is nearly straight: singular), and min_fwd and
+    max_up keep the hand out of the space straight above the shoulder. In the simulation the arm service's controller
+    wedged there, the hand 30-70 cm from every later target, and its guard stopped it for joint speed (opendubs2,
+    2026-10-28)."""
     d = np.asarray(palm, float) - shoulder
     d[0] -= standoff
+    d[2] = min(d[2], max_up)
     lat = d[1:].copy()
     nl = float(np.linalg.norm(lat))
     lat_max = math.sqrt(max(r_max ** 2 - min_fwd ** 2, 0.0))
@@ -313,7 +319,9 @@ class BrainParams:
     stale_s: float = 0.25       # s a palm counts as current
     shoulder_keep_s: float = 1.0  # s a shoulder seen counts, standing in when the camera loses it
     switch_s: float = 0.4       # s the followed hand is gone/down before the other lifted hand takes over
-    new_person_m: float = 0.6   # m the torso jumps between frames: someone else
+    new_person_m: float = 0.6   # m the torso jumps between frames: someone else...
+    new_person_n: int = 3       # ...in this many frames in a row that agree (one noisy frame, or a side-on person's
+                                # shoulders swapping, is not someone else: seen on opendubs2, 2026-10-28)
 
 
 class Brain:
@@ -336,7 +344,7 @@ class Brain:
         self.lift_since = self.down_since = self.other_since = None
         self.shoulder_seen = {s: (None, -1e9) for s in SIDES}
         self.torso, self.torso_at = None, -1e9
-        self.new_person = False
+        self.candidate, self.candidate_n = None, 0
         self.events = []
 
     def _say(self, mode, why):
@@ -370,9 +378,16 @@ class Brain:
         switched = False
         if len(seen) == 2:
             torso = 0.5 * (seen[0] + seen[1])
-            if (self.torso is not None and f.t - self.torso_at < 1.5
-                    and float(np.linalg.norm(torso - self.torso)) > p.new_person_m):
-                switched = True
+            jumped = (self.torso is not None and f.t - self.torso_at < 1.5
+                      and float(np.linalg.norm(torso - self.torso)) > p.new_person_m)
+            if jumped:
+                agree = self.candidate is not None and float(np.linalg.norm(torso - self.candidate)) <= p.new_person_m / 2
+                self.candidate, self.candidate_n = torso, (self.candidate_n + 1 if agree else 1)
+                switched = self.candidate_n >= p.new_person_n
+            else:
+                self.candidate, self.candidate_n = None, 0
+            if switched:
+                self.candidate, self.candidate_n = None, 0
                 self.offer.reset()
                 self.side, self.lift_since, self.down_since = None, None, None
                 self.shoulder_seen = {s: (f.shoulders.get(s), f.t) for s in SIDES}
@@ -380,7 +395,8 @@ class Brain:
                 self.palm_at = -1e9
                 if self.mode == "follow":
                     self._say("hold", "someone else is in front: holding until the head settles on them")
-            self.torso, self.torso_at = torso, f.t
+            if not jumped or switched:
+                self.torso, self.torso_at = torso, f.t
         lifted = {}
         for s in SIDES:
             palm = f.palms.get(s)
@@ -431,7 +447,8 @@ class Brain:
                 self.why = "following the hand" if lifted else "the hand is lost for a moment: coasting"
                 return "follow", self.filter.estimate(now)
             elif dropped:
-                self._say("home", "the hand is gone, the person is still there")
+                self._say("home", "the hand went down" if self.down_since is not None else
+                          "the hand is gone, the person is still there")
                 self.side = None
             elif now - self.person_at < p.lost_home_s:
                 self._say("hold", "nobody seen: holding")

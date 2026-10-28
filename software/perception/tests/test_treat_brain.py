@@ -70,8 +70,10 @@ def test_someone_else_stepping_in_holds_the_arm():
     b = brain()
     run(b, 0, 1, palm=HELD_OUT)
     other = {s: v + np.array([0.0, 0.9, 0.0]) for s, v in SH.items()}
-    assert b.update(Frame(1.0, True, other, {}))
-    assert b.tick(1.01, False)[0] == "hold"
+    assert not b.update(Frame(1.0, True, other, {}))       # one frame: noise, or a side-on person's shoulders swapping
+    assert not b.update(Frame(1.07, True, dict(SH), {}))
+    assert [b.update(Frame(1.1 + i * 0.07, True, other, {})) for i in range(3)] == [False, False, True]
+    assert b.tick(1.31, False)[0] == "hold"
 
 
 def test_palm_filter_drops_one_stray_point_and_takes_a_real_jump():
@@ -88,8 +90,11 @@ def test_reach_goal_follows_sideways_one_to_one_and_stays_in_reach():
     a = reach_goal(np.array([1.2, -0.2, 1.0]), ARM_SHOULDER)
     b = reach_goal(np.array([1.2, 0.1, 1.0]), ARM_SHOULDER)
     assert abs((b[1] - a[1]) - 0.3) < 1e-9
-    for p in ([3.0, 2.0, 3.0], [0.0, 0.0, 0.7], [1.0, -1.5, -0.5]):
-        assert np.linalg.norm(reach_goal(np.array(p), ARM_SHOULDER) - ARM_SHOULDER) <= 0.62 + 1e-9
+    # never past the reach (elbow straight: singular), behind 0.30 m or over 0.35 m up (straight above the shoulder,
+    # where the simulated arm wedged and its guard tripped)
+    for p in ([3.0, 2.0, 3.0], [0.0, 0.0, 0.7], [1.0, -1.5, -0.5], [0.5, 0.0, 2.0]):
+        d = reach_goal(np.array(p), ARM_SHOULDER) - ARM_SHOULDER
+        assert np.linalg.norm(d) <= 0.57 + 1e-9 and d[0] >= 0.30 - 1e-9 and d[2] <= 0.35 + 1e-9
 
 
 def test_smoother_never_exceeds_its_speed_on_a_jump():

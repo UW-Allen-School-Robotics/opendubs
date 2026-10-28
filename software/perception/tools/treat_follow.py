@@ -55,14 +55,27 @@ def parse_args():
     # the arm's goal
     ap.add_argument("--standoff", type=float, default=0.10, help="m the hand stops short of the palm (toward the robot)")
     ap.add_argument("--min-reach", type=float, default=0.25)
-    ap.add_argument("--max-reach", type=float, default=0.62, help="m from the shoulder: the depth is cut to this")
+    ap.add_argument("--max-reach", type=float, default=0.57, help="m from the shoulder (0.57: the elbow bent ~50 deg)")
+    ap.add_argument("--min-fwd", type=float, default=0.30, help="m ahead of the shoulder at least")
+    ap.add_argument("--max-up", type=float, default=0.35, help="m above the shoulder at most")
     ap.add_argument("--box", default="0.05,0.85,-0.85,0.50,0.15,1.40", help="x0,x1,y0,y1,z0,z1 in arm_mount: a safety box")
-    ap.add_argument("--home-q", default="0,0.15,0,0.9,0,0,0", help="home: the arm's 7 joints, rad (down, the elbow bent)")
+    ap.add_argument("--home-q", default="",
+                    help="home as the arm's 7 joints, rad; default: where the hand was when following started (the arm "
+                         "service's `ready`)")
     # how fast it follows
     ap.add_argument("--tau", type=float, default=0.07, help="s, the commanded point's spring")
     ap.add_argument("--max-speed", type=float, default=0.50, help="m/s (0.5: the arm service's own pose limit)")
     ap.add_argument("--max-accel", type=float, default=3.0, help="m/s^2")
-    ap.add_argument("--max-turn", type=float, default=1.5, help="rad/s the wrist may turn")
+    ap.add_argument("--max-turn", type=float, default=0.0,
+                    help="rad/s the wrist may turn; 0 (default): the orientation of the joint-limited IK solution as it is, "
+                         "so every pose sent is one arm pose (a lagging orientation paired it with a position no pose has)")
+    ap.add_argument("--home-speed", type=float, default=0.30,
+                    help="m/s going home: near the body the elbow turns fastest, and going home needs no hurry (at 0.5 the "
+                         "sim's elbow reached 2.2-2.5 rad/s and the arm service's guard stopped the follow; opendubs2, 2026-10-28)")
+    ap.add_argument("--max-joint-speed", type=float, default=1.2,
+                    help="rad/s any joint of the IK's solution may move: the pose sent comes from a smooth joint path. "
+                         "Unlimited, the position-only IK swung its free joints at home<->follow switches and the arm "
+                         "service's guard stopped the follow (VIBRATION in joint 1, over 2.5 rad/s; opendubs2, 2026-10-28)")
     ap.add_argument("--lead", type=float, default=0.08, help="s the palm is predicted ahead (the tracker is ~0.1 s late)")
     ap.add_argument("--gate", type=float, default=0.30, help="m: a palm farther than this from the prediction needs a second frame")
     # when it follows
@@ -87,6 +100,9 @@ def parse_args():
     # plumbing
     ap.add_argument("--rate", type=float, default=50.0)
     ap.add_argument("--start", action="store_true", help="on from the start, as if start was called")
+    ap.add_argument("--dummy", action="store_true",
+                    help="no camera, no head: a scripted person in arm_mount (dummy_frame) drives the arm, for the simulation")
+    ap.add_argument("--dummy-speed", type=float, default=1.0, help="how fast the dummy's hand moves (1: up to ~0.5 m/s)")
     ap.add_argument("--no-auto-resume", dest="auto_resume", action="store_false")
     ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
     ap.add_argument("--sim-domain", type=int, default=78)
@@ -94,6 +110,33 @@ def parse_args():
     ap.add_argument("--model", default=g2s.REPO_MODEL if os.path.exists(g2s.REPO_MODEL) else "openarm_assets:bimanual")
     ap.add_argument("--arm-socket", default=os.environ.get("HAND_ARM_SOCKET"))
     return ap.parse_args()
+
+
+def dummy_frame(t, speed, rng):
+    """A scripted person 1.1 m out, facing the robot, in a 20 s loop: hand hanging; the right hand held out and waved
+    (with a 0.3 s dropout and stray points); dropped; the left hand held out; nobody; hanging again. 14 frames a second
+    with 1 cm of noise, as the tracker's."""
+    shoulders = {"left": np.array([1.1, -0.18, 1.35]), "right": np.array([1.1, 0.18, 1.35])}
+    c = t % 20.0
+    w = 2 * math.pi * speed
+
+    def hanging(side):
+        return shoulders[side] + np.array([0.02, 0.04 if side == "right" else -0.04, -0.55])
+
+    if 14.0 <= c < 16.0:
+        return Frame(t, False)
+    palms = {"left": hanging("left"), "right": hanging("right")}
+    if 2.0 <= c < 9.0 and not 5.0 <= c < 5.3:
+        palms["right"] = np.array([0.80 + 0.08 * math.sin(w * c / 5.0), 0.05 + 0.30 * math.sin(w * c / 4.0),
+                                   1.05 + 0.15 * math.sin(w * c / 3.0)])
+    elif 5.0 <= c < 5.3:
+        del palms["right"]
+    elif 10.0 <= c < 14.0:
+        palms["left"] = np.array([0.85, -0.25 + 0.20 * math.sin(w * c / 3.5), 1.15 + 0.12 * math.cos(w * c / 2.5)])
+    palms = {s: p + rng.normal(0, 0.01, 3) for s, p in palms.items()}
+    if rng.random() < 0.03 and "right" in palms:
+        palms["right"] = palms["right"] + np.array([0.0, 0.5, 0.2])
+    return Frame(t, True, shoulders, palms)
 
 
 class Head:
@@ -218,7 +261,7 @@ def main():
 
     brain = new_brain()
     head = None
-    if args.head:
+    if args.head and not args.dummy:
         host = args.neck_host or neck_host_from_env()
         if not host:
             raise SystemExit("no neck host: set OPENDUBS_HEAD_NECK_HOST or --neck-host, or run with --no-head")
@@ -232,8 +275,7 @@ def main():
 
     hand_model = g2s.HandModel(args.model)
     ik = PositionIk(args.model, args.reference)
-    q_home = np.array([float(v) for v in args.home_q.split(",")])
-    home_pos, _ = ik.fk(q_home)
+    home_pos = ik.fk(np.array([float(v) for v in args.home_q.split(",")]))[0] if args.home_q else None
     sim_ctx = Context()
     rclpy.init(context=sim_ctx, domain_id=args.sim_domain)
     sim = g2s.SimArm(rclpy, sim_ctx, args.reference, hand_model)
@@ -278,7 +320,7 @@ def main():
     def switch(on):
         nonlocal brain
         with lock:
-            if on and run["sub"] is None:
+            if on and run["sub"] is None and not args.dummy:
                 run["sub"] = node.create_subscription(String, args.state_topic, on_state, 10)
             if not on and run["sub"] is not None:
                 node.destroy_subscription(run["sub"])
@@ -300,7 +342,7 @@ def main():
         if sim.stamp is None or time.monotonic() - sim.stamp > 2.0:
             return reply(response, ResultCode.SERVICE_NOT_RUNNING,
                          f"the simulated arm is not publishing joint_states on domain {args.sim_domain} (treat_follow.sh up)", {})
-        if node.count_publishers(args.state_topic) == 0:
+        if not args.dummy and node.count_publishers(args.state_topic) == 0:
             return reply(response, ResultCode.SERVICE_NOT_RUNNING,
                          f"nothing publishes {args.state_topic}: the hand tracker is not running (hand_stack.sh up)", {})
         try:
@@ -327,7 +369,7 @@ def main():
         hand_p, _ = sim.hand()
         data = {"on": run["on"], "arm": brain.status(), "head": None if head is None else head.status(),
                 "arm_service": arm["line"], "hand_position": [round(float(v), 4) for v in hand_p],
-                "home": [round(float(v), 3) for v in home_pos], "transform": run["info"], "last_error": run["error"],
+                "home": None if home_pos is None else [round(float(v), 3) for v in home_pos], "transform": run["info"], "last_error": run["error"],
                 "sim_domain": args.sim_domain}
         response.result_code.result_code = ResultCode.SUCCESS if alive else ResultCode.SERVICE_NOT_RUNNING
         response.result_code.message = brain.why if alive else f"no joint_states from the simulated arm on domain {args.sim_domain}"
@@ -347,13 +389,19 @@ def main():
     dt = 1.0 / args.rate
     active, cmd, rot, sent, goal = False, None, None, None, None
     seen_msg, last_print, last_err, last_err_at, resume_at, backoff = None, 0.0, "", 0.0, 0.0, 2.0
-    no_head_seen = -1e9
+    no_head_seen, next_dummy = -1e9, 0.0
+    rng = np.random.default_rng(0)
     try:
         while True:
             now = time.monotonic()
             with lock:
                 msg, msg_at = latest["msg"], latest["at"]
-            if run["on"] and msg is not None and msg is not seen_msg:
+            if run["on"] and args.dummy and now >= next_dummy:
+                next_dummy = now + 1 / 14
+                f = dummy_frame(now, args.dummy_speed, rng)
+                no_head_seen = now if f.person else no_head_seen
+                brain.update(f)
+            elif run["on"] and msg is not None and msg is not seen_msg:
                 # A TRACKER FRAME: into arm_mount with the transform at its image's stamp, then to the brain and head
                 seen_msg = msg
                 mid = msg.get("shoulder_mid")
@@ -411,19 +459,31 @@ def main():
                 if not active:
                     # every motion starts from the pose last commanded (or, the first time, where the arm is)
                     if cmd is None:
+                        # the IK's posture is the arm's as the service's follow starts: the service's own posture
+                        # reference (pose_follow.py), so the two resolve the arm's free joint alike. Pulled toward
+                        # another posture, they fought, and the arm's joints ran over the guard's speed.
                         with sim.lock:
                             ik.reset_qpos(sim.model.data.qpos)
                         cmd = sim.hand()[0].copy()
-                    ik.posture = q_home
+                        home_pos = cmd.copy() if home_pos is None else home_pos
                     smoother.reset(cmd)
                     active = True
                 goal = home_pos if motion == "home" else reach_goal(palm_goal, SHOULDER, args.min_reach, args.max_reach,
-                                                                    args.standoff, box=box)
+                                                                    args.standoff, args.min_fwd, args.max_up, box=box)
+                smoother.vmax = args.home_speed if motion == "home" else args.max_speed
                 pf = smoother.step(goal, dt)
-                pos, rot_ik, _ = ik.solve(pf)
+                q_prev = ik.d.qpos[ik.qadr].copy()
+                pos, rot_ik, q = ik.solve(pf)
+                dq = q - q_prev
+                over = float(np.max(np.abs(dq))) / (args.max_joint_speed * dt)
+                if over > 1.0:
+                    # the IK moved some joint faster than allowed: go only that far along its step this tick
+                    q = q_prev + dq / over
+                    ik.d.qpos[ik.qadr] = q
+                    pos, rot_ik = ik.fk(q)
                 if np.linalg.norm(pos - pf) > 0.005:
                     smoother.pin(pos)            # at the reach: the spring stays on what the arm can reach
-                rot = rot_ik if rot is None else turn_toward(rot, rot_ik, args.max_turn * dt)
+                rot = rot_ik if rot is None or not args.max_turn else turn_toward(rot, rot_ik, args.max_turn * dt)
                 cmd, sent = pos, (pos, rot)
                 sim.send(pos, rot)
                 tm = PoseStamped()
