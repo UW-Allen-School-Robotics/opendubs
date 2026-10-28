@@ -186,6 +186,18 @@ class Day(unittest.TestCase):
         self.run_for(5)
         self.assertEqual((self.co.state, self.pal.runs), ("IDLE_NAV", []))
 
+    def test_a_refused_show_says_why(self):
+        """opendubs2, 2026-10-27: ghostbusters refused at preflight (the head's face page not up) read
+        "ghostbusters ended" on the dashboard."""
+        self.pal.last = lambda: {"id": "ghostbusters", "status": "REFUSED", "code": "SHOW_HEAD_NOT_UP",
+                                 "cause": "the head is not ready for a show"}
+        self.co.request("choreo", "play ghostbusters")
+        self.co.tick()
+        self.pal.now = None
+        self.co.tick()
+        self.assertEqual(self.co.state, "IDLE_NAV")
+        self.assertIn("SHOW_HEAD_NOT_UP", self.co.why)
+
     def test_a_pause_stops_a_running_show(self):
         self.co.request("choreo", "play the monster mash")
         self.assertEqual(self.pal.runs, ["monster_mash"])

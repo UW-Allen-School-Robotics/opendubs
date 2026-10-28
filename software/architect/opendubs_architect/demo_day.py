@@ -267,7 +267,7 @@ class Coordinator:
             self.show_seen = True
         elif self.show_seen:                     # it ran and has ended (or another took its place)
             after = "ENGAGED" if self.state == "CANDY" else "IDLE_NAV"
-            return self._enter(after, f"{self.show} ended")
+            return self._enter(after, self._how_it_ended())
         elif now - self.since > SHOW_START_S:
             try:                                 # never leave a run behind that a later press could start
                 self.palette.stop()
@@ -276,6 +276,21 @@ class Coordinator:
                 return                           # cannot be sure it is disarmed: the base stays put
             after = "ENGAGED" if self.state == "CANDY" else "IDLE_NAV"
             return self._enter(after, f"{self.show} never reached the palette within {SHOW_START_S:.0f} s")
+
+    def _how_it_ended(self) -> str:
+        """The palette's own word on the run that just ended: a refusal says why (the runner's code and
+        cause), so the dashboard does not show a refused show as one that played."""
+        last = None
+        try:
+            last = self.palette.last() if hasattr(self.palette, "last") else None
+        except Exception as e:  # noqa: BLE001
+            self._log("palette_error", what="last", error=str(e))
+        if isinstance(last, dict) and last.get("id") == self.show and last.get("status") not in (None, "COMPLETED"):
+            why = f"{self.show} {str(last.get('status')).lower()}: {last.get('code') or ''} {last.get('cause') or ''}".strip()
+            self._log("show_failed", routine=self.show, status=last.get("status"), code=last.get("code"),
+                      cause=last.get("cause"))
+            return why[:300]
+        return f"{self.show} ended"
 
     _tick_candy = _tick_show
     _tick_choreo = _tick_show
@@ -432,6 +447,10 @@ class Palette:
         if code != 200 or not isinstance(st, dict):
             raise RuntimeError(f"the show palette answered {code}")
         return st.get("running")
+
+    def last(self):
+        code, st = self.http("GET", "/api/choreo/palette", None)
+        return st.get("last") if code == 200 and isinstance(st, dict) else None
 
     def run(self, routine: str):
         code, got = self.http("POST", f"/api/choreo/run/{routine}", {"start": self.start})
