@@ -48,12 +48,15 @@ def main(argv=None):
     ap.add_argument("--occl-tol", type=float, default=0.05, help="m; depth gap that splits a hand's landmarks into clusters")
     ap.add_argument("--arm-tol", type=float, default=0.45, help="m; pose hand points farther than this from the elbow are rejected")
     ap.add_argument("--always", action="store_true", help="process every frame, subscribers or not")
+    ap.add_argument("--delegate", choices=("gpu", "cpu"), default="gpu",
+                    help="where MediaPipe runs (gpu: 9 ms a landmarker on the Thor, cpu: 25-35 ms; gpu needs --runtime nvidia)")
+    ap.add_argument("--log-s", type=float, default=60.0, help="seconds between rate lines in the log")
     args = ap.parse_args(args_ros)
 
     rclpy.init(args=argv)
     node = Node("hand_tracker")
     log = node.get_logger()
-    tracker = PalmTracker(args.models, args.max_angle, args.min_vis, args.occl_tol, args.arm_tol)
+    tracker = PalmTracker(args.models, args.max_angle, args.min_vis, args.occl_tol, args.arm_tol, args.delegate)
     frames = CameraFrames()
     pubs = {s: node.create_publisher(PointStamped, f"hand/{s}/palm", qos_profile_sensor_data) for s in SIDES}
     state_pub = node.create_publisher(String, "hand/state", 10)
@@ -63,29 +66,42 @@ def main(argv=None):
         frames.on_rgb(msg)
         wake.set()
 
+    def on_depth(msg):           # a colour frame's depth often lands after it: try again then, not a frame later
+        frames.on_depth(msg)
+        wake.set()
+
     cam = args.camera.rstrip("/")
     node.create_subscription(Image, f"{cam}/color/image_raw", on_rgb, qos_profile_sensor_data)
-    node.create_subscription(Image, f"{cam}/depth/image_raw", frames.on_depth, qos_profile_sensor_data)
+    node.create_subscription(Image, f"{cam}/depth/image_raw", on_depth, qos_profile_sensor_data)
     node.create_subscription(CameraInfo, f"{cam}/color/camera_info", frames.on_info, qos_profile_sensor_data)
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
+
+    def spin():
+        try:
+            rclpy.spin(node)
+        except rclpy.executors.ExternalShutdownException:   # shut down from main: the normal end
+            pass
+
+    threading.Thread(target=spin, daemon=True).start()
     log.info(f"hand tracker up: {cam} -> {node.get_namespace().rstrip('/')}/hand/{{left,right}}/palm"
              + ("" if args.always else " (on demand)"))
 
     def wanted():
         return args.always or state_pub.get_subscription_count() > 0 or any(p.get_subscription_count() for p in pubs.values())
 
-    last_stamp, n, n_follow, t_rate = None, 0, 0, time.monotonic()
+    last_stamp, n, n_follow, n_nodepth, busy, t_rate = None, 0, 0, 0, 0.0, time.monotonic()
     try:
         while rclpy.ok():
             if not wake.wait(1.0):
                 continue
             wake.clear()
             frame = frames.latest()
-            if frame is None or frame.depth_msg is None or frame.info is None or not wanted():
+            if frame is None or frame.info is None or not wanted() or frame.stamp == last_stamp:
                 continue
-            if frame.stamp == last_stamp:
+            if frame.depth_msg is None:      # no depth within the pairing slop of any recent colour frame
+                n_nodepth += 1
                 continue
             last_stamp = frame.stamp
+            t_work = time.monotonic()
             k = frame.info.k
             K = (k[0], k[4], k[2], k[5])
             rgb, depth_m = image_to_numpy(frame.rgb_msg), image_to_numpy(frame.depth_msg)
@@ -107,9 +123,12 @@ def main(argv=None):
                     pubs[side].publish(m)
                     n_follow += 1
             state_pub.publish(String(data=json.dumps(state)))
-            if time.monotonic() - t_rate > 60.0:
-                log.info(f"{n} frames processed in the last minute, {n_follow} followable palms")
-                n, n_follow, t_rate = 0, 0, time.monotonic()
+            busy += time.monotonic() - t_work
+            if time.monotonic() - t_rate > args.log_s:
+                span = time.monotonic() - t_rate
+                log.info(f"{n / span:.1f} frames/s processed ({busy / max(n, 1) * 1000:.0f} ms each), "
+                         f"{n_follow / span:.1f} followable palms/s, {n_nodepth} colour frames without depth")
+                n, n_follow, n_nodepth, busy, t_rate = 0, 0, 0, 0.0, time.monotonic()
     except KeyboardInterrupt:
         pass
     finally:

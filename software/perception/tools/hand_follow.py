@@ -120,19 +120,25 @@ class Frames:
             self.calib = np.eye(4)
             self.calib[:3, :3], self.calib[:3, 3] = np.asarray(cal["R"]), np.asarray(cal["t"])
             self.calib_source = f"{calib}: {cal.get('source', '')} (valid for: {cal.get('valid_for', '?')})"
-        self.joints, self.head, self.head_at = None, {}, None
+        self.joints, self.description, self.head, self.head_at = None, None, {}, None
         self.accel, self.lock = None, threading.Lock()
         if mode == "joints":
             latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
-            node.create_subscription(String, "/robot_description", self._on_description, latched)
+            # the whole robot's description is /opendubs/robot_description; /robot_description on the robot is the arms'
+            for topic in ("/opendubs/robot_description", "/robot_description"):
+                node.create_subscription(String, topic, lambda m, t=topic: self._on_description(m, t), latched)
             node.create_subscription(JointState, "/head/joint_states", self._on_head, 10)
         node.create_subscription(Imu, "/camera/gyro_accel/sample", self._on_imu, 50)
 
-    def _on_description(self, msg):
+    def _on_description(self, msg, topic):
+        """The first description that has the head's joints is the one used; one without them is not an error."""
+        if self.joints is not None:
+            return
         try:
             self.joints = urdf_joints(msg.data, HEAD_JOINTS)
-        except (ET.ParseError, ValueError) as error:
-            print(f"/robot_description: {error}", file=sys.stderr)
+            self.description = topic
+        except (ET.ParseError, ValueError):
+            pass
 
     def _on_head(self, msg):
         """The head's two joints into the TF buffer, overriding the robot's own publisher of them (if any)."""
@@ -195,7 +201,8 @@ class Frames:
         else:
             if self.mode == "joints":
                 if self.joints is None:
-                    raise LookupError("no /robot_description yet (the head's joint origins come from it)")
+                    raise LookupError("no robot description with head_pan and head_tilt yet (/opendubs/robot_description, "
+                                      "/robot_description): the head's joint origins come from it")
                 with self.lock:
                     head, at = dict(self.head), self.head_at
                 if at is None or time.monotonic() - at > self.head_stale_s:
@@ -203,7 +210,7 @@ class Frames:
                                       f"{'ever' if at is None else f'{time.monotonic() - at:.1f} s'}")
                 info["head_deg"] = {n: round(math.degrees(v), 2) for n, v in head.items()}
             t = self._lookup(ARM_FRAME, CAMERA_FRAME, stamp_s)
-            info["source"] = f"TF {ARM_FRAME} <- {CAMERA_FRAME}" + (", head joints from /head/joint_states" if self.mode == "joints" else "")
+            info["source"] = f"TF {ARM_FRAME} <- {CAMERA_FRAME}" + (f", head joints from /head/joint_states and {self.description}" if self.mode == "joints" else "")
         up = self.up_cam()
         tf_pitch = g2s.camera_tilt(t[:3, :3].T @ np.array([0.0, 0.0, 1.0]))[0]
         info["pitch_reported_deg"] = round(tf_pitch, 2)
@@ -270,11 +277,12 @@ def main():
     ap.add_argument("--standoff", type=float, default=0.10, help="m the hand stops short of the palm, toward the shoulder")
     ap.add_argument("--min-reach", type=float, default=0.25, help="m from the shoulder, at least")
     ap.add_argument("--max-reach", type=float, default=0.55, help="m from the shoulder, at most")
-    ap.add_argument("--box", default="0.10,0.65,-0.65,0.20,0.25,1.20",
-                    help="x0,x1,y0,y1,z0,z1: the target is kept inside this box in arm_mount, metres")
+    ap.add_argument("--box", default="0.10,0.65,-0.65,-0.05,0.25,1.20",
+                    help="x0,x1,y0,y1,z0,z1: the target is kept inside this box in arm_mount, metres. y1 -0.05: the right "
+                         "arm, holding its orientation, stalls on a joint limit past about -0.07 (the simulator has no reach gate)")
     ap.add_argument("--smooth-s", type=float, default=0.20, help="time constant of the target's low-pass")
     ap.add_argument("--max-speed", type=float, default=0.30, help="m/s the target may move at")
-    ap.add_argument("--stale-s", type=float, default=0.40, help="a palm older than this is not followed")
+    ap.add_argument("--stale-s", type=float, default=0.60, help="a palm older than this is not followed")
     ap.add_argument("--rate", type=float, default=50.0)
     ap.add_argument("--enable", action="store_true", help="start enabled")
     ap.add_argument("--dummy", action="store_true", help="no tracker: a palm on a circle in front of the camera")
@@ -440,4 +448,10 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    finally:
+        if g2s.SPINNING:
+            import rclpy
+            g2s.shutdown_all(rclpy)
+    sys.exit(code)

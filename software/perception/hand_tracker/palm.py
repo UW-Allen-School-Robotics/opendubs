@@ -208,10 +208,14 @@ def track_palm(hand_pts, pose_lm, side, depth_m, K, w, h, min_vis, occl_tol, arm
 class PalmTracker:
     """MediaPipe's pose and hand landmarkers in VIDEO mode, and the logic above. `track` takes one frame."""
 
-    def __init__(self, models_dir, max_angle_deg=35.0, min_vis=0.1, occl_tol=0.05, arm_tol=0.45):
+    def __init__(self, models_dir, max_angle_deg=35.0, min_vis=0.1, occl_tol=0.05, arm_tol=0.45, delegate="gpu"):
         import mediapipe as mp
         self.mp = mp
-        vision, base = mp.tasks.vision, mp.tasks.BaseOptions
+        vision = mp.tasks.vision
+        dlg = mp.tasks.BaseOptions.Delegate.GPU if delegate == "gpu" else mp.tasks.BaseOptions.Delegate.CPU
+
+        def base(model_asset_path):
+            return mp.tasks.BaseOptions(model_asset_path=model_asset_path, delegate=dlg)
         for name in ("pose_landmarker_full.task", "hand_landmarker.task"):
             if not os.path.isfile(os.path.join(models_dir, name)):
                 raise FileNotFoundError(f"no {name} in {models_dir} (tools/hand_stack.sh models <dir> puts them there)")

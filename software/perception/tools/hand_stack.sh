@@ -41,7 +41,8 @@ case "${1:-}" in
     if running "${CAMERA}"; then echo "camera: already running"; else "${HERE}/camera.sh" up; fi
     ${DOCKER} rm -f "${NAME}" >/dev/null 2>&1 || true
     # --ipc of the camera's container: the driver's shared memory, as the grasp server reads it
-    ${DOCKER} run -d --rm --name "${NAME}" --network host --ipc "container:${CAMERA}" \
+    # --runtime nvidia: MediaPipe's GPU delegate (EGL on the NVIDIA driver)
+    ${DOCKER} run -d --rm --name "${NAME}" --runtime nvidia --network host --ipc "container:${CAMERA}" \
       -e ROS_DOMAIN_ID=0 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e HOME=/data/home \
       -e PYTHONPATH=/work/software/perception \
       -v "${DATA}:/data" -v "${REPO}:/work:ro" \
