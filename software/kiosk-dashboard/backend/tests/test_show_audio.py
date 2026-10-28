@@ -111,6 +111,33 @@ def test_a_holder_that_disconnects_releases_the_role():
     assert c.post("/api/choreo/audio", json={"op": "cut"}).json()["delivered"] is False
 
 
+def test_each_output_has_its_own_holder_and_a_load_plays_only_on_its_output():
+    # 2026-10-28: the speakerphone held "the" role, so every show's music played from it
+    c = _client()
+    with c.websocket_connect("/ws/show-audio") as tab, c.websocket_connect("/ws/show-audio") as spk:
+        tab.receive_json(), spk.receive_json()
+        tab.send_json({"claim": True, "label": "tablet"})               # no output named: the tablet's
+        tab.receive_json(), spk.receive_json()
+        spk.send_json({"claim": True, "label": "Jabra", "output": "speakerphone"})
+        assert spk.receive_json() == {"holder": "Jabra", "you_hold": True}
+        assert tab.receive_json() == {"holder": "tablet", "you_hold": True}   # not cut: a different output
+        v = c.get("/api/choreo/audio").json()
+        assert v["holder"] == "tablet" and {o["name"]: o["label"] for o in v["outputs"]} == \
+            {"tablet": "tablet", "speakerphone": "Jabra"}
+        r = c.post("/api/choreo/audio", json={"op": "load", "id": "L9", "items": [], "output": "speakerphone"}).json()
+        assert r["delivered"] and r["output"] == "speakerphone"
+        assert spk.receive_json()["id"] == "L9"
+        assert tab.receive_json()["show_active"] is True               # the tablet's ambient waits for the show
+        tab.send_json({"ready": "L9"})                                 # only the load's own output counts
+        spk.send_json({"ping": 1})
+        spk.receive_json()
+        assert c.get("/api/choreo/audio").json()["ready"] is False
+        spk.send_json({"ready": "L9"})
+        spk.send_json({"ping": 1})
+        spk.receive_json()
+        assert c.get("/api/choreo/audio").json()["ready"] is True
+
+
 def test_only_known_ops_are_accepted():
     c = _client()
     assert c.post("/api/choreo/audio", json={"op": "volume"}).status_code == 400

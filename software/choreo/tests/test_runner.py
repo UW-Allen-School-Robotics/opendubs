@@ -239,11 +239,34 @@ check("an e-stop cuts it (DEC-6)", end[0] == "ESTOPPED" and au.calls[-1] == {"op
 
 au = R.NullAudio(holder=None)
 r, end, lines = run_audio(au)
-check("with no device holding show audio the routine still runs — silently, with a warning (decided), "
-      "once the device has had AUDIO_HOLDER_GRACE_S to appear",
-      end[0] == "COMPLETED" and [c["op"] for c in au.calls] == ["load", "cut"]
-      and "no device is playing show audio" in (r.audio_note or "")
-      and any(x["kind"] == "audio_warning" for x in lines), (end, au.calls, r.audio_note))
+check("with no device on the run's sound output the routine is REFUSED (SHOW_AUDIO_OUTPUT_MISSING), once the "
+      "device has had AUDIO_HOLDER_GRACE_S to appear — never run silently or moved elsewhere (2026-10-28)",
+      end[:2] == ("REFUSED", "SHOW_AUDIO_OUTPUT_MISSING") and au.calls == [], (end, au.calls))
+
+
+def run_choice(audio, choice):
+    robot = R.FakeRobotState()
+    sc = SimClock(robot)
+    r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=io.StringIO(), clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
+                 audio=audio, audio_output=choice)
+    return r, r.run()
+
+
+# the 2026-10-28 bug: the speakerphone held "the" role, so every show's music played on it
+au = R.NullAudio(outputs={"tablet": "tablet", "speakerphone": "Jabra"})
+r, end = run_choice(au, None)
+check("two devices on the hub: by default the music loads on the tablet output, not on the speakerphone",
+      end[0] == "COMPLETED" and au.calls[0].get("output") == "tablet", au.calls[:1])
+au = R.NullAudio(outputs={"tablet": "tablet", "speakerphone": "Jabra"})
+r, end = run_choice(au, "speakerphone")
+check("... and on the speakerphone when the operator chooses it", end[0] == "COMPLETED"
+      and au.calls[0].get("output") == "speakerphone" and r.audio_device == "speakerphone", au.calls[:1])
+au = R.NullAudio(outputs={"tablet": "tablet"})
+r, end = run_choice(au, "speakerphone")
+check("a chosen device that isn't there refuses the run, naming the ones that are ready",
+      end[:2] == ("REFUSED", "SHOW_AUDIO_OUTPUT_MISSING") and "ready now: tablet" in end[2] and au.calls == [], end)
+r, end = run_choice(R.NullAudio(hub=False), "stage")
+check("a runner with no show-audio hub (a laptop's twin) never refuses on a device", end[0] == "COMPLETED", end)
 
 
 class LateHolder(R.NullAudio):
@@ -271,8 +294,7 @@ lines = [json.loads(x) for x in log.getvalue().splitlines()]
 check("a device that claims show audio 0.5 s after the check (the tablet switching to its face) plays the "
       "music: load, start, stop — not silent (found at the robot 2026-10-14)",
       end[0] == "COMPLETED" and [c["op"] for c in au.calls] == ["load", "start", "stop"]
-      and not any(x["kind"] == "audio_warning" for x in lines)
-      and any(x["kind"] == "audio_note" for x in lines), (au.calls, [x for x in lines if "audio" in x["kind"]]))
+      and not any(x["kind"] == "audio_warning" for x in lines), (au.calls, [x for x in lines if "audio" in x["kind"]]))
 
 au = R.NullAudio(holder="tablet", ready=False)
 r, end, lines = run_audio(au)

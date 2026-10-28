@@ -8,7 +8,9 @@ origin (standing rule 12):
     Thor's clock (NTP-style pings: the page sends its time, the Thor answers with its own monotonic
     receive and send times), claims the role, and receives the runner's commands.
   * POST /api/choreo/audio — the runner's commands: load these files, start at this Thor time, stop
-    with a fade, or cut. Relayed to the ONE device holding the claim, never broadcast.
+    with a fade, or cut. Relayed to the ONE device holding the load's output, never broadcast. The
+    outputs (OUTPUTS) each have their own holder; the runner's load names its output
+    (notes/design/choreo-audio-output.md), and ambient music, files and AirPlay are the tablet's.
   * GET /api/choreo/audio — who holds it, and whether what was last loaded is ready.
   * GET /api/choreo/media/<path> — the show's audio files, from the shows directory's audio/ and
     sounds/ only; and `library/songs/<file>`, a song from the show library (plan 4.6).
@@ -62,6 +64,10 @@ MEDIA_SUBDIRS = ("audio", "sounds")
 LIBRARY_DIR = os.environ.get("OPENDUBS_LIBRARY") or "/var/lib/opendubs/library"
 LIBRARY_MEDIA_SUBDIRS = ("songs", "videos")   # videos: the stage page plays the show's (stage.py)
 OPS = ("load", "start", "stop", "cut", "unhold")   # unhold: the projector dropped out — the tablet takes its held music
+# The show-audio OUTPUTS (notes/design/choreo-audio-output.md): each has its own holder, the last device to
+# claim it, and a run's load names the one it plays on. A claim that names none is the tablet's, as before.
+# The stage box is an output too, but the runner reaches it through the stage page, not through here.
+OUTPUTS = ("tablet", "speakerphone")
 AMBIENT_OPS = ("play", "stop", "volume", "next", "play_file", "stop_play")
 PLAY_URL_PREFIX = "/api/play/files/"      # the Tablet lane's store, same origin
 PLAY_TITLE_MAX = 120
@@ -77,15 +83,17 @@ def thor_ms() -> float:
 
 
 class Hub:
-    """Connected pages, the one holding the show-audio role, and the last load's readiness. Pure
-    bookkeeping plus sends, so it is tested without a network."""
+    """Connected pages, the one holding each show-audio output, and the last load's readiness. Pure
+    bookkeeping plus sends, so it is tested without a network. Ambient music, /play/ files and AirPlay
+    are the tablet output's alone."""
 
     def __init__(self):
         self.ids = itertools.count(1)
         self.clients: dict[int, tuple] = {}     # id -> (websocket, label)
-        self.holder: int | None = None
+        self.holders: dict[str, int] = {}       # output -> the client holding it
+        self.load_output = "tablet"              # the output the runner's last load plays on
         self.load_id = None                      # the runner's last load
-        self.ready_id = None                     # the holder's last "ready"
+        self.ready_id = None                     # the load output's holder's last "ready"
         self.last_load = None                    # resent to a device that claims mid-show
         self.lock = asyncio.Lock()
         self.show_active = False                 # between the runner's load and its stop/cut
@@ -95,9 +103,20 @@ class Hub:
         self.file = None                         # a play_file: None | "sent" | "playing" (seen in a report)
         self.gate_sent = None                    # the last airplay_gate the holder was sent
 
+    @property
+    def holder(self) -> int | None:
+        """The tablet output's holder: the one device for ambient music, files and AirPlay."""
+        return self.holders.get("tablet")
+
+    def _label(self, output):
+        cid = self.holders.get(output)
+        return self.clients[cid][1] if cid in self.clients else None
+
     def view(self) -> dict:
-        lbl = self.clients[self.holder][1] if self.holder in self.clients else None
-        return {"holder": lbl, "connected": len(self.clients),
+        return {"holder": self._label("tablet"), "connected": len(self.clients),
+                "outputs": [{"name": o, "label": self._label(o), "connected": self.holders.get(o) in self.clients}
+                            for o in OUTPUTS],
+                "output": self.load_output,
                 "load": self.load_id, "ready": self.load_id is not None and self.ready_id == self.load_id}
 
     async def _send(self, cid, msg):
@@ -110,10 +129,13 @@ class Hub:
         except Exception:  # noqa: BLE001  a dead socket is cleaned up by its own handler
             return False
 
+    def _output_of(self, cid):
+        return next((o for o, c in self.holders.items() if c == cid), None)
+
     async def _announce(self):
-        v = self.view()
         for cid in list(self.clients):
-            await self._send(cid, {"holder": v["holder"], "you_hold": cid == self.holder})
+            mine = self._output_of(cid)
+            await self._send(cid, {"holder": self._label(mine or "tablet"), "you_hold": mine is not None})
 
     async def join(self, ws, label) -> int:
         cid = next(self.ids)
@@ -123,26 +145,40 @@ class Hub:
 
     async def leave(self, cid):
         self.clients.pop(cid, None)
-        if self.holder == cid:
-            self.holder, self.ready_id = None, None
+        mine = self._output_of(cid)
+        if mine is not None:
+            del self.holders[mine]
+            if mine == self.load_output:
+                self.ready_id = None
             await self._announce()
 
-    async def claim(self, cid, label, only_if_free=False) -> bool:
-        if only_if_free and self.holder in self.clients:
+    async def claim(self, cid, label, only_if_free=False, output="tablet") -> bool:
+        if output not in OUTPUTS:
+            return False
+        if only_if_free and self.holders.get(output) in self.clients:
             return False
         ws = self.clients[cid][0]
         self.clients[cid] = (ws, label or self.clients[cid][1])
-        if self.holder != cid:
-            old, self.holder, self.ready_id = self.holder, cid, None
+        if self.holders.get(output) != cid:
+            prev = self._output_of(cid)
+            if prev is not None:
+                del self.holders[prev]                   # a device holds one output at a time
+                if prev == self.load_output:
+                    self.ready_id = None
+            old = self.holders.get(output)
+            self.holders[output] = cid
+            if output == self.load_output:
+                self.ready_id = None
             if old in self.clients:
                 await self._send(old, {"op": "cut"})     # the old holder stops what it plays
         await self._announce()
-        if self.last_load is not None and self.show_active:
+        if self.last_load is not None and self.show_active and output == self.load_output:
             await self._send(cid, self.last_load)        # a new holder gets the current show's files
-        if self.ambient["playing"]:
-            await self._send(cid, self.ambient_msg())    # ... and the ambient music, if it is on
-        self.file = None
-        await self._send_gate(force=True)                # ... and whether AirPlay may be heard
+        if output == "tablet":
+            if self.ambient["playing"]:
+                await self._send(cid, self.ambient_msg())    # ... and the ambient music, if it is on
+            self.file = None
+            await self._send_gate(force=True)                # ... and whether AirPlay may be heard
         return True
 
     # ---- AirPlay --------------------------------------------------------------------------------
@@ -272,17 +308,23 @@ class Hub:
                 await self._send_gate()
 
     def ready(self, cid, load_id):
-        if cid == self.holder:
+        if cid == self.holders.get(self.load_output):
             self.ready_id = load_id
 
     async def command(self, msg) -> dict:
         if msg.get("op") == "load":
             self.load_id, self.ready_id, self.last_load = msg.get("id"), None, msg
+            self.load_output = msg.get("output") if msg.get("output") in OUTPUTS else "tablet"
             self.show_active = True               # the device fades ambient out for the show
             self.file = None                      # ... and cuts a play, which does not come back
+            if self.load_output != "tablet" and self.holder in self.clients:
+                await self._send(self.holder, self.ambient_msg())   # a show elsewhere: the tablet's ambient waits too
         elif msg.get("op") in ("stop", "cut"):
             self.show_active = False              # ... and resumes it when the show ends
-        delivered = await self._send(self.holder, msg) if self.holder in self.clients else False
+            if self.load_output != "tablet" and self.holder in self.clients:
+                await self._send(self.holder, self.ambient_msg())   # ... and resumes after it
+        to = self.holders.get(self.load_output)
+        delivered = await self._send(to, msg) if to in self.clients else False
         await self._send_gate()                   # a show mutes AirPlay; its end lets it back
         return {**self.view(), "delivered": delivered}
 
@@ -355,7 +397,8 @@ async def show_audio_ws(ws: WebSocket):
                 t1 = thor_ms()
                 await ws.send_json({"pong": m["ping"], "t1": t1, "t2": thor_ms()})
             elif "claim" in m:
-                await hub.claim(cid, str(m.get("label") or "a browser")[:40], bool(m.get("only_if_free")))
+                await hub.claim(cid, str(m.get("label") or "a browser")[:40], bool(m.get("only_if_free")),
+                                m.get("output") or "tablet")
             elif "ready" in m:
                 hub.ready(cid, m["ready"])
             elif "ambient" in m:                 # the holder: what it is playing, and whether it may

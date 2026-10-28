@@ -806,10 +806,24 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 Check in this order:
 
-1. [A show won't start because the head tablet isn't showing its face](#show-head-not-up)
-2. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
-3. [The projector output couldn't be changed because a show is playing](#show-video-busy)
-4. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
+1. [A show was refused because the device its sound plays on isn't ready](#show-audio-output-missing)
+2. [A show won't start because the head tablet isn't showing its face](#show-head-not-up)
+3. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
+4. [The projector output couldn't be changed because a show is playing](#show-video-busy)
+5. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
+
+### A show was refused because the device its sound plays on isn't ready {#show-audio-output-missing}
+
+`SHOW_AUDIO_OUTPUT_MISSING` · Refused action · seen on the dashboard
+
+Each show's music plays on one device: the head's tablet, the speakerphone, or the stage box's speaker. The operator chooses it on the projector card ("Show sound on"); otherwise the show's own choice is used, else the stage box when the show's video plays there, else the tablet. That device wasn't connected or couldn't make sound, so the show was refused before anything moved, rather than playing silently or on a different speaker. The sentence after the code names the device, why it can't play, and which devices are ready now.
+
+**What to do**
+
+1. Look at the "Show sound on" row of the projector card; it shows each device and what is missing.
+2. For the stage box, check its Bluetooth speaker is on, in range and paired (the Stage Box Sound card).
+3. For the tablet, check the head's tablet is showing the face or the dashboard.
+4. Or choose a device that is ready on the projector card, then start the show again.
 
 ### A show won't start because the head tablet isn't showing its face {#show-head-not-up}
 
@@ -866,7 +880,8 @@ Check in this order:
 1. [The stage box is not reporting](#link-stage-box-offline)
 2. [A sound sent to the robot was refused because a show has the speaker](#show-audio-busy)
 3. [A sound sent to the robot was refused because no speaker is connected](#show-audio-no-device)
-4. [The stage box's sound won't change during a show](#show-stage-sound-busy)
+4. [A show was refused because the device its sound plays on isn't ready](#show-audio-output-missing)
+5. [The stage box's sound won't change during a show](#show-stage-sound-busy)
 
 ### The stage box is not reporting {#link-stage-box-offline}
 
@@ -883,17 +898,17 @@ The stage box (the small computer that shows the stage page on a projector or a 
 
 `SHOW_AUDIO_BUSY` · Refused action · seen on the dashboard
 
-Someone asked the robot to play a sound file (the dashboard's "Play to robot" page) while a show was loaded, waiting to start, or running. A show has the robot's speaker to itself, so the request was refused rather than queued; nothing is played later.
+Someone asked the robot to play a sound file (the dashboard's "Play to robot" page) while a show was loaded, waiting to start, or running. A show has the robot's speaker to itself, so the request was refused rather than queued; nothing is played later. The same code refuses a change to where a show's sound plays (the projector card's "Show sound on" row) while a show is running.
 
 **What to do**
 
-1. Wait for the show to finish or be stopped, then send the sound again.
+1. Wait for the show to finish or be stopped, then send the sound again, or change the output.
 
 ### A sound sent to the robot was refused because no speaker is connected {#show-audio-no-device}
 
 `SHOW_AUDIO_NO_DEVICE` · Refused action · seen on the dashboard
 
-The robot plays shows, ambient music and sounds sent from a phone through one device: the tablet on its head, running the dashboard. No device was connected to play it, so the request was refused. A show started now would run without music for the same reason.
+The robot plays shows, ambient music and sounds sent from a phone through one device: the tablet on its head, running the dashboard. No device was connected to play it, so the request was refused. A show started now whose sound plays on the tablet would be refused for the same reason (SHOW_AUDIO_OUTPUT_MISSING).
 
 **What to do**
 

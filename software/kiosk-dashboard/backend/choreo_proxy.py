@@ -92,6 +92,26 @@ async def video_output(request: Request):
     return await _forward("POST", "video/output", {"output": raw["output"]})
 
 
+@router.get("/api/choreo/audio/output")
+async def audio_output_state():
+    """Where a show's sound plays (notes/design/choreo-audio-output.md): each music device (tablet,
+    speakerphone, stage) ready or why not, the operator's choice, and the device of the show playing."""
+    return await _forward("GET", "audio/output")
+
+
+@router.post("/api/choreo/audio/output")
+async def audio_output(request: Request):
+    """The operator's play-time choice of music device: {output: tablet|speakerphone|stage|null}. Lasts
+    until changed; returns the whole GET body; refused while a show plays (SHOW_AUDIO_BUSY)."""
+    try:
+        raw = await request.json() if await request.body() else {}
+    except ValueError:
+        return JSONResponse({"error": "the body must be JSON: {output}"}, status_code=400)
+    if not isinstance(raw, dict) or "output" not in raw:
+        return JSONResponse({"error": "the body must be {output: tablet|speakerphone|stage|null}"}, status_code=400)
+    return await _forward("POST", "audio/output", {"output": raw["output"]})
+
+
 @router.post("/api/choreo/video/settings")
 async def video_settings(request: Request):
     """The projector's offsets and how it takes music ({audio_lead_s, video_lead_s, music_as}, and the
