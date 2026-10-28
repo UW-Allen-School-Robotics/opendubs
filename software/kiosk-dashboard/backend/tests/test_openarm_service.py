@@ -398,15 +398,8 @@ def test_under_the_ros_stack_the_arm_words_go_to_openarm_up(ros):
         assert op["error"] is None and [a.rsplit("/", 1)[-1] for a in ros[0][2:]] == argv[0:1] + argv[1:], (word, ros)
 
 
-def test_prepare_under_the_ros_stack_is_activate(ros, monkeypatch):
-    monkeypatch.setattr(openarm, "_show_running", lambda: None)
-    assert openarm.start_op("prepare", "right")[0]
-    wait()
-    assert ros[0][-2:] == ["activate", "right"], ros
-
-
 def test_the_arm_services_own_words_are_refused_under_the_ros_stack(ros):
-    for word in ("follow", "supervise", "unsupervise"):
+    for word in ("follow", "supervise", "unsupervise", "prepare"):
         ok, detail = openarm.start_op(word, "right")
         assert not ok and "arm service's" in detail, (word, detail)
     assert not ros, "nothing was run"
