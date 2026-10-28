@@ -77,3 +77,46 @@ def test_nothing_can_be_posted():
             assert c.post(path).status_code == 405
     finally:
         srv.shutdown()
+
+
+# ---- /api/architect/state, the face's Halloween ghost ---------------------------------------------
+# summarise's two tests are suzy/halloween's (tests/test_architect_proxy.py there), kept as they were.
+
+def test_a_runner_that_is_not_answering_is_unavailable(monkeypatch):
+    async def down(url):
+        return 503, b"", ""
+    monkeypatch.setattr(architect_proxy, "_fetch", down)
+    app = FastAPI()
+    app.include_router(architect_proxy.router)
+    assert TestClient(app).get("/api/architect/state").json() == {"available": False}
+
+
+def test_the_last_change_and_a_recent_refusal_are_worked_out_on_the_runners_clock():
+    st = {"state": "ARMED", "since_s": 1.4, "runs": 3, "events": [
+        {"t": 100.0, "state": "ARMED", "event": "run_started", "to": "RUNNING"},
+        {"t": 108.0, "state": "RUNNING", "event": "run_ended", "to": "ARMED"},
+        {"t": 108.5, "state": "ARMED", "event": "trigger_refused", "why": "not armed"},
+        {"t": 108.6, "state": "ARMED", "event": "ignored", "kind": "speech"},
+    ]}
+    got = architect_proxy.summarise(st, now=110.0)
+    assert got == {"available": True, "state": "ARMED", "since_s": 1.4, "runs": 3,
+                   "last": "run_ended", "refused_s": 1.5}
+    assert architect_proxy.summarise({"state": "IDLE", "events": []}, now=0)["last"] is None
+    assert architect_proxy.summarise({"error": "?"}, now=0) == {"available": False}
+
+
+def test_show_mode_eek_then_happy_and_an_end_already_there_is_old_news():
+    """The Halloween demo runs in show mode: no demo runner, the listener starts a palette routine."""
+    s = architect_proxy.summarise_show
+    seen = {}
+    feed = {"status": {"state": "ARMED", "show": "architect-x"}, "events": []}
+    old_end = {"running": None, "last": {"id": "architect-x", "status": "COMPLETED", "code": None, "cause": None}}
+    assert s(feed, old_end, 100.0, seen)["last"] is None              # ended before we looked: no HAPPY
+    feed["events"].append({"t": 105.0, "event": "show_started", "routine": "architect-x"})
+    got = s(feed, {"running": "architect-x", "last": old_end["last"]}, 106.0, seen)
+    assert (got["state"], got["since_s"]) == ("RUNNING", 1.0)         # EEK!, then FOCUS, by since_s
+    got = s(feed, {"running": None, "last": {"id": "architect-x", "status": "REFUSED", "code": "DEADMAN"}}, 109.0, seen)
+    assert (got["state"], got["last"], got["since_s"]) == ("ARMED", "run_failed", 0.0)   # PUZZLED
+    feed["events"].append({"t": 120.0, "event": "held"})
+    assert s(feed, {"running": None}, 121.0, seen)["refused_s"] == 1.0
+    assert s({"status": {"state": "ARMED", "show": None}}, None, 0, {}) == {"available": False}   # not show mode
