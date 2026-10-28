@@ -1,6 +1,6 @@
-"""Ask perception for a grasp and send it to the gafro OpenArm simulation (right arm), then say whether the hand got there.
+"""Ask perception for a grasp and send it to the simulated right arm, then say whether the hand got there.
 
-  grasp_to_sim.sh sim                     # terminal 1: the simulation and its viewer, on its own ROS domain
+  grasp_to_sim.sh sim                     # terminal 1: the arm service on MuJoCo (follow_pose) and its viewer, own ROS domain
   grasp_to_sim.sh run --label bottle      # terminal 2: perception -> TF -> simulated arm
 
 What it does:
@@ -20,9 +20,10 @@ up in the camera frame. It goes to grasp_object as `up_cam`, and it CHECKS the t
 arm_mount's +z as TF has it is printed, and over --max-tilt-disagree-deg the run stops. The neck has no encoder, so
 TF's head angles are the commanded ones; this is what catches a neck that is not where it says.
 
-The simulation runs on ROS domain --sim-domain (77), not on the robot's: the bridge publishes `joint_states`, and the
-robot's own /joint_states must not see simulated joints. Nothing here reaches a real arm: the gafro bridge refuses
-hardware, and this tool only publishes on the simulation's domain.
+The simulation runs on ROS domain --sim-domain (77), not on the robot's: the arm service publishes `joint_states`, and
+the robot's own /joint_states must not see simulated joints. Nothing here reaches a real arm: the simulated service runs
+--backend mujoco, and this tool publishes targets only on the simulation's domain. The real arm service takes the same
+`right/target`, so the targets tested here are the ones it would follow.
 
   --dry-run          perception and the transform only; prints the targets, sends nothing
   --save FILE        the response, the transform used and the targets, as JSON
@@ -44,6 +45,8 @@ import time
 import numpy as np
 
 ARM_FRAME = "arm_mount"               # the robot description's frame at the arm model's root
+REPO_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "description", "openarm", "gafro",
+                          "openarm_bimanual.xml")   # the arm service's model (software/openarm/gafro/engage.py DEFAULT_MODEL)
 CAMERA_FRAME = "camera_color_optical_frame"
 SHOULDER = np.array([0.0, -0.031, 0.698])   # openarm_right_link0 in the model's frame
 REACH_WARN_M = 0.62                   # beyond this from the shoulder the right arm is near or past its reach
@@ -371,6 +374,8 @@ def main():
     ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
     ap.add_argument("--sim-domain", type=int, default=77)
     ap.add_argument("--reference", default="right", help="the simulation's reference name: targets go to <reference>/target")
+    ap.add_argument("--model", default=REPO_MODEL if os.path.exists(REPO_MODEL) else "openarm_assets:bimanual",
+                    help="the arm model for the hand's forward kinematics: the one the arm service runs (default: the repo's)")
     ap.add_argument("--from-json", default=None, help="replay a --save file, or a bare grasp_object response, instead of calling perception")
     ap.add_argument("--save", default=None, help="write the response, the transform used and the targets here (JSON)")
     ap.add_argument("--dry-run", action="store_true", help="perception and the transform only; send nothing")
@@ -459,7 +464,7 @@ def main():
           f"mode {data.get('mode')!r}")
 
     # -- the simulation's side -------------------------------------------------------------------------------------
-    hand_model = HandModel()
+    hand_model = HandModel(args.model)
     sim = None
     if not args.dry_run:
         sim_ctx = Context()
