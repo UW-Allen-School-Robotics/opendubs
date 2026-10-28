@@ -68,7 +68,8 @@ OPS = {
 }
 
 #: The ROS stack's half (what the dashboard did before the arm service): the same words, through `openarm-up`, which keeps the guards (switch_controllers is atomic, `down` refuses an
-#: arm not at stow, ...). Used only while `active_stack()` says "ros". `activate` here goes to zero and the arm service's to `ready`, so `prepare` (start, supervise, ready) has no ROS equivalent; it, follow, supervise and unsupervise are the arm service's alone.
+#: arm not at stow, ...). Used only while `active_stack()` says "ros". `prepare` (get the arms show-ready) is `activate` here, which energizes and drives to ZERO where the arm service's goes to `ready`; the runner moves each arm to zero first either way,
+#: and the result says which pose it was. follow, supervise and unsupervise are the arm service's alone.
 ROS_OPS = {
     "park":     (lambda arm: _sudo([OPENARM_UP, "park", arm]), 180, "moves the arm to its stow pose"),
     "activate": (lambda arm: _sudo([OPENARM_UP, "activate", arm]), 180, "ENERGIZES and drives the arm to zero"),
@@ -77,7 +78,8 @@ ROS_OPS = {
     # HOLD drives the arm to where it already is: it preempts a running trajectory and leaves the arm commanded to its present pose.
     "hold":     (lambda arm: _sudo([OPENARM_UP, "hold", arm]), 90, "stops the arm where it is"),
 }
-SERVICE_ONLY = ("follow", "supervise", "unsupervise", "prepare")
+SERVICE_ONLY = ("follow", "supervise", "unsupervise")
+ROS_PREPARE_NOTE = "ROS stack: PREPARE is ACTIVATE (energized, driven to zero; the arm service would go to ready)\n"
 
 
 def _ros_running():
@@ -410,9 +412,8 @@ def start_op(name, arm="both"):
             return False, why
         if stack == "ros" and name not in UNIT_OPS and name != "up":
             if name in SERVICE_ONLY:
-                return False, (f"{name} is the arm service's: the ROS arm stack is running, not an arm service"
-                               + (" (ACTIVATE here drives the arm to zero, not to ready)" if name == "prepare" else ""))
-            spec, use_service = ROS_OPS[name], False
+                return False, f"{name} is the arm service's: the ROS arm stack is running, not an arm service"
+            spec, use_service = ROS_OPS["activate" if name == "prepare" else name], False
         elif name in ROS_OPS and name != "up" and stack == "gafro":
             use_service = True
         elif name == "up":
@@ -468,7 +469,7 @@ def start_op(name, arm="both"):
             r = _run(argv_fn(arm), timeout)
             with _lock:
                 _op["rc"] = r.returncode
-                _op["out"] = ((r.stdout or "") + (r.stderr or ""))[-4000:]
+                _op["out"] = ((ROS_PREPARE_NOTE if name == "prepare" else "") + (r.stdout or "") + (r.stderr or ""))[-4000:]
                 if r.returncode != 0 and name != "doctor":
                     # The whole `openarm-up: ...` message, not its last line: the diagnosis comes
                     # first and the fix last, and the last line alone read as a fragment.
