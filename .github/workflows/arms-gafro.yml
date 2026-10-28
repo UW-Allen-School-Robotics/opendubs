@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install mujoco==3.16.0 numpy==2.5.3 pyyaml==6.0.3 "openarm_assets @ git+https://github.com/personalrobotics/openarm_assets@148e840522334ab31929e324d20da9d2f5f2a729"
+      - run: pip install mujoco==3.16.0 numpy==2.5.3 pyyaml==6.0.3 "openarm_assets @ git+https://github.com/personalrobotics/openarm_assets@79afb4ed8af4c5873c88387867665e55539afd09"
       - name: The committed model is what the generator builds
         run: python3 tools/arm_gafro_model.py --check
       - name: The controllers file parses
