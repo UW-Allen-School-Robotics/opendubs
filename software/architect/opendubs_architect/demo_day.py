@@ -12,8 +12,11 @@ THE STATES. One at a time, IDLE_NAV the default:
     ENGAGED    stopped in front of them, waiting for "trick or treat". Nobody for ENGAGED_S: IDLE_NAV
     CANDY      the candy show (the listener's --show routine): asked for by the listener on "trick or
                treat" (POST /api/request {"want": "candy"}), granted only once the base is still
-    CHOREO     one of the 3-5 preprogrammed palette shows (arms, music, the face): a random pick every
-               CHOREO_EVERY_S of patrolling, or spoken ("OpenDubs, dance", "... play monster mash")
+    CHOREO     a preprogrammed palette show (arms, music, the face). A random pick every CHOREO_EVERY_S
+               of patrolling, from the SHORT shows (--random: wave-and-nod, robotic-smile, celebrate,
+               9-33 s), so a visitor never waits out a long dance; the full dances (--choreo:
+               monster_mash, ghostbusters, them_bones, 3-4 min) when asked ("OpenDubs, dance", "...
+               play the monster mash"); any show of either list by its name
     PAUSED     the operator's pause (POST /api/pause), or the e-stop: everything stops. Only the
                operator's POST /api/resume leaves it, so an e-stop released does not restart the base.
                The boot unit starts here (--start-paused): a robot switched on for other work never
@@ -26,6 +29,9 @@ THE RULES, each kept here and tested (tests/test_demo_day.py):
   * Anything unknown stops the base: the palette or the robot's state unreadable, a driver's error.
   * Every show starts the way the Shows page starts it, with `start: deadman`: the supervisor's fresh
     press is the go. A random pick never moves an arm by itself.
+  * "Trick or treat" wins over a show still waiting for its go (armed, or being checked: nothing has
+    moved): that show is cancelled and the candy granted. A show past its go (COUNTDOWN on) is never
+    cancelled for candy: stopping a dance part-way leaves the arms where they are.
 
 WHO DRIVES THE BASE is not decided here. The robot moves its base for software only in CH5 AUTO
 while a person holds the deadman (docs/interfaces/navigation.md), at most at the robot's speed cap,
@@ -70,6 +76,7 @@ BASE_LINK_IN_CHASSIS = (0.324, 0.0, -0.024)   # description/opendubs/opendubs.ur
 
 STATES = ("IDLE_NAV", "APPROACH", "ENGAGED", "CANDY", "CHOREO", "PAUSED")
 MOVING = ("IDLE_NAV", "APPROACH")                # the only states in which the base may move
+NOT_STARTED = ("VALIDATING", "PREFLIGHT", "ARMED_WAITING")   # the runner's, before the deadman's GO
 
 _SHOW_WORDS = re.compile(r"\b(dance|dancing|show|song|music|perform)\b", re.I)
 
@@ -88,17 +95,25 @@ def person_from_chassis(p) -> Person:
     return Person(math.hypot(x, y), math.degrees(math.atan2(y, x)), list(p))
 
 
-def pick_choreo(text: str, choreo: list, last: str | None = None, rng=random):
-    """The show a spoken request names ("monster mash", "ghostbusters", "bones"), else a random one,
-    not `last` if there is a choice. None when the words ask for no show."""
+def match_show(text: str, shows: list):
+    """The show the words name ("monster mash", "ghost busters", "the bones one", "wave and nod"), or None."""
     words = set(re.findall(r"[a-z]+", (text or "").lower()))
     squashed = re.sub(r"[^a-z]", "", (text or "").lower())
-    for name in choreo:                          # the whole name: "monster mash", "ghost busters"
+    for name in shows:                           # the whole name: "monster mash", "ghost busters"
         if re.sub(r"[^a-z]", "", name.lower()) in squashed:
             return name
-    for name in choreo:                          # one distinctive word is enough: "play the bones one"
+    for name in shows:                           # one distinctive word is enough: "play the bones one"
         if any(w in words for w in re.findall(r"[a-z]+", name.lower()) if len(w) > 4):
             return name
+    return None
+
+
+def pick_choreo(text: str, choreo: list, last: str | None = None, rng=random):
+    """The show a spoken request names, else a random one, not `last` if there is a choice. None when
+    the words ask for no show."""
+    named = match_show(text, choreo)
+    if named:
+        return named
     if text is not None and not _SHOW_WORDS.search(text):
         return None
     pool = [c for c in choreo if c != last] or list(choreo)
@@ -117,9 +132,10 @@ class Coordinator:
     """
 
     def __init__(self, nav, people, palette, safety, candy: str, choreo: list, clock=time.monotonic,
-                 rng=None, log=None, choreo_every=CHOREO_EVERY_S):
+                 rng=None, log=None, choreo_every=CHOREO_EVERY_S, shorts=None):
         self.nav, self.people, self.palette, self.safety = nav, people, palette, safety
         self.candy, self.choreo = candy, list(choreo)
+        self.shorts = list(shorts) if shorts else list(choreo)   # the random picks: short, so a visitor waits little
         self.clock, self.rng, self._log_fn = clock, rng or random.Random(), log
         self.choreo_every = choreo_every
         self.still_wait_s = STILL_WAIT_S
@@ -243,8 +259,8 @@ class Coordinator:
         if self.near_since is not None and now - self.near_since >= SEEN_FOR_S:
             self._enter("APPROACH", f"a person {self.person.distance_m:.1f} m away")
             return self._tick_approach(now, running)
-        if self.choreo and self.next_choreo is not None and now >= self.next_choreo:
-            return self._start_choreo(pick_choreo(None, self.choreo, self.last_choreo, self.rng), "random pick")
+        if self.shorts and self.next_choreo is not None and now >= self.next_choreo:
+            return self._start_choreo(pick_choreo(None, self.shorts, self.last_choreo, self.rng), "random pick")
         if self.nav_doing != "patrol":
             self._drive("patrol")
 
@@ -320,6 +336,8 @@ class Coordinator:
         with self.lock:
             if self.state == "PAUSED":
                 return False, "paused"
+            if want == "candy" and self.state == "CHOREO" and self._waiting_for_go():
+                self._preempt()                      # nothing has moved yet: the visitor comes first
             if self.state in ("CANDY", "CHOREO"):
                 return False, f"busy: {self.show or self.state}"
             readable, running = self._running()
@@ -332,9 +350,37 @@ class Coordinator:
                 self.show = self.candy
                 return True, "granted: the base is still"
             if want == "choreo":
-                return self._start_choreo(pick_choreo(text, self.choreo, self.last_choreo, self.rng),
-                                          f"asked: {text!r}")
+                pick = match_show(text, self.shorts) or pick_choreo(text, self.choreo, self.last_choreo, self.rng)
+                return self._start_choreo(pick, f"asked: {text!r}")
             return False, f"unknown request {want!r}"
+
+    def _waiting_for_go(self) -> bool:
+        """This state's show is armed and waiting for the deadman's GO (or still being checked): nothing
+        has moved. From COUNTDOWN on (the GO given) it has started, and is never cancelled for candy."""
+        try:
+            st = self.palette.status() if hasattr(self.palette, "status") else None
+        except Exception as e:  # noqa: BLE001
+            self._log("palette_error", what="status", error=str(e))
+            return False
+        return isinstance(st, dict) and st.get("running") == self.show and st.get("status") in NOT_STARTED
+
+    def _preempt(self) -> None:
+        """Cancel the armed show (the Shows page's stop) and wait, at most STILL_WAIT_S, for the palette
+        to be free; the caller then grants the candy as from any other state."""
+        show = self.show
+        try:
+            self.palette.stop()
+        except Exception as e:  # noqa: BLE001
+            self._log("palette_error", what="stop", error=str(e))
+            return
+        end = time.monotonic() + self.still_wait_s
+        while time.monotonic() < end:
+            readable, running = self._running()
+            if readable and not running:
+                self._enter("ENGAGED", f"{show} cancelled before it started: trick or treat")
+                self._log("preempted", routine=show)
+                return
+            time.sleep(0.05)
 
     def pause(self, why: str = "the operator") -> None:
         with self.lock:
@@ -361,7 +407,7 @@ class Coordinator:
             return {"state": self.state, "since_s": round(self.clock() - self.since, 1), "why": self.why,
                     "person": self.person.doc() if self.person else None, "nav": self.nav_doing,
                     "nav_stub": isinstance(self.nav, StubNav),
-                    "show": self.show, "choreo": self.choreo, "candy": self.candy,
+                    "show": self.show, "choreo": self.choreo, "random": self.shorts, "candy": self.candy,
                     "next_choreo_s": round(nxt - self.clock()) if nxt is not None and self.state == "IDLE_NAV" else None}
 
 
@@ -448,6 +494,10 @@ class Palette:
             raise RuntimeError(f"the show palette answered {code}")
         return st.get("running")
 
+    def status(self):
+        code, st = self.http("GET", "/api/choreo/palette", None)
+        return st if code == 200 and isinstance(st, dict) else None
+
     def last(self):
         code, st = self.http("GET", "/api/choreo/palette", None)
         return st.get("last") if code == 200 and isinstance(st, dict) else None
@@ -488,6 +538,9 @@ class FakePalette:
     def __init__(self):
         self.now = None
 
+    def status(self):
+        return {"running": self.now, "status": "ARMED_WAITING" if self.now else None}
+
     def running(self):
         return self.now
 
@@ -515,7 +568,9 @@ def main(argv=None) -> int:
     ap.add_argument("--dashboard", default="http://127.0.0.1:8080")
     ap.add_argument("--candy", default="architect-ce957446f66e", help="the candy show (the listener's --show)")
     ap.add_argument("--choreo", nargs="+", default=["monster_mash", "ghostbusters", "them_bones"],
-                    help="the preprogrammed palette shows to pick from (3-5)")
+                    help="the full shows, played when asked for (\"OpenDubs, dance\", or by name)")
+    ap.add_argument("--random", nargs="+", default=["wave-and-nod", "robotic-smile", "celebrate"],
+                    help="the short shows the random pick chooses from (also playable by name)")
     ap.add_argument("--every", type=float, nargs=2, default=list(CHOREO_EVERY_S), metavar=("MIN_S", "MAX_S"),
                     help="a random choreo pick after this long patrolling")
     ap.add_argument("--people", choices=("perception", "fake"), default="perception")
@@ -534,14 +589,14 @@ def main(argv=None) -> int:
     else:
         palette, safety = Palette(args.dashboard), Safety(args.dashboard)
         have = palette.routines()
-        for r in [args.candy, *args.choreo]:
+        for r in [args.candy, *args.choreo, *args.random]:
             if r not in have:
                 raise SystemExit(f"demo_day: no routine {r!r}; the robot has {', '.join(sorted(have))}")
             if not have[r].get("valid"):
                 raise SystemExit(f"demo_day: {r!r} does not validate: {'; '.join(have[r].get('problems') or [])}")
     people = PerceptionPeople() if args.people == "perception" else Nobody()
     co = Coordinator(StubNav(log), people, palette, safety, args.candy, args.choreo, log=log,
-                     choreo_every=tuple(args.every))
+                     choreo_every=tuple(args.every), shorts=args.random)
     if args.start_paused:
         co.pause("started paused: POST /api/resume to begin the demo day")
 

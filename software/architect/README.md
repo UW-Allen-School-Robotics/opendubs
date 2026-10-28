@@ -299,7 +299,7 @@ On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh da
 | `APPROACH` | goes slowly toward them, stopping 1.2 m short | it is there (`ENGAGED`); nobody seen for 10 s (`IDLE_NAV`) |
 | `ENGAGED` | stopped in front of them, waiting | "trick or treat" (`CANDY`); nobody for 20 s (`IDLE_NAV`) |
 | `CANDY` | the candy show (the listener's `--show`) | it ends (`ENGAGED`) |
-| `CHOREO` | one of 3–5 palette shows (arms, music, the face) | it ends (`IDLE_NAV`) |
+| `CHOREO` | a palette show (arms, music, the face): a random pick from the SHORT shows (wave-and-nod, robotic-smile, celebrate, 9–33 s), or a full dance when asked ("OpenDubs, dance", or by name) | it ends (`IDLE_NAV`); "trick or treat" cancels it if it is still waiting for its go |
 | `PAUSED` | nothing: the operator's `POST /api/pause`, or the e-stop | the operator's `POST /api/resume` only |
 
 **What is real and what is a stub (2026-10-27):**

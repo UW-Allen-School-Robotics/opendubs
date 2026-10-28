@@ -57,6 +57,10 @@ class People:
 class Palette:
     def __init__(self):
         self.now, self.runs, self.stops, self.refuse, self.broken = None, [], 0, None, False
+        self.st = "ARMED_WAITING"
+
+    def status(self):
+        return {"running": self.now, "status": self.st if self.now else None}
 
     def running(self):
         if self.broken:
@@ -197,6 +201,42 @@ class Day(unittest.TestCase):
         self.co.tick()
         self.assertEqual(self.co.state, "IDLE_NAV")
         self.assertIn("SHOW_HEAD_NOT_UP", self.co.why)
+
+    def test_random_picks_are_the_short_shows_and_the_dances_come_when_asked(self):
+        co = dd.Coordinator(self.nav, self.people, self.pal, self.safe, "candy_show",
+                            ["monster_mash", "ghostbusters", "them_bones"], clock=self.clock, rng=random.Random(0),
+                            choreo_every=(300.0, 300.0), shorts=["wave-and-nod", "robotic-smile"])
+        co.still_wait_s = 0.05
+        self.co = co
+        co.tick()
+        self.run_for(300.4)                                  # due, armed, and seen running
+        self.assertIn(self.pal.runs[-1], ("wave-and-nod", "robotic-smile"))
+        self.pal.now = None
+        self.run_for(0.4)
+        co.request("choreo", "OpenDubs, dance")
+        self.assertIn(self.pal.runs[-1], ("monster_mash", "ghostbusters", "them_bones"))
+        co.tick()                                            # seen running
+        self.pal.now = None
+        self.run_for(0.4)
+        co.request("choreo", "do the wave and nod")
+        self.assertEqual(self.pal.runs[-1], "wave-and-nod")
+
+    def test_trick_or_treat_cancels_a_show_still_waiting_for_its_go(self):
+        self.co.request("choreo", "play ghostbusters")
+        self.assertEqual(self.co.state, "CHOREO")
+        ok, why = self.co.request("candy")                   # armed, no deadman press yet
+        self.assertTrue(ok, why)
+        self.assertEqual((self.co.state, self.pal.stops, self.nav.moving), ("CANDY", 1, False))
+
+    def test_a_started_show_is_never_cancelled_for_candy(self):
+        self.co.request("choreo", "play ghostbusters")
+        self.pal.st = "RUNNING"                              # the GO was given: it is moving
+        ok, why = self.co.request("candy")
+        self.assertFalse(ok)
+        self.assertIn("busy", why)
+        self.assertEqual(self.pal.stops, 0)
+        self.pal.st = "COUNTDOWN"                            # pressed and counting: started too
+        self.assertFalse(self.co.request("candy")[0])
 
     def test_a_pause_stops_a_running_show(self):
         self.co.request("choreo", "play the monster mash")
