@@ -51,6 +51,15 @@ Then inside --box (a generous safety box: the workspace is the IK's), low-passed
 (--max-speed), and solved by PositionIk for the right arm alone: the pose of the solution is sent, its orientation the
 IK's.
 
+WHEN THE ARM MOVES (V2), trick or treat, one person at a time, the nearest:
+  head       on start the head tilts to put the nearest person's shoulders in the middle of the picture (searching with
+             a slow sweep if nobody is seen), and keeps them there (HeadTilt). THE HEAD MOVES BY ITSELF; it does not move
+             while held, touched, aimed with the joystick (CH7 in pan/tilt), with the dashboard's own tracking on, or with
+             a real arm's J2 over 142 deg. Until it has settled, the arm holds where it is.
+  offered    the palm held out from that person's own shoulder (offered()): followed. Not held out, or no shoulder
+             seen, for --away-s -> neutral, the arm down. No palm -> hold where it is. (--close-m: V1's "within 0.5 m
+             of the arm" rule, off by default; --no-head: V1.)
+
 HOLDING, so the arm never drops: once a target has been sent, every tick sends one. Stopped, a palm older than --stale-s
 (occluded, out of view, a rough palm, the tracker stopped) or no transform: the LAST COMMANDED pose is sent again, latched
 (never the measured hand, which a sagging arm would walk down). When the palm comes back, following goes on from the held
@@ -376,7 +385,176 @@ class Shoulders:
     def put(self, data):
         with self.lock:
             self.value = {s: None if v is None else np.asarray(v, float) for s, v in (data.get("shoulders") or {}).items()}
+            self.mid = data.get("shoulder_mid")
             self.recv = time.monotonic()
+
+    def get(self, side, max_age):
+        with self.lock:
+            return self.value.get(side) if time.monotonic() - self.recv <= max_age else None
+
+    def get_mid(self, max_age):
+        """The nearest person's shoulders as an angle below the camera's axis (dict, see hand_tracker/node.py), or None."""
+        with self.lock:
+            return getattr(self, "mid", None) if time.monotonic() - self.recv <= max_age else None
+
+
+def neck_host_from_env():
+    """OPENDUBS_HEAD_NECK_HOST, from the environment or /etc/opendubs/robot.env (the dashboard's own setting)."""
+    host = os.environ.get("OPENDUBS_HEAD_NECK_HOST")
+    if host:
+        return host
+    try:
+        for line in open("/etc/opendubs/robot.env"):
+            if line.startswith("OPENDUBS_HEAD_NECK_HOST="):
+                return line.split("=", 1)[1].strip().strip('"') or None
+    except OSError:
+        pass
+    return None
+
+
+class HeadTilt:
+    """V2: the head tilts to keep the nearest person's shoulders in the middle of the picture, so their shoulders, the
+    base the arm's offered check measures from, stay in view. THE HEAD MOVES BY ITSELF.
+
+    The neck's GAZE (head protocol §4), the message the dashboard's own tracking sends, pan held where it is:
+      search   nobody seen for --head-search-s: sweep the tilt slowly between the limits until someone is
+      centre   the shoulders more than --head-start-deg from the axis: step toward them, at --head-dps
+      settled  within --head-stop-deg for --head-settle frames: still; the arm may follow
+    As the dashboard's tracking does it (neck_follow.py, a quiet neck): GAZE only while moving, in small steps, then
+    silence, so the lease lapses and the neck holds. Nothing accumulates: each step aims at where the shoulders are seen
+    now, and frames taken while the head moved are not used.
+
+    It sends nothing, and is not settled, unless all hold: the neck answers NECK; nobody holds it (hold, touch, RC: the
+    joystick aims it only with CH7 in pan/tilt), the dashboard's own head tracking is off (two senders would fight), and
+    both real arms' J2 are at most 142 deg (arm_clearance.py's rule: a raised arm and a moving head can meet)."""
+
+    def __init__(self, host, shoulders, args, arms_ok):
+        self.host, self.shoulders, self.a, self.arms_ok = host, shoulders, args, arms_ok
+        self.lock = threading.Lock()
+        self.on, self.mode, self.why, self.settled = False, "off", "not started", False
+        self.tilt = self.pan = None
+        self.count, self.sweep_dir, self.moved_at, self.seen_at = 0, 1.0, 0.0, 0.0
+        self.moving = True              # at the start: centre the person first
+        self.addr = None
+
+    def start(self):
+        with self.lock:
+            self.on, self.moving, self.count, self.settled = True, True, 0, False
+            self.seen_at = time.monotonic()
+
+    def stop(self):
+        with self.lock:
+            self.on = False
+
+    def ask(self, line, timeout=0.3):
+        import socket
+        try:
+            if self.addr is None:
+                self.addr = socket.gethostbyname(self.host)
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(timeout)
+            try:
+                s.sendto(line.encode(), (self.addr, 4242))
+                return s.recvfrom(512)[0].decode(errors="replace").strip()
+            finally:
+                s.close()
+        except OSError:
+            self.addr = None
+            return None
+
+    def neck(self):
+        """The neck's NECK reply as a dict, or None."""
+        r = self.ask("NECK")
+        if not r or not r.startswith("OK neck"):
+            return None
+        return dict(kv.split("=", 1) for kv in r.split()[2:] if "=" in kv)
+
+    def blocked(self):
+        """Why the head must not move now, or None. Also refreshes where the neck points."""
+        n = self.neck()
+        if n is None:
+            return f"the neck ({self.host}) does not answer NECK"
+        if n.get("hold", "off") != "off":
+            return f"the neck is held ({n.get('hold_by')})"
+        if n.get("owner") in ("hold", "touch", "rc", "park"):
+            return f"the neck is owned by {n.get('owner')}"
+        if self.tilt is None or n.get("owner") != "gaze":
+            self.pan, self.tilt = float(n["pan"]), float(n["tilt"])
+        try:
+            import urllib.request
+            why = json.load(urllib.request.urlopen("http://127.0.0.1:8080/api/head/follow", timeout=1.0)).get("why") or ""
+            if "not set to the tablet" not in why:
+                return "the dashboard's own head tracking is on"
+        except (OSError, ValueError):
+            return "the dashboard does not answer /api/head/follow"
+        arms = self.arms_ok()
+        if arms:
+            return arms
+        return None
+
+    def run(self):
+        period, last_check, block = 0.1, 0.0, "not checked"
+        while True:
+            time.sleep(period)
+            now = time.monotonic()
+            with self.lock:
+                if not self.on:
+                    self.mode, self.settled = "off", False
+                    continue
+            if now - last_check >= 1.0 or block:
+                block, last_check = self.blocked(), now
+            if block:
+                with self.lock:
+                    self.mode, self.why, self.settled = "blocked", block, False
+                continue
+            mid = self.shoulders.get_mid(0.5)
+            a = self.a
+            if mid is not None and now - self.moved_at > a.head_wait_s:   # a frame taken after the last move
+                self.seen_at = now
+                err = float(mid["below_deg"])          # + : the shoulders are below the axis -> tilt down
+                # hysteresis: a still head starts at --head-start-deg off, a moving one goes on to --head-stop-deg
+                self.moving = abs(err) > (a.head_stop_deg if self.moving else a.head_start_deg)
+                if self.moving:
+                    step = max(-a.head_dps * period, min(a.head_dps * period, a.head_gain * err))
+                    target = max(a.head_tilt_min, min(a.head_tilt_max, self.tilt - step))
+                    self.count = 0
+                    if abs(target - self.tilt) >= 0.2:
+                        self.gaze(target)
+                        self.moved_at = now
+                    with self.lock:
+                        self.mode, self.settled = "centre", False
+                        self.why = f"shoulders {err:+.1f} deg from the axis, tilt {self.tilt:.1f}"
+                else:
+                    self.count += 1
+                    with self.lock:
+                        if self.count >= a.head_settle:
+                            self.mode, self.settled = "settled", True
+                        self.why = f"shoulders {err:+.1f} deg from the axis, tilt {self.tilt:.1f}"
+            elif mid is None and now - self.seen_at > a.head_search_s:
+                # SEARCH: nobody: sweep slowly between the limits
+                self.count = 0
+                target = self.tilt + self.sweep_dir * a.head_search_dps * period
+                if not a.head_tilt_min <= target <= a.head_tilt_max:
+                    self.sweep_dir = -self.sweep_dir
+                    target = max(a.head_tilt_min, min(a.head_tilt_max, target))
+                self.gaze(target)
+                with self.lock:
+                    self.mode, self.settled, self.why = "search", False, f"nobody seen: sweeping, tilt {self.tilt:.1f}"
+
+    def gaze(self, tilt):
+        r = self.ask(f"GAZE {self.pan:.1f} {tilt:.1f} {self.a.head_lease_ms}")
+        if r and r.startswith("OK gaze"):
+            try:
+                self.tilt = float(r.split()[3])        # the clamped angle the neck will run
+            except (IndexError, ValueError):
+                self.tilt = tilt
+        else:
+            self.tilt = tilt
+
+    def status(self):
+        with self.lock:
+            return {"mode": self.mode, "settled": self.settled, "why": self.why,
+                    "tilt": None if self.tilt is None else round(self.tilt, 1)}
 
     def get(self, side, max_age):
         with self.lock:
@@ -431,8 +609,9 @@ def main():
                     help="do not restart the arm service's follow when it stops (it does by default: simulation only)")
     ap.add_argument("--stale-s", type=float, default=0.60, help="a palm older than this is not followed")
     ap.add_argument("--no-offer", dest="offer", action="store_false", help="follow any palm: no offered check, no neutral")
-    ap.add_argument("--close-m", type=float, default=0.50,
-                    help="m: a palm this near the arm (its shoulder) is followed whether the person's shoulder is seen or not")
+    ap.add_argument("--close-m", type=float, default=0.0,
+                    help="m: a palm this near the arm (its shoulder) is followed whether the person's shoulder is seen or "
+                         "not (V1: 0.5; 0, the default, turns it off: V2's head keeps the shoulders in view)")
     ap.add_argument("--offer-reach", type=float, default=0.20, help="m a held-out palm is nearer the robot than its shoulder")
     ap.add_argument("--offer-below", type=float, default=0.55, help="m a held-out palm may be below its shoulder")
     ap.add_argument("--offer-above", type=float, default=0.35, help="m a held-out palm may be above its shoulder")
@@ -442,6 +621,22 @@ def main():
                     help="the neutral posture, the arm's 7 joints in rad: down, the elbow bent (the model's `rest` is "
                          "straight down, near singular)")
     ap.add_argument("--state-topic", default="/perception/hand/state", help="the tracker's state, for the shoulders")
+    # V2: the head keeps the nearest person's shoulders centred (HeadTilt); the arm follows only once it has settled
+    ap.add_argument("--no-head", dest="head", action="store_false", help="leave the head alone (V1)")
+    ap.add_argument("--neck-host", default=None, help="default OPENDUBS_HEAD_NECK_HOST (environment or /etc/opendubs/robot.env)")
+    ap.add_argument("--head-tilt-min", type=float, default=71.0, help="deg, the neck's own: 71 is this robot's fully down")
+    ap.add_argument("--head-tilt-max", type=float, default=108.0, help="deg: 90 + the neck's 18 deg envelope for tracking")
+    ap.add_argument("--head-start-deg", type=float, default=5.0, help="a still head moves when the shoulders are this far off")
+    ap.add_argument("--head-stop-deg", type=float, default=2.0, help="a moving head stops when they are within this")
+    ap.add_argument("--head-gain", type=float, default=0.5, help="of the offset, per step")
+    ap.add_argument("--head-dps", type=float, default=25.0, help="deg/s at most (the dashboard's quiet neck: 25)")
+    ap.add_argument("--head-wait-s", type=float, default=0.25, help="s after a move before a frame counts")
+    ap.add_argument("--head-settle", type=int, default=5, help="centred frames before the head is settled")
+    ap.add_argument("--head-search-s", type=float, default=1.5, help="s with nobody seen before the head sweeps")
+    ap.add_argument("--head-search-dps", type=float, default=8.0, help="deg/s of the sweep")
+    ap.add_argument("--head-lease-ms", type=int, default=600)
+    ap.add_argument("--arm-j2-max", type=float, default=142.0,
+                    help="deg: the head does not move while either real arm's J2 is above this (arm_clearance.py)")
     ap.add_argument("--rate", type=float, default=50.0)
     ap.add_argument("--start", action="store_true", help="following from the start, as if /perception/hand_follow/start was called")
     ap.add_argument("--dummy", action="store_true", help="no tracker: a palm on a circle in front of the camera")
@@ -517,6 +712,32 @@ def main():
     from std_msgs.msg import String
 
     palm, shoulders = Palm(), Shoulders()
+
+    # the REAL arms' shoulders (J2), for the head: arm_clearance.py's rule. Unknown means the head does not move.
+    from sensor_msgs.msg import JointState
+    real_j2 = {"value": {}, "at": 0.0}
+
+    def on_real_joints(msg):
+        got = {n: p for n, p in zip(msg.name, msg.position) if n in ("openarm_left_joint2", "openarm_right_joint2")}
+        if got:
+            real_j2["value"].update(got)
+            real_j2["at"] = time.monotonic()
+
+    node.create_subscription(JointState, "/joint_states", on_real_joints, 10)
+
+    def arms_clear():
+        if time.monotonic() - real_j2["at"] > 2.0 or len(real_j2["value"]) < 2:
+            return "the real arms' positions are not known (/joint_states)"
+        up = {n: math.degrees(abs(v)) for n, v in real_j2["value"].items() if math.degrees(abs(v)) > args.arm_j2_max}
+        return f"an arm's shoulder is raised ({', '.join(f'{n} {d:.0f} deg' for n, d in up.items())})" if up else None
+
+    head = None
+    if args.head:
+        host = args.neck_host or neck_host_from_env()
+        if not host:
+            raise SystemExit("no neck host: set OPENDUBS_HEAD_NECK_HOST or --neck-host, or run with --no-head")
+        head = HeadTilt(host, shoulders, args, arms_clear)
+        threading.Thread(target=head.run, daemon=True).start()
     pub_palm = node.create_publisher(PointStamped, "/hand_follow/palm", 10)      # for watching: the palm in arm_mount
     pub_target = node.create_publisher(PoseStamped, "/hand_follow/target", 10)   # and the target sent
 
@@ -572,6 +793,8 @@ def main():
                 follow[key] = None
         palm.value = None
         follow["mode"] = "waiting" if hand is not None else "stopped"
+        if head is not None:
+            (head.start if hand is not None else head.stop)()
         if hand is not None and not args.dummy:
             follow["sub"] = node.create_subscription(PointStamped, palm_topic(hand), lambda m: palm.put(
                 (m.point.x, m.point.y, m.point.z), m.header.stamp.sec + m.header.stamp.nanosec * 1e-9), qos_profile_sensor_data)
@@ -641,6 +864,7 @@ def main():
         with lock:
             data = {"following": follow["on"], "hand": follow["hand"], "state": follow["state"], "mode": follow["mode"],
                     "offer": follow["offer"], "neutral": [round(float(v), 3) for v in neutral_pos],
+                    "head": None if head is None else head.status(),
                     "palm_topic": "dummy" if args.dummy else palm_topic(follow["hand"]),
                     "palm_age_s": None if got is None else round(time.monotonic() - got[2], 2),
                     "hand_position": [round(float(v), 4) for v in hand_p], "transform": follow["info"],
@@ -661,7 +885,8 @@ def main():
           f"from {args.head_tilt_from}) -> {args.mode}"
           f"{f' ({args.mapping} frame, gain {args.gain})' if args.mode == 'relative' else ''}, IK -> "
           f"{args.reference}/target on domain {args.sim_domain}; "
-          f"{f'offered: within {args.close_m:.2f} m of the arm or held out from the shoulder, else neutral; ' if args.offer else ''}"
+          f"{'offered: held out from the shoulder' + (f' or within {args.close_m:.2f} m of the arm' if args.close_m > 0 else '') + ', else neutral; ' if args.offer else ''}"
+          f"{f'head: tilts to centre the shoulders ({head.host}, {args.head_tilt_min:.0f}-{args.head_tilt_max:.0f} deg), the arm waits for it; ' if head else ''}"
           f"services "
           f"/perception/hand_follow/{{start,stop,status}}; {'FOLLOWING' if follow['on'] else 'stopped until start'}", flush=True)
 
@@ -723,7 +948,14 @@ def main():
             # OFFERED: a palm offered for --offer-s -> following; not offered for --away-s -> neutral (the arm down);
             # no palm at all -> hold, whatever the mode (above). Between the two, the arm holds where it is.
             motion = "hold"
-            if t is not None:
+            hs = head.status() if head is not None and follow["on"] else None
+            if hs is not None and not hs["settled"]:
+                # V2: the arm waits for the head. Searching, centring the shoulders or blocked, it holds where it is, and
+                # no follow or neutral clock runs: the base the offered check measures from is not steady yet
+                offered_since = away_since = None
+                if t is not None:
+                    active, state = False, f"head {hs['mode']}: holding ({hs['why']})"
+            elif t is not None:
                 ok, why = cached[4], cached[5]
                 offered_since = (offered_since or now) if ok else None
                 away_since = None if ok else (away_since or now)

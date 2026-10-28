@@ -290,4 +290,10 @@ class PalmTracker:
                 inside = margin <= u < w - margin and margin <= v < h - margin
                 z = sample_depth(depth_m, u, v, r=6) if p.visibility >= 0.5 and inside else None
                 shoulders[side] = deproject(u, v, z, K) if z else None
+            # where the shoulders' midpoint is in the picture, as the angle below the optical axis (degrees, + down),
+            # for a head that keeps the person centred. From the landmarks even off the image: with the shoulders just
+            # above the frame the pose model still places them there, which says which way to look.
+            v_mid = 0.5 * (pose_lm[L_SHOULDER].y + pose_lm[R_SHOULDER].y) * h
+            shoulders["mid"] = {"below_deg": math.degrees(math.atan2(v_mid - K[3], K[1])),
+                                "vis": float(min(pose_lm[L_SHOULDER].visibility, pose_lm[R_SHOULDER].visibility))}
         return (person_z if idx is not None else None), palms, shoulders
