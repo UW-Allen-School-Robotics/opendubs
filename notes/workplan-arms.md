@@ -382,7 +382,13 @@ Raised at the robot, with the project team present. Each points at the item that
 - **Swapping the J1 and J3 positions** left the loss with the J1 motor: 42% lost and 63% ESI in J3's old socket, while J3 lost 1.0% in J1's.
 - **A read-only register read** (0x7FF, 0x33) of J1 and J2 on both arms found all four identical: `hw_ver` "V003", `sw_ver` "6417", `sub_ver` "4" (OpenArm's tested `APP_DM8009(V3)_V6417_04`), `can_br` 9 (5M) and `TIMEOUT` 0.
 
-So it is not the board, the firmware or the bit-rate setting. It is the left J1 and J2 units, or each one's own lead. **Next:** one capture with J3's lead on the J1 motor separates lead from motor. Then replace the two units (ask Enactic/Damiao, with these captures). | open | 0.26 |
+So it is not the board, the firmware or the bit-rate setting. It is the left J1 and J2 units, or each one's own lead. J3's lead does not fit J1 or J2, so the split was made by swapping the J1 leads between the arms instead. Reseating J1 and J2 changed nothing (40% and 35% lost).
+
+**It is the left J1 motor, which disturbs the bus for J2:**
+- **The left J1 motor on the right arm's known-good J1 lead:** the left J1 lost 97.5% and J2 98%.
+- **The left J1 detached** (the leads back in place, after an e-stop): the whole left bus is clean, J2 included, with 0 lost, no ESI and no error frames, and the link ERROR-ACTIVE throughout. The right arm is clean, all 8 motors.
+
+So J2 was a victim, not a second fault. **Fix:** replace the left J1 DM8009. Until then the left arm cannot run, because a joint is never excluded (`arm-degraded-mode.md`). | open | 0.26 |
 
 ## Stub register
 
