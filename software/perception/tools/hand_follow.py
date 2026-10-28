@@ -301,6 +301,14 @@ class PositionIk:
         self.d.qpos[self.qadr] = np.clip(np.asarray(qpos)[self.qadr], self.lo, self.hi)
         self.posture = self.d.qpos[self.qadr].copy()
 
+    def fk(self, q):
+        """(TCP position, 3x3) at the arm's joints `q`, without touching the solver's state."""
+        d = self.mj.MjData(self.m)
+        d.qpos[:] = self.d.qpos
+        d.qpos[self.qadr] = q
+        self.mj.mj_kinematics(self.m, d)
+        return d.xpos[self.tcp].copy(), d.xmat[self.tcp].reshape(3, 3).copy()
+
     def solve(self, target, iterations=15, step_max=0.15):
         """(TCP position, TCP 3x3, joint angles) of the solution for `target` (arm_mount), from the last solution."""
         q = self.d.qpos[self.qadr].copy()
@@ -335,6 +343,44 @@ def turn_toward(r_from, r_to, max_angle):
 MAPPINGS = {"body": np.diag([-1.0, -1.0, 1.0]),   # facing the robot, in the person's own frame: your right is its right,
                                                    # toward the robot is its forward, up is up (a puppet, not a mirror)
             "world": np.eye(3)}                     # the same direction in the room as the hand moves
+
+
+SHOULDER_REACH = 0.9      # m: a shoulder farther than this from the palm is someone else's (a bystander's)
+
+
+def offered(palm_arm, shoulder_arm, close_m, reach_min, below, above):
+    """(is the hand offered, why), in arm_mount (x away from the robot toward the person, z up). Trick or treat:
+
+      close     the palm within close_m of the arm (its shoulder, SHOULDER): offered, whatever the shoulder. Up close the
+                person's shoulders are often out of view, and a hand that near the arm is asking.
+      held out  farther, the person's own shoulder seen (within SHOULDER_REACH of the palm) and the palm held out from
+                it: at least reach_min nearer the robot, from `below` under to `above` over its height. A hand hanging
+                at the side or lying in a lap or on a desk is not.
+      else      farther and no shoulder seen: not offered."""
+    d = float(np.linalg.norm(palm_arm - SHOULDER))
+    if d <= close_m:
+        return True, f"close: {d:.2f} m from the arm"
+    if shoulder_arm is None or np.linalg.norm(shoulder_arm - palm_arm) > SHOULDER_REACH:
+        return False, f"{d:.2f} m from the arm and no shoulder seen"
+    reach, height = float(shoulder_arm[0] - palm_arm[0]), float(palm_arm[2] - shoulder_arm[2])
+    ok = reach >= reach_min and -below <= height <= above
+    return ok, f"{reach:+.2f} m out from the shoulder, {height:+.2f} m above it ({d:.2f} m from the arm)"
+
+
+class Shoulders:
+    """The newest shoulders from the tracker's state (camera xyz per side) and when they came."""
+
+    def __init__(self):
+        self.lock, self.value, self.recv = threading.Lock(), {}, 0.0
+
+    def put(self, data):
+        with self.lock:
+            self.value = {s: None if v is None else np.asarray(v, float) for s, v in (data.get("shoulders") or {}).items()}
+            self.recv = time.monotonic()
+
+    def get(self, side, max_age):
+        with self.lock:
+            return self.value.get(side) if time.monotonic() - self.recv <= max_age else None
 
 
 class Palm:
@@ -384,6 +430,18 @@ def main():
     ap.add_argument("--no-auto-resume", dest="auto_resume", action="store_false",
                     help="do not restart the arm service's follow when it stops (it does by default: simulation only)")
     ap.add_argument("--stale-s", type=float, default=0.60, help="a palm older than this is not followed")
+    ap.add_argument("--no-offer", dest="offer", action="store_false", help="follow any palm: no offered check, no neutral")
+    ap.add_argument("--close-m", type=float, default=0.50,
+                    help="m: a palm this near the arm (its shoulder) is followed whether the person's shoulder is seen or not")
+    ap.add_argument("--offer-reach", type=float, default=0.20, help="m a held-out palm is nearer the robot than its shoulder")
+    ap.add_argument("--offer-below", type=float, default=0.55, help="m a held-out palm may be below its shoulder")
+    ap.add_argument("--offer-above", type=float, default=0.35, help="m a held-out palm may be above its shoulder")
+    ap.add_argument("--offer-s", type=float, default=0.3, help="s a palm is offered before the arm follows it")
+    ap.add_argument("--away-s", type=float, default=0.7, help="s a palm is not offered before the arm goes to neutral")
+    ap.add_argument("--neutral-q", default="0,0.15,0,0.9,0,0,0",
+                    help="the neutral posture, the arm's 7 joints in rad: down, the elbow bent (the model's `rest` is "
+                         "straight down, near singular)")
+    ap.add_argument("--state-topic", default="/perception/hand/state", help="the tracker's state, for the shoulders")
     ap.add_argument("--rate", type=float, default=50.0)
     ap.add_argument("--start", action="store_true", help="following from the start, as if /perception/hand_follow/start was called")
     ap.add_argument("--dummy", action="store_true", help="no tracker: a palm on a circle in front of the camera")
@@ -456,12 +514,16 @@ def main():
     from robot_api_interfaces.msg import ResultCode
     from robot_api_interfaces.srv import RobotCommand, RobotQuery
 
-    palm = Palm()
+    from std_msgs.msg import String
+
+    palm, shoulders = Palm(), Shoulders()
     pub_palm = node.create_publisher(PointStamped, "/hand_follow/palm", 10)      # for watching: the palm in arm_mount
     pub_target = node.create_publisher(PoseStamped, "/hand_follow/target", 10)   # and the target sent
 
     hand_model = g2s.HandModel(args.model)
     ik = PositionIk(args.model, args.reference)
+    q_neutral = np.array([float(v) for v in args.neutral_q.split(",")])
+    neutral_pos, _ = ik.fk(q_neutral)
     sim_ctx = Context()
     rclpy.init(context=sim_ctx, domain_id=args.sim_domain)
     sim = g2s.SimArm(rclpy, sim_ctx, args.reference, hand_model)
@@ -469,7 +531,8 @@ def main():
     if not sim.wait_for_state():
         raise SystemExit(f"no joint_states on domain {args.sim_domain}: start the simulation first (hand_follow.sh sim)")
 
-    follow = {"on": False, "hand": args.hand, "sub": None, "state": "stopped", "info": None, "error": None}
+    follow = {"on": False, "hand": args.hand, "sub": None, "state_sub": None, "state": "stopped", "info": None,
+              "error": None, "mode": "stopped", "offer": None}
     lock = threading.Lock()
 
     # The arm service, watched: its status once a second over its command socket (arm_client.py). A follow its guard
@@ -503,13 +566,22 @@ def main():
     def subscribe(hand):
         """The palm topic of `hand`, or none: the tracker runs MediaPipe only while somebody subscribes, so stopping here
         also stops the tracking."""
-        if follow["sub"] is not None:
-            node.destroy_subscription(follow["sub"])
-            follow["sub"] = None
+        for key in ("sub", "state_sub"):
+            if follow[key] is not None:
+                node.destroy_subscription(follow[key])
+                follow[key] = None
         palm.value = None
+        follow["mode"] = "waiting" if hand is not None else "stopped"
         if hand is not None and not args.dummy:
             follow["sub"] = node.create_subscription(PointStamped, palm_topic(hand), lambda m: palm.put(
                 (m.point.x, m.point.y, m.point.z), m.header.stamp.sec + m.header.stamp.nanosec * 1e-9), qos_profile_sensor_data)
+            if args.offer:              # the shoulders, for the offered check
+                def on_state(msg):
+                    try:
+                        shoulders.put(json.loads(msg.data))
+                    except (ValueError, TypeError):
+                        pass
+                follow["state_sub"] = node.create_subscription(String, args.state_topic, on_state, 10)
 
     def reply(response, code, message, data):
         response.result_code.result_code, response.result_code.message = code, message
@@ -567,7 +639,8 @@ def main():
         got = palm.get()
         alive = sim.stamp is not None and time.monotonic() - sim.stamp < 2.0
         with lock:
-            data = {"following": follow["on"], "hand": follow["hand"], "state": follow["state"],
+            data = {"following": follow["on"], "hand": follow["hand"], "state": follow["state"], "mode": follow["mode"],
+                    "offer": follow["offer"], "neutral": [round(float(v), 3) for v in neutral_pos],
                     "palm_topic": "dummy" if args.dummy else palm_topic(follow["hand"]),
                     "palm_age_s": None if got is None else round(time.monotonic() - got[2], 2),
                     "hand_position": [round(float(v), 4) for v in hand_p], "transform": follow["info"],
@@ -587,7 +660,9 @@ def main():
     print(f"hand_follow: {'dummy circle' if args.dummy else palm_topic(args.hand)} -> {ARM_FRAME} ({args.transform}, tilt "
           f"from {args.head_tilt_from}) -> {args.mode}"
           f"{f' ({args.mapping} frame, gain {args.gain})' if args.mode == 'relative' else ''}, IK -> "
-          f"{args.reference}/target on domain {args.sim_domain}; services "
+          f"{args.reference}/target on domain {args.sim_domain}; "
+          f"{f'offered: within {args.close_m:.2f} m of the arm or held out from the shoulder, else neutral; ' if args.offer else ''}"
+          f"services "
           f"/perception/hand_follow/{{start,stop,status}}; {'FOLLOWING' if follow['on'] else 'stopped until start'}", flush=True)
 
     dt = 1.0 / args.rate
@@ -595,8 +670,10 @@ def main():
     pf = vf = None                               # the target's second-order filter: position and velocity
     anchor_palm = anchor_cmd = goal = None
     t0, last_print, last_err, last_err_at, next_dummy = time.monotonic(), 0.0, "", 0.0, 0.0
-    cached = (None, None, None, None)            # (palm receipt time, T, info, error): the transform once per palm
+    cached = (None, None, None, None, True, "")  # (palm receipt, T, info, error, offered, why): once per palm
     resume_at, backoff, following_since, state = 0.0, 2.0, None, "stopped"
+    offered_since = away_since = None
+    posture_follow = None                        # the IK's posture while following: the arm's when it first moved
     w = 1.0 / args.smooth_s
     try:
         while True:
@@ -627,40 +704,72 @@ def main():
             elif got is None or now - got[2] > args.stale_s:
                 active, state = False, "no palm: holding the last pose"
             else:
-                if cached[0] != got[2]:          # a new palm: its transform (TF and the IMU), once
+                if cached[0] != got[2]:          # a new palm: its transform (TF and the IMU) and is it offered, once
                     try:
                         T, inf = frames.camera_in_arm(got[1])
-                        cached = (got[2], T, inf, None)
+                        ok, why = True, "any palm (--no-offer)"
+                        if args.offer:
+                            pa = T[:3, :3] @ got[0] + T[:3, 3]
+                            sc = shoulders.get(follow["hand"], max_age=0.5)
+                            ok, why = offered(pa, None if sc is None else T[:3, :3] @ sc + T[:3, 3], args.close_m,
+                                              args.offer_reach, args.offer_below, args.offer_above)
+                        cached = (got[2], T, inf, None, ok, why)
                     except LookupError as error:
-                        cached = (got[2], None, None, str(error))
+                        cached = (got[2], None, None, str(error), False, "no transform")
                 t, err = cached[1], cached[3]
                 info = cached[2] if cached[2] is not None else info
                 if t is None:
                     active, state = False, "no transform: holding the last pose"
+            # OFFERED: a palm offered for --offer-s -> following; not offered for --away-s -> neutral (the arm down);
+            # no palm at all -> hold, whatever the mode (above). Between the two, the arm holds where it is.
+            motion = "hold"
+            if t is not None:
+                ok, why = cached[4], cached[5]
+                offered_since = (offered_since or now) if ok else None
+                away_since = None if ok else (away_since or now)
+                mode = follow["mode"] if args.offer else "following"
+                if ok and now - offered_since >= args.offer_s and mode != "following":
+                    mode = "following"
+                    print(f"following: offered ({why})", flush=True)
+                elif not ok and now - away_since >= args.away_s and mode != "neutral":
+                    mode = "neutral"
+                    print(f"neutral: not offered ({why})", flush=True)
+                follow["mode"], follow["offer"] = mode, why
+                if mode == "following" and ok:
+                    motion, state = "follow", "following"
+                elif mode == "neutral":
+                    motion, state = "neutral", f"neutral ({why})"
+                else:
+                    active, state = False, f"{mode}: holding ({why})"
             if arm_on and follow["on"] and state == "following":
                 following_since = following_since or now
                 if now - following_since > 30.0:
                     backoff = 2.0
-            if t is None and sent is not None:
+            if motion == "hold" and sent is not None:
                 # HOLD: the last pose sent, sent again. Stopped, or the hand lost (occluded, out of view, a rough palm),
                 # the arm is still given a target every tick, so nothing depends on how the arm's controller treats a
                 # silent reference (the simulation's holds, another's may not). The held pose is the last COMMANDED one,
                 # latched, never the measured hand: re-reading a sagging arm would walk its own target down.
                 sim.send(*sent)
-            if t is not None:
+            if motion != "hold":
                 p_arm = t[:3, :3] @ got[0] + t[:3, 3]
                 if not active:
                     if cmd is None:              # the first palm: from where the arm is, its posture the IK's start
                         with sim.lock:
                             ik.reset_qpos(sim.model.data.qpos)
+                        posture_follow = ik.posture.copy()
                         cmd = sim.hand()[0].copy()
                     # after a hold too: from the held pose, smoothed, and in relative mode the hand's motion counts from
                     # here, so a palm that comes back somewhere else does not jump the arm
                     anchor_palm, anchor_cmd = p_arm.copy(), cmd.copy()
                     pf, vf, active = cmd.copy(), np.zeros(3), True
-                if args.mode == "relative":
+                if motion == "neutral":          # NEUTRAL: the arm down, by the same IK, filter and limits
+                    ik.posture, goal = q_neutral, neutral_pos.copy()
+                elif args.mode == "relative":
+                    ik.posture = posture_follow
                     goal = anchor_cmd + args.gain * (MAPPINGS[args.mapping] @ (p_arm - anchor_palm))
                 else:
+                    ik.posture = posture_follow
                     goal = shape_target(p_arm, args.standoff, args.min_reach, args.max_reach, box)
                 goal = np.array([min(max(goal[i], box[i][0]), box[i][1]) for i in range(3)])
                 # SMOOTH: a critically damped second-order filter toward the goal, its acceleration and speed limited.
@@ -684,7 +793,6 @@ def main():
                 cmd = pos
                 sent = (pos, rot)
                 sim.send(pos, rot)
-                state = "following"
                 stamp = node.get_clock().now().to_msg()
                 pm = PointStamped()
                 pm.header.stamp, pm.header.frame_id = stamp, ARM_FRAME
