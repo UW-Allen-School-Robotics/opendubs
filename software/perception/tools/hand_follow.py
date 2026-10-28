@@ -1,9 +1,19 @@
 """Follow a person's palm with the simulated right arm: the hand tracker's palm, through the robot's frames, onto right/target.
 
-  hand_follow.sh sim                  terminal 1: the arm service on MuJoCo (follow_pose) and its viewer, its own ROS domain
-  hand_follow.sh run                  terminal 2: this, DISABLED until enabled
-  hand_follow.sh enable | disable     the switch (/hand_follow/enable, std_srvs/SetBool, on the robot's domain)
+  hand_follow.sh up | down            everything (camera if needed, hand tracker, simulated arm, this node) | all but the camera
+  hand_follow.sh start [left|right]   /perception/hand_follow/start: following on (returns at once)
+  hand_follow.sh stop                 /perception/hand_follow/stop: following and tracking off, the arm holds
   hand_follow.sh frames [--save F]    the camera -> arm transform now, printed (and written as JSON), nothing followed
+
+THE SERVICES, robot_api_interfaces like the other /perception services, on the robot's domain:
+
+  /perception/hand_follow/start   RobotCommand  {} or {"hand": "left" | "right"}  checks that the simulated arm, the hand
+                                  tracker and the camera -> arm transform are there (SERVICE_NOT_RUNNING says which is
+                                  not), subscribes to the palm, turns following on, and returns. It does not wait for a
+                                  palm: with nobody in view the arm holds until one appears.
+  /perception/hand_follow/stop    RobotCommand  {}   following off and the palm unsubscribed (the tracker idles); returns.
+  /perception/hand_follow/status  RobotQuery         following, hand, state, palm age, the hand's position, the transform.
+Both commands are idempotent: start while following and stop while stopped succeed.
 
 THE FRAMES, end to end:
 
@@ -33,8 +43,13 @@ THE FRAMES, end to end:
 THE TARGET: the palm in arm_mount, moved --standoff back toward the right shoulder (the hand stops short of the person's
 hand, it does not touch it), kept between --min-reach and --max-reach of the shoulder and inside --box, low-passed
 (--smooth-s) and speed-limited (--max-speed). The orientation is the hand's own when following starts: only the position
-follows. A palm older than --stale-s (lost, rough, or the tracker stopped) sends nothing: the arm service's reference goes
-stale and HOLDS where it is. When it comes back, following starts again from where the hand is, not from the old target.
+follows.
+
+HOLDING, so the arm never drops: once a target has been sent, every tick sends one. Stopped, a palm older than --stale-s
+(occluded, out of view, a rough palm, the tracker stopped) or no transform: the LAST COMMANDED pose is sent again, latched
+(never the measured hand, which a sagging arm would walk down). When the palm comes back, following goes on from the held
+pose, low-passed and speed-limited, so there is no jump. Only when this process ends does the arm service's own reference
+go stale (it holds too: Staleness.Hold).
 
 Nothing here reaches a real arm: targets go only to --sim-domain, which must differ from the robot's. The real arm service
 reads the same right/target, so what is tuned here is what it would follow.
@@ -284,7 +299,7 @@ def main():
     ap.add_argument("--max-speed", type=float, default=0.30, help="m/s the target may move at")
     ap.add_argument("--stale-s", type=float, default=0.60, help="a palm older than this is not followed")
     ap.add_argument("--rate", type=float, default=50.0)
-    ap.add_argument("--enable", action="store_true", help="start enabled")
+    ap.add_argument("--start", action="store_true", help="following from the start, as if /perception/hand_follow/start was called")
     ap.add_argument("--dummy", action="store_true", help="no tracker: a palm on a circle in front of the camera")
     ap.add_argument("--dummy-z", type=float, default=0.55)
     ap.add_argument("--dummy-r", type=float, default=0.10)
@@ -307,7 +322,6 @@ def main():
     from rclpy.context import Context
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
-    from std_srvs.srv import SetBool
 
     robot_ctx = Context()
     rclpy.init(context=robot_ctx, domain_id=args.robot_domain)
@@ -348,25 +362,13 @@ def main():
         g2s.shutdown_all(rclpy)
         return 0
 
-    # -- run ----------------------------------------------------------------------------------------------------------
+    # -- run: the services, then the follow loop ----------------------------------------------------------------------
+    from robot_api_interfaces.msg import ResultCode
+    from robot_api_interfaces.srv import RobotCommand, RobotQuery
+
     palm = Palm()
-    topic = args.palm_topic or f"/perception/hand/{args.hand}/palm"
-    if not args.dummy:
-        node.create_subscription(PointStamped, topic, lambda m: palm.put(
-            (m.point.x, m.point.y, m.point.z), m.header.stamp.sec + m.header.stamp.nanosec * 1e-9), qos_profile_sensor_data)
     pub_palm = node.create_publisher(PointStamped, "/hand_follow/palm", 10)      # for watching: the palm in arm_mount
     pub_target = node.create_publisher(PoseStamped, "/hand_follow/target", 10)   # and the target sent
-    enabled = threading.Event()
-    if args.enable:
-        enabled.set()
-
-    def on_enable(req, res):
-        (enabled.set if req.data else enabled.clear)()
-        res.success, res.message = True, "following" if req.data else "disabled: the arm holds"
-        print(f"/hand_follow/enable {req.data}: {res.message}", flush=True)
-        return res
-
-    node.create_service(SetBool, "/hand_follow/enable", on_enable)
 
     hand_model = g2s.HandModel(args.model)
     sim_ctx = Context()
@@ -375,14 +377,98 @@ def main():
     g2s.spin_in_thread(rclpy, sim.node, sim_ctx)
     if not sim.wait_for_state():
         raise SystemExit(f"no joint_states on domain {args.sim_domain}: start the simulation first (hand_follow.sh sim)")
-    print(f"hand_follow: {'dummy circle' if args.dummy else topic} -> {ARM_FRAME} ({args.transform}, tilt from "
-          f"{args.head_tilt_from}) -> {args.reference}/target on domain {args.sim_domain}; "
-          f"{'ENABLED' if enabled.is_set() else 'disabled until /hand_follow/enable true'}", flush=True)
+
+    follow = {"on": False, "hand": args.hand, "sub": None, "state": "stopped", "info": None, "error": None}
+    lock = threading.Lock()
+
+    def palm_topic(hand):
+        return args.palm_topic or f"/perception/hand/{hand}/palm"
+
+    def subscribe(hand):
+        """The palm topic of `hand`, or none: the tracker runs MediaPipe only while somebody subscribes, so stopping here
+        also stops the tracking."""
+        if follow["sub"] is not None:
+            node.destroy_subscription(follow["sub"])
+            follow["sub"] = None
+        palm.value = None
+        if hand is not None and not args.dummy:
+            follow["sub"] = node.create_subscription(PointStamped, palm_topic(hand), lambda m: palm.put(
+                (m.point.x, m.point.y, m.point.z), m.header.stamp.sec + m.header.stamp.nanosec * 1e-9), qos_profile_sensor_data)
+
+    def reply(response, code, message, data):
+        response.result_code.result_code, response.result_code.message = code, message
+        response.data = json.dumps(data)
+        print(message, flush=True)
+        return response
+
+    def on_start(request, response):
+        """Checks what following needs (the simulated arm, the tracker, the transform), turns following on, and returns:
+        it does not wait for a palm. Called while following it succeeds again (and switches the hand if one is given)."""
+        try:
+            req = json.loads(request.req) if request.req.strip() else {}
+        except json.JSONDecodeError as error:
+            return reply(response, ResultCode.INVALID_INPUT, f"the request is not JSON: {error}", {})
+        if not isinstance(req, dict) or set(req) - {"hand"} or req.get("hand", "right") not in ("left", "right"):
+            return reply(response, ResultCode.INVALID_INPUT, 'start takes {} or {"hand": "left" | "right"}', {})
+        hand = req.get("hand", follow["hand"])
+        if sim.stamp is None or time.monotonic() - sim.stamp > 2.0:
+            return reply(response, ResultCode.SERVICE_NOT_RUNNING,
+                         f"the simulated arm is not publishing joint_states on domain {args.sim_domain} (hand_follow.sh up)", {})
+        if not args.dummy and node.count_publishers(palm_topic(hand)) == 0:
+            return reply(response, ResultCode.SERVICE_NOT_RUNNING,
+                         f"nothing publishes {palm_topic(hand)}: the hand tracker is not running (hand_stack.sh up)", {})
+        try:
+            _, info = frames.camera_in_arm()
+        except LookupError as error:
+            return reply(response, ResultCode.SERVICE_NOT_RUNNING, f"no {ARM_FRAME} <- {CAMERA_FRAME} transform: {error}", {})
+        with lock:
+            was = follow["on"] and follow["hand"] == hand
+            if not was:
+                subscribe(hand)
+                follow.update(on=True, hand=hand)
+        return reply(response, ResultCode.SUCCESS, f"{'already following' if was else 'following'} the {hand} palm",
+                     {"following": True, "hand": hand, "palm_topic": "dummy" if args.dummy else palm_topic(hand),
+                      "target": f"{args.reference}/target on ROS domain {args.sim_domain}", "transform": info})
+
+    def on_stop(_request, response):
+        """Following off and the palm unsubscribed (the tracker idles); the loop keeps sending the last pose, so the arm
+        holds there. Called when stopped it succeeds again."""
+        with lock:
+            was = follow["on"]
+            follow["on"] = False
+            subscribe(None)
+        return reply(response, ResultCode.SUCCESS, "stopped: the arm holds where it is" if was else "was not following",
+                     {"following": False})
+
+    def on_status(_request, response):
+        hand_p, _ = sim.hand()
+        got = palm.get()
+        alive = sim.stamp is not None and time.monotonic() - sim.stamp < 2.0
+        with lock:
+            data = {"following": follow["on"], "hand": follow["hand"], "state": follow["state"],
+                    "palm_topic": "dummy" if args.dummy else palm_topic(follow["hand"]),
+                    "palm_age_s": None if got is None else round(time.monotonic() - got[2], 2),
+                    "hand_position": [round(float(v), 4) for v in hand_p], "transform": follow["info"],
+                    "last_error": follow["error"], "sim_domain": args.sim_domain}
+        response.result_code.result_code = ResultCode.SUCCESS if alive else ResultCode.SERVICE_NOT_RUNNING
+        response.result_code.message = (follow["state"] if alive else
+                                        f"no joint_states from the simulated arm on domain {args.sim_domain}")
+        response.data = json.dumps(data)
+        return response
+
+    node.create_service(RobotCommand, "/perception/hand_follow/start", on_start)
+    node.create_service(RobotCommand, "/perception/hand_follow/stop", on_stop)
+    node.create_service(RobotQuery, "/perception/hand_follow/status", on_status)
+    if args.start:
+        subscribe(args.hand)
+        follow["on"] = True
+    print(f"hand_follow: {'dummy circle' if args.dummy else palm_topic(args.hand)} -> {ARM_FRAME} ({args.transform}, tilt "
+          f"from {args.head_tilt_from}) -> {args.reference}/target on domain {args.sim_domain}; services "
+          f"/perception/hand_follow/{{start,stop,status}}; {'FOLLOWING' if follow['on'] else 'stopped until start'}", flush=True)
 
     dt = 1.0 / args.rate
     active, cmd, filt, rot = False, None, None, None
     t0, last_print, last_err, last_err_at = time.monotonic(), 0.0, "", 0.0
-    state = "disabled"
     try:
         while True:
             now = time.monotonic()
@@ -391,42 +477,55 @@ def main():
                 palm.put((args.dummy_r * math.cos(a), args.dummy_r * math.sin(a), args.dummy_z), None)
             got = palm.get()
             err = None
-            if not enabled.is_set():
-                active, state = False, "disabled"
+            t = None
+            if not follow["on"]:
+                active, state = False, "stopped: holding the last pose"
             elif got is None or now - got[2] > args.stale_s:
-                active, state = False, "no palm: holding"
+                active, state = False, "no palm: holding the last pose"
             else:
                 try:
                     t, info = frames.camera_in_arm(got[1])
                 except LookupError as error:
                     t, err = None, str(error)
                 if t is None:
-                    active, state = False, "no transform: holding"
-                else:
-                    p_arm = t[:3, :3] @ got[0] + t[:3, 3]
-                    goal = shape_target(p_arm, args.standoff, args.min_reach, args.max_reach, box)
-                    if not active:
-                        hand_p, rot = sim.hand()     # (re)start from where the hand is, holding its orientation
-                        cmd, filt, active = hand_p.copy(), goal.copy(), True
-                    filt = filt + (dt / (args.smooth_s + dt)) * (goal - filt)
-                    step = filt - cmd
-                    n = float(np.linalg.norm(step))
-                    if n > args.max_speed * dt:
-                        step *= args.max_speed * dt / n
-                    cmd = cmd + step
-                    sim.send(cmd, rot)
-                    state = "following"
-                    stamp = node.get_clock().now().to_msg()
-                    pm = PointStamped()
-                    pm.header.stamp, pm.header.frame_id = stamp, ARM_FRAME
-                    pm.point.x, pm.point.y, pm.point.z = (float(v) for v in p_arm)
-                    pub_palm.publish(pm)
-                    tm = PoseStamped()
-                    tm.header = pm.header
-                    tm.pose.position.x, tm.pose.position.y, tm.pose.position.z = (float(v) for v in cmd)
-                    q = g2s.mat_to_quat(rot)
-                    tm.pose.orientation.x, tm.pose.orientation.y, tm.pose.orientation.z, tm.pose.orientation.w = (float(v) for v in q)
-                    pub_target.publish(tm)
+                    active, state = False, "no transform: holding the last pose"
+            if t is None and cmd is not None:
+                # HOLD: the last pose sent, sent again. Stopped, or the hand lost (occluded, out of view, a rough palm),
+                # the arm is still given a target every tick, so nothing depends on how the arm's controller treats a
+                # silent reference (the simulation's holds, another's may not). The held pose is the last COMMANDED one,
+                # latched, never the measured hand: re-reading a sagging arm would walk its own target down.
+                sim.send(cmd, rot)
+            if t is not None:
+                p_arm = t[:3, :3] @ got[0] + t[:3, 3]
+                goal = shape_target(p_arm, args.standoff, args.min_reach, args.max_reach, box)
+                if not active:
+                    if cmd is None:              # the first palm: start from where the hand is, holding its orientation
+                        cmd, rot = sim.hand()
+                        cmd = cmd.copy()
+                    filt, active = cmd.copy(), True   # after a hold: from the held pose, smoothed, no jump
+                filt = filt + (dt / (args.smooth_s + dt)) * (goal - filt)
+                step = filt - cmd
+                n = float(np.linalg.norm(step))
+                if n > args.max_speed * dt:
+                    step *= args.max_speed * dt / n
+                cmd = cmd + step
+                sim.send(cmd, rot)
+                state = "following"
+                stamp = node.get_clock().now().to_msg()
+                pm = PointStamped()
+                pm.header.stamp, pm.header.frame_id = stamp, ARM_FRAME
+                pm.point.x, pm.point.y, pm.point.z = (float(v) for v in p_arm)
+                pub_palm.publish(pm)
+                tm = PoseStamped()
+                tm.header = pm.header
+                tm.pose.position.x, tm.pose.position.y, tm.pose.position.z = (float(v) for v in cmd)
+                q = g2s.mat_to_quat(rot)
+                tm.pose.orientation.x, tm.pose.orientation.y, tm.pose.orientation.z, tm.pose.orientation.w = (float(v) for v in q)
+                pub_target.publish(tm)
+            with lock:
+                follow["state"], follow["error"] = state, err or follow["error"]
+                if active:
+                    follow["info"] = info
             if err and (err != last_err or now - last_err_at > 5.0):
                 print(f"not following: {err}", file=sys.stderr, flush=True)
                 last_err, last_err_at = err, now

@@ -39,7 +39,7 @@ def main():
     rclpy.init(args=ros_args)
     node = Node("perception_call")
     name = f"{args.namespace.rstrip('/')}/{args.service}"
-    is_query = args.service in QUERIES
+    is_query = args.service.rsplit("/", 1)[-1] in QUERIES     # status, hand_follow/status
     client = node.create_client(RobotQuery if is_query else RobotCommand, name)
     if not client.wait_for_service(timeout_sec=10.0):
         raise SystemExit(f"{name} is not available (is the perception service running? on this host, "
@@ -47,7 +47,8 @@ def main():
     request = RobotQuery.Request() if is_query else RobotCommand.Request(req=args.req)
     # A client that calls the moment it sees the service sometimes loses the reply: the server's
     # reply path to it is not matched yet (about 1 call in 20 on opendubs2). Let discovery settle,
-    # and resend an unanswered request; every perception call only reads, so a resend is safe.
+    # and resend an unanswered request; every perception call only reads, and hand_follow/start and stop are
+    # idempotent, so a resend is safe.
     # A long-lived client (the robot's own code) matches once and does not need this.
     settle = time.monotonic() + 0.5
     while time.monotonic() < settle:
