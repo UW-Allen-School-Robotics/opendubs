@@ -341,6 +341,7 @@ class Coordinator:
             nxt = self.next_choreo
             return {"state": self.state, "since_s": round(self.clock() - self.since, 1), "why": self.why,
                     "person": self.person.doc() if self.person else None, "nav": self.nav_doing,
+                    "nav_stub": isinstance(self.nav, StubNav),
                     "show": self.show, "choreo": self.choreo, "candy": self.candy,
                     "next_choreo_s": round(nxt - self.clock()) if nxt is not None and self.state == "IDLE_NAV" else None}
 
