@@ -504,6 +504,11 @@ class Day:
             return False, f"the demo day's coordinator does not answer ({e})"
 
 
+CONFIRM_S = 4.0                                   # how long a started show is watched for a refusal
+CHECKING = ("VALIDATING", "PREFLIGHT")             # the runner's checks, before a run is on (runner.py)
+ENDED_BADLY = ("REFUSED", "ABORTED", "ESTOPPED")
+
+
 class Shows:
     """The show runner instead of ARCHITECT's: "trick or treat" plays ONE routine from the dashboard's
     show palette, through the same call the Shows page's button makes (POST /api/choreo/run/<id>, in
@@ -557,6 +562,33 @@ class Shows:
         if not r.get("valid"):
             raise SystemExit(f"listener: {self.routine!r} does not validate: {'; '.join(r.get('problems') or [])}")
 
+    def _palette_last(self):
+        code, st = self.call("GET", "/api/choreo/palette", None)
+        return st.get("last") if code == 200 and isinstance(st, dict) else None
+
+    def _confirm(self, before) -> str | None:
+        """The runner accepts a start, then checks it (VALIDATING, PREFLIGHT) and may refuse it a moment
+        later: the arms not active, CH5 in MANUAL. Wait, at most CONFIRM_S, until the run is past those
+        (ARMED_WAITING or further: it is on) or has ended; the refusal's reason, or None. A palette that
+        cannot be read is no refusal: the run goes ahead as it did before this check (found 2026-10-27:
+        a greeting promised candy for a run refused 0.2 s after it was accepted)."""
+        end = time.monotonic() + CONFIRM_S
+        while True:
+            code, st = self.call("GET", "/api/choreo/palette", None)
+            if code != 200 or not isinstance(st, dict):
+                return None
+            last = st.get("last")
+            if st.get("running") == self.routine:
+                if st.get("status") not in CHECKING:
+                    return None
+            elif isinstance(last, dict) and last != before and last.get("id") == self.routine:
+                if last.get("status") in ENDED_BADLY:
+                    return f"{last.get('code') or last.get('status')}: {(last.get('cause') or '')[:200]}"
+                return None
+            if time.monotonic() >= end:
+                return None
+            time.sleep(0.1)
+
     def state(self) -> str | None:
         code, st = self.call("GET", "/api/choreo/palette", None)
         if code != 200 or not isinstance(st, dict):
@@ -570,9 +602,14 @@ class Shows:
                 self._log("show_refused", routine=self.routine, status=None, why=f"demo day: {why}")
                 return "ARMED"
         if kind == "trigger":
+            before = self._palette_last()
             body = {"start": self.start, **({"countdown_s": self.countdown_s} if self.countdown_s is not None else {})}
             code, got = self.call("POST", f"/api/choreo/run/{self.routine}", body)
             if code == 200:
+                refused = self._confirm(before)
+                if refused:                             # accepted, then refused at preflight: no greeting
+                    self._log("show_refused", routine=self.routine, status=code, why=refused)
+                    return "ARMED"
                 self._log("show_started", routine=self.routine, start=self.start, reply=got)
                 return "RUNNING"
             self._log("show_refused", routine=self.routine, status=code,

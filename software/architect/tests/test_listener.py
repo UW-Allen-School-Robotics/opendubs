@@ -273,7 +273,28 @@ class Shows(unittest.TestCase):
     def test_a_trigger_arms_the_show_for_the_deadman(self):
         sh = self.shows({"/api/choreo/run/monster_mash": (200, {"started": "monster_mash", "live": True})})
         self.assertEqual(sh.post("trigger", "trick or treat"), "RUNNING")
-        self.assertEqual(self.calls[-1], ("POST", "/api/choreo/run/monster_mash", {"start": "deadman"}))
+        self.assertIn(("POST", "/api/choreo/run/monster_mash", {"start": "deadman"}), self.calls)
+
+    def test_a_run_refused_just_after_it_was_accepted_is_no_start(self):
+        """opendubs2, 2026-10-27: accepted, then refused at preflight ("the arms must be active") 0.2 s
+        later, after the robot had already promised a treat."""
+        old = {"id": "monster_mash", "status": "COMPLETED"}
+        palettes = iter([(200, {"running": None, "last": old}),                    # before the start
+                         (200, {"running": "monster_mash", "status": "PREFLIGHT", "last": old}),
+                         (200, {"running": None, "last": {"id": "monster_mash", "status": "REFUSED",
+                                                           "code": "PRECONDITION_FAILED",
+                                                           "cause": "arms is 'inactive'"}})])
+        sh = self.shows({"/api/choreo/run/monster_mash": (200, {"started": "monster_mash"})})
+        sh.call = lambda m, p, b: next(palettes) if p == "/api/choreo/palette" else (200, {"started": "monster_mash"})
+        self.assertEqual(sh.post("trigger", "trick or treat"), "ARMED")             # so: HOLD_ON, no greeting
+
+    def test_a_run_armed_for_the_deadman_is_a_start(self):
+        palettes = iter([(200, {"running": None, "last": None}),
+                         (200, {"running": "monster_mash", "status": "VALIDATING"}),
+                         (200, {"running": "monster_mash", "status": "ARMED_WAITING"})])
+        sh = self.shows({})
+        sh.call = lambda m, p, b: next(palettes) if p == "/api/choreo/palette" else (200, {"started": "monster_mash"})
+        self.assertEqual(sh.post("trigger", "trick or treat"), "RUNNING")
 
     def test_a_refusal_is_ready_again_and_nothing_else_is_posted(self):
         sh = self.shows({"/api/choreo/run/monster_mash": (409, {"error": "'reach' is still running"}),
