@@ -41,10 +41,7 @@ THE FRAMES, end to end:
                                          (openarm_right_hand_tcp) in this frame.
 
 THE TARGET, by --mode:
-  body (default)      the palm against the person's own shoulder (V2's head keeps it in view), put against the arm's
-                      shoulder line (--body-origin), times --gain: toward the robot is its forward, sideways and up the
-                      same way in the room. Full range wherever the person stands. No shoulder seen for 1 s: absolute.
-  absolute            the palm itself, in arm_mount: direct. A palm beyond --max-reach of the shoulder is reached TOWARD:
+  absolute (default)  the palm itself, in arm_mount: direct. A palm beyond --max-reach of the shoulder is reached TOWARD:
                       the point at the reach on the line from the shoulder to the palm (--standoff stops short of it).
   relative            the arm's hand moves as the person's hand moves, from where each was when tracking (re)started:
                       goal = hand_then + --gain * M (palm_now - palm_then), both in arm_mount, M by --mapping:
@@ -590,13 +587,9 @@ def main():
     ap.add_argument("command", nargs="?", default="run", choices=("run", "frames"))
     ap.add_argument("--hand", default="right", choices=("left", "right"),
                     help="which of the person's hands (hand_tracker/palm.py)")
-    ap.add_argument("--mode", default="body", choices=("body", "absolute", "relative"))
-    ap.add_argument("--body-origin", default="0.20,-0.19,0.75",
-                    help="body mode: x,y,z in arm_mount where the arm's hand goes when the palm is at the person's "
-                         "shoulder. 0.20 forward of the shoulder line: from 0.0 a hand held out 0.2-0.3 m put the arm at "
-                         "x 0.2-0.3, the elbow folded, and the service's guard stopped it (VIBRATION in joint 4)")
+    ap.add_argument("--mode", default="absolute", choices=("absolute", "relative"))
     ap.add_argument("--mapping", default="body", choices=tuple(MAPPINGS), help="relative mode: whose frame the motion is in")
-    ap.add_argument("--gain", type=float, default=1.0, help="body and relative modes: metres of arm per metre of hand")
+    ap.add_argument("--gain", type=float, default=1.0, help="relative mode: metres of arm per metre of hand")
     ap.add_argument("--palm-topic", default=None, help="default /perception/hand/<hand>/palm")
     ap.add_argument("--transform", default="joints", choices=("joints", "tf", "calib"))
     ap.add_argument("--calib", default=os.path.join(HERE, "..", "hand_tracker", "cam_to_arm_nominal.json"),
@@ -908,8 +901,6 @@ def main():
     anchor_palm = anchor_cmd = goal = None
     t0, last_print, last_err, last_err_at, next_dummy = time.monotonic(), 0.0, "", 0.0, 0.0
     cached = (None, None, None, None, True, "")  # (palm receipt, T, info, error, offered, why): once per palm
-    last_sh = (None, 0.0)                        # body mode: the person's shoulder in arm_mount, and when seen
-    body_origin = np.array([float(v) for v in args.body_origin.split(",")])
     resume_at, backoff, following_since, state = 0.0, 2.0, None, "stopped"
     offered_since = away_since = None
     posture_follow = None                        # the IK's posture while following: the arm's when it first moved
@@ -947,13 +938,11 @@ def main():
                     try:
                         T, inf = frames.camera_in_arm(got[1])
                         ok, why = True, "any palm (--no-offer)"
-                        pa = T[:3, :3] @ got[0] + T[:3, 3]
-                        sc = shoulders.get(follow["hand"], max_age=0.5)
-                        sa = None if sc is None else T[:3, :3] @ sc + T[:3, 3]
-                        if sa is not None and np.linalg.norm(sa - pa) <= SHOULDER_REACH:
-                            last_sh = (sa, time.monotonic())     # the palm's own person's shoulder, for body mode
                         if args.offer:
-                            ok, why = offered(pa, sa, args.close_m, args.offer_reach, args.offer_below, args.offer_above)
+                            pa = T[:3, :3] @ got[0] + T[:3, 3]
+                            sc = shoulders.get(follow["hand"], max_age=0.5)
+                            ok, why = offered(pa, None if sc is None else T[:3, :3] @ sc + T[:3, 3], args.close_m,
+                                              args.offer_reach, args.offer_below, args.offer_above)
                         cached = (got[2], T, inf, None, ok, why)
                     except LookupError as error:
                         cached = (got[2], None, None, str(error), False, "no transform")
@@ -1023,19 +1012,6 @@ def main():
                     pf, vf, active = cmd.copy(), np.zeros(3), True
                 if motion == "neutral":          # NEUTRAL: the arm down, by the same IK, filter and limits
                     ik.posture, goal = q_neutral, neutral_pos.copy()
-                elif args.mode == "body" and last_sh[0] is not None and now - last_sh[1] <= 1.0:
-                    # BODY: the palm's place against the person's own shoulder, put against the arm's shoulder line:
-                    # toward the robot is its forward, sideways and up the same way in the room. Reaching toward a
-                    # palm 1.1-1.5 m off (absolute) moved the arm 0.18 m for 0.57 m of the hand sideways; this is 1:1
-                    # wherever the person stands. Kept within the reach of the arm's shoulder as absolute is.
-                    ik.posture = posture_follow
-                    d = p_arm - last_sh[0]
-                    goal = body_origin + args.gain * np.array([-d[0], d[1], d[2]])
-                    r = goal - SHOULDER
-                    n = float(np.linalg.norm(r))
-                    lo = max(args.min_reach, 0.30)       # and the elbow never folded tight
-                    if n > 1e-6 and not lo <= n <= args.max_reach:
-                        goal = SHOULDER + r * (min(max(n, lo), args.max_reach) / n)
                 elif args.mode == "relative":
                     ik.posture = posture_follow
                     goal = anchor_cmd + args.gain * (MAPPINGS[args.mapping] @ (p_arm - anchor_palm))
