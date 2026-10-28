@@ -398,11 +398,11 @@ def test_under_the_ros_stack_the_arm_words_go_to_openarm_up(ros):
         assert op["error"] is None and [a.rsplit("/", 1)[-1] for a in ros[0][2:]] == argv[0:1] + argv[1:], (word, ros)
 
 
-def test_prepare_under_the_ros_stack_is_activate_and_says_it_went_to_zero(ros, monkeypatch):
+def test_prepare_under_the_ros_stack_is_its_own_action(ros, monkeypatch):
     monkeypatch.setattr(openarm, "_show_running", lambda: None)
     assert openarm.start_op("prepare", "right")[0]
     op = wait()
-    assert ros[0][-2:] == ["activate", "right"] and "zero" in op["out"] and "ready" in op["out"], (ros, op)
+    assert op["error"] is None and ros[0][-2:] == ["activate", "right"], (ros, op)
 
 
 def test_the_arm_services_own_words_are_refused_under_the_ros_stack(ros):
