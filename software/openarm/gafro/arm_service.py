@@ -160,6 +160,7 @@ class ArmService:
             speed = guards.driver_max_velocity(args.hardware_config, self.groups)
             if speed is not None:
                 self.limits = trajectory.Limits(max_speed=speed)
+        self.paths = None              # the collision check of the model (reach_pose.path_check), built when first asked
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
         self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
         self.behaviour = ""            # what `follow` is doing about its target now ("following", "holding: ..."), while it runs
@@ -320,29 +321,46 @@ class ArmService:
         if result.code != trajectory.SUCCESSFUL or result.cancelled:
             raise EngageRefused(result.message)
 
+    def begin(self, name, own_move=True):
+        """Take the arm for `name` (a command made of several moves, or one): None, or why not. The gate answers as `follow`'s does. Ends with `end`. `own_move` False is a runner's goal
+        (a trajectory), whose head clearance the runner has swept; a pose the service plans itself (reach_pose, candy_grasp) is its own move, as activate and park are."""
+        with self.lock:
+            if self.running:
+                return f"{self.running} is running"
+            try:
+                self._gate(own_move=own_move)
+            except guards.Refused as refused:
+                return str(refused)
+            self.running = name
+            self.cancel.clear()
+        return None
+
+    def end(self):
+        self.running = None
+
+    def play(self, times, positions, velocities=None, name="trajectory", limits=None):
+        """Play a joint path on the arm `begin` has taken, and return a trajectory.Result. Blocks until it ends, is cancelled (`hold`) or is stopped. `limits`: the trajectory's
+        (default: the service's, with the hold and the lead-in)."""
+        try:
+            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, limits=limits or self.limits,
+                                       log=self._log, record=self._recording(name))
+        except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
+            result = trajectory.Result(trajectory.INVALID_GOAL, f"{type(error).__name__}: {error}")
+        self.last = f"{name}: {result.message}"
+        return result
+
     def follow(self, times, positions, velocities=None):
         """Play a joint trajectory (the show runner's goal) and return a trajectory.Result. Refused while anything else runs; gated as `activate` is, and the gate is asked
         again before every permit renewal. Blocks until the path ends, is cancelled (`hold`) or is stopped."""
-        with self.lock:
-            if self.running:
-                return trajectory.Result(trajectory.INVALID_GOAL, f"{self.running} is running")
-            try:
-                _, _, gate = self._gate(own_move=False)
-            except guards.Refused as refused:
-                return trajectory.Result(trajectory.INVALID_GOAL, str(refused))
-            self.running = "trajectory"
-            self.cancel.clear()
+        refusal = self.begin("trajectory", own_move=False)
+        if refusal:
+            return trajectory.Result(trajectory.INVALID_GOAL, refusal)
         try:
             # A runner's goal starts at acceptance by default: its show is timed to the music, and the 0.1 s hold and 0.2 s lead-in the service's own moves have made the arm trail by 0.3 s.
             limits = dataclasses.replace(self.limits, hold_seconds=getattr(self.args, "goal_hold_seconds", 0.0), lead_in=getattr(self.args, "goal_lead_in", 0.0))
-            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, limits=limits, log=self._log,
-                                       record=self._recording("trajectory"))
-        except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
-            result = trajectory.Result(trajectory.INVALID_GOAL, f"{type(error).__name__}: {error}")
+            return self.play(times, positions, velocities, limits=limits)
         finally:
-            self.running = None
-        self.last = f"trajectory: {result.message}"
-        return result
+            self.end()
 
     def grip(self, metres):
         """Move the gripper's finger to `metres` (a gripper.Result). Runs beside an arm command: the permit is shared. Gated as the others are."""
