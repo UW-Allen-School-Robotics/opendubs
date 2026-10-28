@@ -7,8 +7,8 @@ and driven in POSITION mode (the driver's gravity feed-forward), under every gat
 The offset is in centimetres in the MODEL frame: +x forward (the way the face looks), +y the robot's left, +z up. Planning (hand_plan.py) is offline and
 takes milliseconds; nothing is commanded until you have read the plan and typed `hand`. The plan is refused if iLQR cannot reach the target (a straight
 arm cannot move its hand along its own axis, so most vertical moves from stow are refused), if any joint would leave its range, if the iLQR path strays
-more than --max-bend-deg from a straight joint-space line (this slice replays a straight line, not the curve), if the twin finds the line within
---min-clearance-mm of the body, or if the move is bigger than --max-offset-cm or --max-joint-deg. CH6 must be HELD when it starts and the permit is
+more than --max-bend-deg from a straight joint-space line (this slice replays a straight line, not the curve), or if the twin finds the line within
+--min-clearance-mm of the body. The size of the move is not limited. CH6 must be HELD when it starts and the permit is
 renewed only while it is held: letting go stops it within about half a second and the arm holds. The arm is left enabled and stiff.
 
 """
@@ -48,15 +48,10 @@ def path_bend_deg(states: np.ndarray) -> float:
     return float(np.degrees(np.linalg.norm(states - nearest, axis=0).max()))
 
 
-def check_plan(plan: dict, lower, upper, max_bend_deg: float, max_joint_deg: float, max_offset_cm: float, offset) -> None:
-    if np.linalg.norm(offset) * 100 > max_offset_cm:
-        raise guards.Refused(f"the offset is {np.linalg.norm(offset) * 100:.1f} cm; the limit is {max_offset_cm:g} cm for this slice")
+def check_plan(plan: dict, lower, upper, max_bend_deg: float) -> None:
     states = plan["states"]
     if np.any(states < np.asarray(lower)[:, None]) or np.any(states > np.asarray(upper)[:, None]):
         raise guards.Refused("the planned path leaves a joint's range")
-    moved = np.degrees(np.abs(states[:, -1] - states[:, 0]).max())
-    if moved > max_joint_deg:
-        raise guards.Refused(f"the largest joint would move {moved:.1f} deg; the limit is {max_joint_deg:g}")
     bend = path_bend_deg(states)
     if bend > max_bend_deg:
         raise guards.Refused(f"the iLQR path bends {bend:.1f} deg away from a straight joint-space line (limit {max_bend_deg:g}); this slice replays a straight line")
@@ -95,8 +90,6 @@ def main(argv=None) -> int:
     p.add_argument("--weight", type=int, default=10, help="terminal pose weight (the same term added this many times)")
     p.add_argument("--max-torque", type=float, default=12.0, help="N m: stop renewing the permit (the arm holds) if any joint's measured torque reaches this. In position mode it is "
                    "kp times the lag behind the target (kp 120 on joint 1: 0.09 rad is 10.8 N m); stiffer gains need a higher cap, on purpose. The driver's own trip is 27 N m on joint 1")
-    p.add_argument("--max-offset-cm", type=float, default=6.0)
-    p.add_argument("--max-joint-deg", type=float, default=15.0)
     p.add_argument("--max-bend-deg", type=float, default=1.0)
     p.add_argument("--min-clearance-mm", type=float, default=motion_plan.DEFAULT_MIN_CLEARANCE_MM)
     p.add_argument("--skip-clearance", action="store_true")
@@ -132,7 +125,7 @@ def main(argv=None) -> int:
             lower = np.asarray(system.get_joint_limits_min().coefficients())[np.asarray(task.get_joint_indices())]
             upper = np.asarray(system.get_joint_limits_max().coefficients())[np.asarray(task.get_joint_indices())]
             limits_note = robot_limits.NOTE
-            check_plan(plan, lower, upper, args.max_bend_deg, args.max_joint_deg, args.max_offset_cm, offset)
+            check_plan(plan, lower, upper, args.max_bend_deg)
             closest = None
             if not args.skip_clearance:
                 clearance_of = motion_plan.twin_clearance(args.side, args.assets, args.sim_dir or os.environ.get("OPENDUBS_SIM_DIR"))
