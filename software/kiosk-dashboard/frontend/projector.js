@@ -50,10 +50,11 @@
       <span class="pj-val" id="pjVideoLead">—</span>
       <button class="iobtn" data-lead="video_lead_s" data-d="0.025">+25 ms</button></div>
     <div class="pj-row pj-wrap"><span class="pj-k">Stage audio lead</span>
-      <button class="iobtn" data-lead="stage_audio_lead_s" data-d="-0.025">−25 ms</button>
+      <button class="iobtn" data-stage-audio="-0.025">−25 ms</button>
       <span class="pj-val" id="pjStageAudioLead">—</span>
-      <button class="iobtn" data-lead="stage_audio_lead_s" data-d="0.025">+25 ms</button>
-      <span class="pj-note">The stage box's (USB adapter, the screen's speaker): set by ear the same way.</span></div>
+      <button class="iobtn" data-stage-audio="0.025">+25 ms</button>
+      <button class="iobtn" id="pjStageAudioReset" hidden>use the box's estimate</button>
+      <span class="pj-note" id="pjStageAudioNote">For the sound output the stage box is using now (each output keeps its own): set by ear the same way.</span></div>
     <div class="pj-row pj-wrap"><span class="pj-k">Stage video lead</span>
       <button class="iobtn" data-lead="stage_video_lead_s" data-d="-0.025">−25 ms</button>
       <span class="pj-val" id="pjStageVideoLead">—</span>
@@ -136,7 +137,7 @@
     const ms = (x) => (typeof x === "number" ? `${Math.round(x * 1000)} ms` : "—");
     $("pjAudioLead").textContent = ms(settings && settings.audio_lead_s);
     $("pjVideoLead").textContent = ms(settings && settings.video_lead_s);
-    $("pjStageAudioLead").textContent = ms(settings && settings.stage_audio_lead_s);
+    stageAudio(outs.stage && outs.stage.page, ms);
     $("pjStageVideoLead").textContent = ms(settings && settings.stage_video_lead_s);
     $("pjStageBuffer").textContent = settings && typeof settings.stage_buffer_s === "number" ? `${Math.round(settings.stage_buffer_s)} s` : "—";
     if (!busy && settings && settings.music_as && $("pjMusicAs").value !== settings.music_as) $("pjMusicAs").value = settings.music_as;
@@ -212,6 +213,38 @@
       else { $("pjWhy").textContent = ""; if (j.outputs) render(j); }
     } catch (err) { $("pjWhy").textContent = `Not changed: ${err.message}`; }
     finally { busy = false; poll(); }
+  });
+
+  // The stage's audio lead is kept PER SOUND OUTPUT (stage_audio_leads_s: hdmi, jack, usb, bt; choreo-stage.md):
+  // the row shows and nudges the one for the output the stage page's box is using now. An output with no lead
+  // of its own uses the box's estimate of its delay plus stage_audio_lead_s (the general trim); with no box
+  // reporting, the buttons nudge that trim.
+  const STAGE_OUTS = { hdmi: "HDMI", jack: "3.5 mm jack", usb: "USB", bt: "Bluetooth" };
+  let stageLead = null;                              // {out, cur} the buttons act on
+  function stageAudio(page, ms) {
+    const out = page && STAGE_OUTS[page.audio_output] ? page.audio_output : null;
+    const trim = settings && typeof settings.stage_audio_lead_s === "number" ? settings.stage_audio_lead_s : null;
+    const own = out && settings && settings.stage_audio_leads_s ? settings.stage_audio_leads_s[out] : undefined;
+    const est = page && typeof page.audio_latency_ms === "number" ? page.audio_latency_ms / 1000 : null;
+    let txt, cur;
+    if (!out) { cur = trim; txt = ms(trim) + " (every output)"; }
+    else if (typeof own === "number") { cur = own; txt = `${ms(own)} for ${STAGE_OUTS[out]}, set by ear`; }
+    else { cur = (est || 0) + (trim || 0); txt = `${ms(cur)} for ${STAGE_OUTS[out]}`
+                                             + (est != null ? `: the box's estimate ${ms(est)}` + (trim ? ` + ${ms(trim)}` : "") : ""); }
+    stageLead = trim == null ? null : { out, cur };
+    $("pjStageAudioLead").textContent = txt;
+    $("pjStageAudioReset").hidden = !(out && typeof own === "number");
+    for (const b of card.querySelectorAll("[data-stage-audio]")) b.disabled = !stageLead;
+  }
+  for (const b of card.querySelectorAll("[data-stage-audio]")) {
+    b.addEventListener("click", () => {
+      if (!stageLead) return;
+      const next = Math.round(Math.min(3, Math.max(0, stageLead.cur + Number(b.dataset.stageAudio))) * 1000) / 1000;
+      saveSettings(stageLead.out ? { stage_audio_leads_s: { [stageLead.out]: next } } : { stage_audio_lead_s: next });
+    });
+  }
+  $("pjStageAudioReset").addEventListener("click", () => {
+    if (stageLead && stageLead.out) saveSettings({ stage_audio_leads_s: { [stageLead.out]: null } });
   });
 
   // The show-audio settings, stored on the robot and used from the next run.

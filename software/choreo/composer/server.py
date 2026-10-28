@@ -37,6 +37,9 @@ from api import MAX_SONG_BYTES, STATIC_DIR, ApiError, Composer  # noqa: E402
 
 STATIC = STATIC_DIR
 MAX_BODY = 2 * 1024 * 1024
+REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+VENDOR_DIR = os.path.join(REPO_DIR, "software", "kiosk-dashboard", "frontend", "vendor")
+ARM_ASSETS_DIR = os.path.join(REPO_DIR, "description", "openarm")
 
 
 def make_handler(comp: Composer):
@@ -87,8 +90,20 @@ def make_handler(comp: Composer):
                     if not p.startswith(os.path.realpath(STATIC) + os.sep) or not os.path.isfile(p):
                         raise ApiError("not found", 404)
                     return self._file(p)
+                if u.path.startswith("/vendor/"):
+                    p = os.path.realpath(os.path.join(VENDOR_DIR, unquote(u.path[len("/vendor/"):])))
+                    if not p.startswith(os.path.realpath(VENDOR_DIR) + os.sep) or not os.path.isfile(p):
+                        raise ApiError("not found", 404)
+                    return self._file(p)
+                if u.path.startswith("/assets/arm/"):
+                    p = os.path.realpath(os.path.join(ARM_ASSETS_DIR, unquote(u.path[len("/assets/arm/"):])))
+                    if not p.startswith(os.path.realpath(ARM_ASSETS_DIR) + os.sep) or not os.path.isfile(p):
+                        raise ApiError("not found", 404)
+                    return self._file(p)
                 if u.path == "/api/info":
                     return self._json(comp.info())
+                if u.path == "/api/planners":
+                    return self._json(comp.info().get("planners", {}))
                 if u.path == "/api/shows":
                     return self._json(comp.list_shows())
                 if u.path == "/api/twin":
@@ -190,6 +205,9 @@ def make_handler(comp: Composer):
                                                     b.get("joints"), b.get("t"), b.get("index")))
                 if u.path == "/api/capture":
                     return self._json(comp.capture(b.get("side"), b.get("joint_state")))
+                if u.path == "/api/arm/plan":
+                    return self._json(comp.plan_arm(b.get("path"), b.get("text") or "", b.get("index"),
+                                                    b.get("planner") or "cbirrt", b.get("reach")))
                 raise ApiError("not found", 404)
             except ApiError as e:
                 return self._json({"error": str(e)}, e.status)

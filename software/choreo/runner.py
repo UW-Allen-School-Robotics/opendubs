@@ -856,9 +856,17 @@ class Runner:
                 self._carrier = name
                 lead = self.projector_settings.get("stage_audio_lead_s" if name == "stage" else "audio_lead_s")
             if hasattr(be, "make_show"):          # the stage page: it keeps itself on the show's clock
-                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0) for it in its], tl.get("music"),
+                # a video carrying the song is HEARD: each page starts it by the audio lead for its own box's
+                # sound output (stage_audio_leads_s), else by this one; `video: {skeletons: true}` draws
+                # the stage page's skeletons over it (Them Bones), else it plays clean
+                vdoc = show.doc.get("video") if isinstance(show.doc.get("video"), dict) else {}
+                kind = "audio" if carries else "video"
+                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0, lead_kind=kind) for it in its],
+                                                tl.get("music"),
                                                 buffer_s=self.projector_settings.get("stage_buffer_s"), log=self._log,
-                                                on_lost=self._music_lost if carries else None))
+                                                on_lost=self._music_lost if carries else None,
+                                                audio_leads_s=self.projector_settings.get("stage_audio_leads_s"),
+                                                skeletons=vdoc.get("skeletons") is True))
                 continue
             self.videos.append(video_out.ShowVideo(
                 be, [dict(it, lead_s=lead) if lead is not None else it for it in its], log=self._log,
@@ -915,8 +923,9 @@ class Runner:
                  "url": it.get("url"),                # the same address the tablet fetches it by
                  "lib": it.get("lib"), "sha256": it.get("sha256"),   # a stage box's own copy, if it has one
                  "from_s": 0.0, "end": "black", "id": f"music:{os.path.basename(it.get('path') or '')}",
-                 "lead_s": lead, "audio": True} for it in music], tl.get("music"),
-                buffer_s=settings.get("stage_buffer_s"), log=self._log, on_lost=self._music_lost)]
+                 "lead_s": lead, "lead_kind": "audio", "audio": True} for it in music], tl.get("music"),
+                buffer_s=settings.get("stage_buffer_s"), log=self._log, on_lost=self._music_lost,
+                audio_leads_s=settings.get("stage_audio_leads_s"))]
             self.music_on, self.music_why = "projector", None
             self._log("audio", note=f"music on the stage page ({lead:g} s early); dialogue on the tablet")
             return

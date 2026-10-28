@@ -48,6 +48,9 @@
   const card = document.getElementById("card");
   const DEVICE_URL = "http://127.0.0.1:8095";        // a stage Pi's own status service (the Tablet lane's image)
   const MAX_PIXELS = 3840 * 2160;                    // a canvas no larger than 4K, whatever the wall
+  const BOX_MAX_PIXELS = 1920 * 1080;                // on a stage box, 1080p: a Pi drawing a 4K canvas every
+                                                     // frame would starve the video; the screen scales it up
+  const SOUND_NAMES = { usb: "USB", hdmi: "HDMI", jack: "3.5 mm jack", bt: "Bluetooth", none: "none" };
   let device = null, lastWsMsg = 0;
   if (q.get("hud")) hud.style.display = "block";
   if (q.get("video")) {
@@ -146,8 +149,26 @@
   function showTime(now) {                          // seconds into the show, on the Thor's clock
     return show && show.state === "playing" && clock && show.t0_mono != null ? (now + clock.offset) / 1000 - show.t0_mono : null;
   }
-  // each item plays lead_s EARLY: the stage's own audio or picture delay (projector.json, set by ear)
-  const at = (v, st) => st + (v.lead_s || 0);
+  // each item plays its lead EARLY: the stage's own audio or picture delay (projector.json, set by ear). An
+  // item that is HEARD (lead_kind "audio": the video carrying the song, or the song alone) starts by the
+  // lead for THIS box's sound output: the robot's by-ear lead for that output (audio_leads_s), else the
+  // box's own estimate of that output's delay (device.json audio_latency_ms: Bluetooth ~200 ms) plus the
+  // item's own lead_s (stage_audio_lead_s, the stage's general trim). One lead serves picture and sound together: the browser holds the picture
+  // back to match its sound output's delay. It is fixed for the show, so a jittery estimate never seeks it.
+  let leadFor = { id: null };
+  function audioLead(fallback) {
+    const out = device && device.audio_output, table = (show && show.audio_leads_s) || {};
+    if (out && typeof table[out] === "number") return { s: table[out], from: `set for ${out}` };
+    if (device && typeof device.audio_latency_ms === "number")
+      return { s: device.audio_latency_ms / 1000 + (fallback || 0), from: "the box's estimate" };
+    return { s: fallback || 0, from: "the stage default" };
+  }
+  function leadOf(v) {
+    if (v.lead_kind !== "audio") return v.lead_s || 0;
+    if (leadFor.id !== show.id) leadFor = { id: show.id, ...audioLead(v.lead_s) };
+    return leadFor.s;
+  }
+  const at = (v, st) => st + leadOf(v);
   function keepVideo(now) {
     const st = showTime(now);
     if (st == null || manual) return null;
@@ -295,7 +316,8 @@
   }
   function draw(now) {
     lastDraw = now;
-    const k = Math.min(devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / Math.max(1, innerWidth * innerHeight)));
+    const maxPx = device && device.device === "stage-pi" ? BOX_MAX_PIXELS : MAX_PIXELS;
+    const k = Math.min(devicePixelRatio || 1, Math.sqrt(maxPx / Math.max(1, innerWidth * innerHeight)));
     const W = Math.round(innerWidth * k), H = Math.round(innerHeight * k);
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }   // only when the screen changes
     const st = keepVideo(now);                     // first: the show's video kept to the show's clock
@@ -304,6 +326,13 @@
       g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
       return finish(now, st, null);
     }
+    // a show's video plays CLEAN unless the show draws the skeletons over it (video: {skeletons: true}, Them
+    // Bones): nothing over the picture, and nothing drawn per frame
+    if (show && show.state === "playing" && !manual && !video.hidden && !show.skeletons) {
+      if (!draw.clean) { g.clearRect(0, 0, W, H); draw.clean = true; }
+      return finish(now, st, null);
+    }
+    draw.clean = false;
     const R = picture(W, H);
     if (video.hidden) {                            // no video: a dark light table
       const grd = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, H * 0.9);
@@ -372,12 +401,17 @@
     readDevice.misses = d ? 0 : (readDevice.misses || 0) + 1;
     device = d && typeof d === "object" ? {
       device: d.device, name: d.name, model: d.model, audio_output: d.audio_output, audio_name: d.audio_name,
+      audio_latency_ms: typeof d.audio_latency_ms === "number" ? d.audio_latency_ms : undefined,
+      audio_setting: typeof d.audio_setting === "string" ? d.audio_setting : undefined,
       under_voltage_now: d.under_voltage_now, under_voltage_since_boot: d.under_voltage_since_boot,
       throttled_now: d.throttled_now, screen_connected: d.screen?.connected, screen_mode: d.screen?.mode,
       media_items: d.media?.items, media_bytes: d.media?.bytes, media_free: d.media?.free,
       media_syncing: d.media?.syncing } : null;
     send({ page: { ...(device || {}), viewport: [innerWidth, innerHeight], dpr: devicePixelRatio,
                    clock_err_ms: clock ? Math.round(clock.err * 10) / 10 : undefined,
+                   // the audio lead this page used for the last show it played, and where it came from
+                   audio_lead_ms: leadFor.id ? Math.round(leadFor.s * 1000) : undefined,
+                   audio_lead_from: leadFor.id ? leadFor.from : undefined,
                    sound: video.muted && !video.paused ? "muted" : "on" } });
   }
   // every 5 s on a device that answers; elsewhere, after 3 misses, once a minute (a refused connection
@@ -397,13 +431,15 @@
     showCard.at = now;
     const up = ws && ws.readyState === 1 && now - lastWsMsg < 15000;
     const sound = !device ? "unknown (not a stage device)"
-      : { usb: "USB", hdmi: "HDMI", none: "none" }[device.audio_output] || device.audio_output || "unknown";
+      : SOUND_NAMES[device.audio_output] || device.audio_output || "unknown";
     const res = `${Math.round(screen.width * devicePixelRatio)}×${Math.round(screen.height * devicePixelRatio)}`
       + (device && device.screen_mode ? ` (${device.screen_mode})` : "")
       + (device && device.screen_connected === false ? " — NO SCREEN: sound only" : "");
     const rows = [["Robot", up ? "connected" : "NOT connected", !up],
                   ["Screen", res, false],
-                  ["Sound", sound + (device && device.audio_name ? ` · ${device.audio_name}` : ""), device && device.audio_output === "none"],
+                  ["Sound", sound + (device && device.audio_name ? ` · ${device.audio_name}` : "")
+                    + (device && device.audio_latency_ms != null ? ` · ~${Math.round(device.audio_latency_ms)} ms delay` : ""),
+                   device && device.audio_output === "none"],
                   ["Clock to the Thor", clock ? `in step, ±${clock.err.toFixed(1)} ms` : "measuring…", !clock]];
     if (device && device.media_items != null)        // the box's own copies (its media stick)
       rows.push(["Local videos", `${device.media_items} held (${(device.media_bytes / 1e9).toFixed(1)} GB, `

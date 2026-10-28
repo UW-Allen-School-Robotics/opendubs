@@ -63,10 +63,15 @@ CAST_APP = "CC1AD845"        # the Cast Default Media Receiver
 # ---- the projector's per-robot settings (never in the repo) -------------------------------------------
 SETTINGS_PATH = os.environ.get("OPENDUBS_PROJECTOR_SETTINGS") or "/var/lib/opendubs-runner/projector.json"
 # audio_lead_s / video_lead_s are the CAST path's; stage_* the stage page's (a stage Pi's USB or HDMI sound,
-# a Bluetooth speaker, the screen's own picture delay): each started that much early, set by ear
+# a Bluetooth speaker, the screen's own picture delay): each started that much early, set by ear.
+# stage_audio_leads_s: the stage's audio lead PER OUTPUT the box can select (its device.json audio_output),
+# so switching to the Bluetooth speaker and back never loses the other's tuning. An output with no entry of
+# its own starts by the box's estimate of its delay (device.json audio_latency_ms) plus stage_audio_lead_s
+# (choreo-stage.md, "The audio path").
+STAGE_AUDIO_OUTPUTS = ("hdmi", "jack", "usb", "bt")   # the box's device.json audio_output names
 SETTINGS_DEFAULTS = {"audio_lead_s": CAST_AUDIO_LEAD_S, "video_lead_s": CAST_LEAD_S,
                      "music_as": os.environ.get("OPENDUBS_CAST_MUSIC_AS") or "audio",
-                     "stage_audio_lead_s": 0.0, "stage_video_lead_s": 0.0,
+                     "stage_audio_lead_s": 0.0, "stage_video_lead_s": 0.0, "stage_audio_leads_s": {},
                      # the head start a streamed stage video needs before the GO (seconds buffered)
                      "stage_buffer_s": 25.0}
 BUFFER_RANGE_S = (5.0, 120.0)
@@ -85,18 +90,40 @@ def load_settings(path: str | None = None) -> dict:
             out.update({k: v for k, v in got.items() if k in SETTINGS_DEFAULTS})
     except (OSError, ValueError):
         pass
+    leads = out.get("stage_audio_leads_s")
+    out["stage_audio_leads_s"] = ({k: v for k, v in leads.items() if k in STAGE_AUDIO_OUTPUTS and _is_lead(v)}
+                                  if isinstance(leads, dict) else {})
     return out
 
 
+def _is_lead(v) -> bool:
+    return not isinstance(v, bool) and isinstance(v, (int, float)) and LEAD_RANGE_S[0] <= v <= LEAD_RANGE_S[1]
+
+
 def save_settings(change: dict, path: str | None = None) -> dict:
-    """Merge `change` (any of the LEAD_KEYS, music_as) into projector.json; ValueError on a
-    bad value. Written atomically. Returns the settings now in force."""
+    """Merge `change` (any of the LEAD_KEYS, stage_audio_leads_s, stage_buffer_s, music_as) into
+    projector.json; ValueError on a bad value. Written atomically. Returns the settings now in force.
+    stage_audio_leads_s MERGES by output ({"bluetooth": 0.2} sets that one; null removes it)."""
     cur = load_settings(path)
     for k, v in change.items():
         if k in LEAD_KEYS:
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not LEAD_RANGE_S[0] <= v <= LEAD_RANGE_S[1]:
+            if not _is_lead(v):
                 raise ValueError(f"{k} must be seconds, {LEAD_RANGE_S[0]:g} to {LEAD_RANGE_S[1]:g}")
             cur[k] = round(float(v), 3)
+        elif k == "stage_audio_leads_s":
+            if not isinstance(v, dict):
+                raise ValueError(f"{k} must be a mapping of output ({', '.join(STAGE_AUDIO_OUTPUTS)}) to seconds")
+            leads = dict(cur[k])
+            for out_name, lead in v.items():
+                if out_name not in STAGE_AUDIO_OUTPUTS:
+                    raise ValueError(f"{k}: {out_name!r} is not a stage audio output ({', '.join(STAGE_AUDIO_OUTPUTS)})")
+                if lead is None:
+                    leads.pop(out_name, None)
+                elif not _is_lead(lead):
+                    raise ValueError(f"{k}.{out_name} must be seconds, {LEAD_RANGE_S[0]:g} to {LEAD_RANGE_S[1]:g}")
+                else:
+                    leads[out_name] = round(float(lead), 3)
+            cur[k] = leads
         elif k == "stage_buffer_s":
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not BUFFER_RANGE_S[0] <= v <= BUFFER_RANGE_S[1]:
                 raise ValueError(f"{k} must be seconds, {BUFFER_RANGE_S[0]:g} to {BUFFER_RANGE_S[1]:g}")
@@ -545,8 +572,8 @@ class StageOutput:
         root = os.path.abspath(self.library_root or library.root())
         return "/api/choreo/media/library/" + os.path.relpath(os.path.abspath(path), root).replace(os.sep, "/")
 
-    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None):
-        return StageShow(self, items, music, log, on_lost, buffer_s)
+    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None, audio_leads_s=None, skeletons=False):
+        return StageShow(self, items, music, log, on_lost, buffer_s, audio_leads_s, skeletons)
 
 
 class StageShow:
@@ -555,7 +582,12 @@ class StageShow:
     thread, as ShowVideo's, so the runner never waits on the dashboard. A page that goes away mid-run
     is LOST (the tablet then takes the music, when the video carried it)."""
 
-    def __init__(self, out: StageOutput, items, music, log=None, on_lost=None, buffer_s=None):
+    def __init__(self, out: StageOutput, items, music, log=None, on_lost=None, buffer_s=None, audio_leads_s=None,
+                 skeletons=False):
+        # audio_leads_s: the stage's audio lead per output (projector.json); an item whose lead_kind is "audio"
+        # starts by the one for the output the page's box reports, else by its own lead_s. skeletons: the
+        # show draws the stage page's skeleton layer (the dancer, a live person) over its video
+        self.audio_leads_s, self.skeletons = dict(audio_leads_s or {}), bool(skeletons)
         self.out, self.items, self.log, self.on_lost = out, sorted(items, key=lambda x: x["t"]), log or (lambda *a, **k: None), on_lost
         self.id = f"stage@{time.time():.3f}"
         m = music or {}
@@ -584,14 +616,18 @@ class StageShow:
         self._clock = show_clock
 
     def _loop(self):
-        # lead_s: this item starts that much early (the stage's audio or video delay, set by ear); audio:
-        # a song with no picture (the music alone), played under the page's own scene
+        # lead_s: this item starts that much early (the stage's audio or video delay, set by ear); lead_kind
+        # "audio" (it is heard: the page uses the lead for its own sound output, when the robot has one)
+        # or "video" (a picture alone); audio: a song with no picture (the music alone), played under the
+        # page's own scene
         videos = [{"t": it["t"], "end_t": it["end_t"], "url": it.get("url") or self.out.url(it["path"]), "from_s": it["from_s"],
                    "end": it.get("end", "black"), "id": it["id"], "lead_s": float(it.get("lead_s") or 0.0),
+                   "lead_kind": it.get("lead_kind") or ("audio" if it.get("audio") else "video"),
                    "audio": bool(it.get("audio")), "sha256": it.get("sha256"),
                    # the library id a stage box keeps its own copy under (videos: their id; songs: `lib`)
                    "lib": it.get("lib") or (None if it.get("audio") else it.get("id"))} for it in self.items]
-        self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat, "buffer_s": self.buffer_s})
+        self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat, "buffer_s": self.buffer_s,
+                    "audio_leads_s": self.audio_leads_s, "skeletons": self.skeletons})
         self._loaded = True                                 # the pages load the video themselves
         polled = 0.0
         while self._clock is None and not self._stop.is_set():

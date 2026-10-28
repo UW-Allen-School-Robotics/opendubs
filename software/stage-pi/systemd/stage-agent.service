@@ -7,6 +7,11 @@ Wants=stage-media.service
 [Service]
 ExecStart=/usr/local/lib/stage/stage-agent
 Environment=STAGE_RUN=/run/stage
+# The sound's own runtime files (the test tone; the settings when there is no media stick). Its own
+# directory: the kiosk's /run/stage is removed whenever the browser restarts.
+RuntimeDirectory=stage-sound
+RuntimeDirectoryMode=0755
+Environment=STAGE_SOUND_RUN=/run/stage-sound
 Restart=always
 RestartSec=2
 

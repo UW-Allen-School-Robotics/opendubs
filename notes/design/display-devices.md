@@ -11,8 +11,10 @@ A Raspberry Pi 5 (a Pi 4 as the spare, one image for both) kept on the robot and
 screen is there: a projector, a video wall, a TV, within the robot's Wi-Fi range. A "dumb screen": a
 full-screen browser on `/stage/`, playing the show's video **and its music** from one file, so they cannot
 drift; the tablet keeps dialogue and voice. The user's decisions: 64-bit Raspberry Pi OS Lite, no desktop;
-a "stage ready" card between shows (the page's), black once a show is armed; sound to a USB adapter if one
-is plugged in, else HDMI, with a settings override; hostname `opendubs<N>-stage` after its robot (`opendubs2-stage`), one box per robot; AC power (the official
+a "stage ready" card between shows (the page's), black once a show is armed; the music through ONE output
+chosen on the dashboard (2026-10-24): HDMI, the 3.5 mm jack (a Pi 4 only), a USB adapter, or a Bluetooth
+speaker paired to the box, or auto (HDMI if the screen has a speaker, else USB, else Bluetooth, else the
+jack), on PipeWire, kept on the media stick; hostname `opendubs<N>-stage` after its robot (`opendubs2-stage`), one box per robot; AC power (the official
 supply), with under-voltage reported to the page; the robot's Wi-Fi only, SSH key-only, no remote desktop.
 
 How it is built (`software/stage-pi/`, README): `cage` + Chromium kiosk as its own user from a systemd unit;

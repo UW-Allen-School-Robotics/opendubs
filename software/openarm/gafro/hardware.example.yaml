@@ -1,0 +1,57 @@
+# The arms' hardware config for gafro_robot_interface: one `openarm` driver (github.com/personalrobotics/openarm-driver) per control
+# group of the arm model (description/openarm/gafro/openarm_bimanual.xml: openarm_assets' model with this robot's head cap).
+#
+# This is a TEMPLATE. The robot's own copy lives on the robot (/etc/opendubs/, like openarm-stow.conf) and is never overwritten by a
+# deploy: what is per robot -- the CAN interface names, each motor's direction and zero, the gripper's calibration -- is found on that
+# robot, and the numbers here are starting values that have not been run on an arm.
+#
+# Radians, N m, seconds. Everything the driver is given and gives is in the joint's terms (the model's), not the motor's.
+
+left_arm:
+  driver: openarm
+  bus: can
+  can_interface: arm_left          # the udev names, software/openarm/70-openarm-can.rules
+  can_fd: true
+  rate: 250
+
+  # The arm holds, and applies nothing, unless the arm service has granted a short permit and keeps renewing it
+  # (openarm_driver.grant_permit): if the service stops for any reason, the arm holds on its own.
+  require_permit: true
+  auto_reengage: false             # an arm that heals itself after an e-stop is a decision (DEC-28, Q10), not a default
+
+  # The head cap on joint 2 (contact at 180 deg, a show leaves 25) is in the MODEL, not here: description/openarm/gafro/, built by
+  # tools/arm_gafro_model.py. The controllers' joint-limit guard reads the model's limits, and the driver takes the same ones from the
+  # bound model, so there is one place for it. lower_limits / upper_limits here would only add a second.
+  joint_limit_margin: 0.0
+
+  # Found by moving the arm, one robot at a time. The identity is only the assumption.
+  direction: [1, 1, 1, 1, 1, 1, 1]
+  zero_offset: [0, 0, 0, 0, 0, 0, 0]
+
+  verify_motors: true              # each in MIT mode with the ranges the frames assume, before it is enabled
+
+  # The gripper, a Damiao motor on this arm's bus (ids 0x08 / 0x18). Off until it has been calibrated: the two angles are this robot's, found with
+  # the gripper moving freely (the motor's angle at fully open and at fully shut, radians), and have no default. Speed, torque and the grasp
+  # margin are starting values.
+  use_gripper: false
+  # gripper_open_position: <found on this robot>
+  # gripper_closed_position: <found on this robot>
+  # gripper_speed: 2.0
+  # gripper_torque: 0.3
+  # gripper_grasp_margin: 0.05
+  realtime_priority: 0             # 1 to 99 asks for SCHED_FIFO (CAP_SYS_NICE); diagnostics say if it was not granted
+
+right_arm:
+  driver: openarm
+  bus: can
+  can_interface: arm_right
+  can_fd: true
+  rate: 250
+  require_permit: true
+  auto_reengage: false
+  joint_limit_margin: 0.0
+  direction: [1, 1, 1, 1, 1, 1, 1]
+  zero_offset: [0, 0, 0, 0, 0, 0, 0]
+  verify_motors: true
+  use_gripper: false               # as on the left arm: off until calibrated (gripper_open_position, gripper_closed_position)
+  realtime_priority: 0

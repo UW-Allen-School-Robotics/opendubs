@@ -330,6 +330,15 @@ def test_looks_are_the_built_ins_plus_the_content_folders_and_a_bad_file_is_name
     assert looks.content_dir(env={"OPENDUBS_SHOWS_DIR": "/x/shows", "OPENDUBS_LOCAL_SHOWS": "/y"}).as_posix() == "/x/shows"
 
 
+def test_the_neck_restarts_when_it_says_it_will():
+    """The Dial answered REBOOT with "OK reboot" and never restarted (found 2026-10-26, rotating the robot's
+    Wi-Fi): only OTA scheduled the restart. Its REBOOT branch must schedule one too."""
+    src = open(os.path.join(REPO, "firmware/neck_dial/src/main.cpp")).read()
+    branch = re.search(r'if \(!strncmp\(cmd, "REBOOT", 6\)\)\s*\{([^}]*)\}', src)
+    assert branch and '"OK reboot"' in branch.group(1) and "g_restartAt" in branch.group(1), \
+        "firmware/neck_dial: REBOOT must set g_restartAt, as OTA does"
+
+
 if __name__ == "__main__":
     tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_")]
     for name, fn in tests:

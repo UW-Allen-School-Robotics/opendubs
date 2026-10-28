@@ -45,10 +45,11 @@ VIDEO_TYPES = (".mp4", ".m4v", ".webm", ".mkv")
 # "Skin types"): `image` and `video` now, `svg` and `riv` later. One file each (a folder for svg/riv
 # later, hashed by the folder rule). A video skin must be WebM — VP9 carries the alpha channel that
 # MP4/H.264 cannot — and should be square, 400-512 px. Skins the engine draws in CODE (`default`,
-# `ring`: cue.CODE_SKINS) are never in the index, and no library item may take one of their names.
+# `ring`, and the content folder's: cue.code_skins()) are never in the index, and no library item may
+# take one of their names.
 SKIN_TYPES = ("image", "video")
-CODE_SKIN_NAMES = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
-                   "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
+import face_looks  # noqa: E402
+CODE_SKIN_NAMES = face_looks.builtin_code_skins()
 # A skin's `params`, all optional; any other key is a problem — a typo would otherwise do nothing.
 SKIN_PARAMS = {
     "size": "fraction of the 480 px eye (default 0.8)",
@@ -135,7 +136,7 @@ def entry_problems(e: dict) -> list:
     if "tags" in e and not (isinstance(e["tags"], list)
                             and all(isinstance(x, str) and TAG_RE.match(x) for x in e["tags"])):
         p.append(f"{e['id']!r}: tags must be a list of short lower-case words (e.g. [ambient])")
-    if str(e.get("id", "")).lower() in CODE_SKIN_NAMES:
+    if str(e.get("id", "")).lower() in {n.lower() for n in face_looks.code_skins()}:
         p.append(f"{e['id']!r}: that name belongs to a skin the face draws in code — choose another")
     elif str(e.get("id", "")).lower() == "idle":
         p.append(f"{e['id']!r}: `idle` is reserved — SKIN IDLE means the robot's idle skin (head protocol "

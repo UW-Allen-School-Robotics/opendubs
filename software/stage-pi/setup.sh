@@ -8,6 +8,10 @@
 #   sudo ./setup.sh --no-overlay                      # leave the root writable (trying things out)
 #   sudo ./setup.sh --name opendubs2-stage            # rename it (normally the image's name is kept)
 #
+# After this, the box UPDATES ITSELF: each deploy publishes a signed copy of this folder on the robot, and
+# the box installs it between shows (stage_update.py). Run this by hand again only when packages.txt
+# changes (the self-update refuses a bundle that needs a package the box lacks, and says so).
+#
 # Idempotent: run it again after an update to this folder (with the overlay off: see README).
 # The Wi-Fi, the user, the SSH key AND THE NAME come from Raspberry Pi Imager's settings, never from
 # here: one box per robot, named opendubs<N>-stage after its robot (opendubs2-stage). The name the
@@ -51,9 +55,12 @@ grep -q "^127.0.1.1" /etc/hosts || echo -e "127.0.1.1\t$name" >> /etc/hosts
 
 echo "== packages"
 apt-get update -qq
-browser=chromium
-apt-cache show chromium >/dev/null 2>&1 || browser=chromium-browser
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cage "$browser" curl alsa-utils python3 fonts-dejavu-core avahi-daemon e2fsprogs parted
+pkgs=()                                           # packages.txt: one per line; a|b = the first the archive has
+while read -r line; do
+    line=${line%%#*}; [ -n "${line// /}" ] || continue
+    for alt in ${line//|/ }; do apt-cache show "$alt" >/dev/null 2>&1 && { pkgs+=("$alt"); break; }; done
+done < packages.txt
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}"
 # No remote desktop of any kind, by decision.
 for p in realvnc-vnc-server wayvnc xrdp tigervnc-standalone-server x11vnc; do
     dpkg -s "$p" >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq "$p"
@@ -61,16 +68,27 @@ done
 
 echo "== the stage user (no password, no SSH)"
 id stage >/dev/null 2>&1 || useradd -m -s /bin/bash stage
-usermod -aG video,render,audio,input stage
+usermod -aG video,render,audio,input,bluetooth stage
 passwd -l stage >/dev/null
+# Its PipeWire runs from boot, not only while the browser's session is open: the sound keeps its output,
+# its volumes and its speaker connection across a browser restart.
+loginctl enable-linger stage
+systemctl --global enable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
+rm -f /home/stage/.asoundrc                       # the old ALSA default (before PipeWire) would bypass it
 
-echo "== the box's own programs"
-install -d /usr/local/lib/stage
-install -m 0755 bin/stage-conf bin/stage-audio bin/stage-kiosk bin/stage-mode bin/stage-agent bin/stage-media /usr/local/lib/stage/
-install -d /srv/stage-media                       # the media partition's mount point, on the read-only root
-install -m 0644 systemd/*.service /etc/systemd/system/
-install -m 0644 udev/99-stage-display.rules /etc/udev/rules.d/
+echo "== the box's own programs (the same list a self-update installs)"
+bash bin/stage-install
 [ -e /boot/firmware/stage.conf ] || install -m 0644 stage.conf.example /boot/firmware/stage.conf
+
+echo "== the signing keys the self-update trusts"
+# The project's firmware-signing keys, public halves (keys/, the same files as firmware/common/ota_verify/keys,
+# which every board trusts). Pinned here, by hand: an update never changes them.
+install -d -m 0755 /usr/local/lib/stage/keys
+rm -f /usr/local/lib/stage/keys/*.pem
+for k in keys/*.der; do
+    openssl pkey -pubin -inform DER -in "$k" -out "/usr/local/lib/stage/keys/$(basename "$k" .der).pem"
+    echo "   trusts $(basename "$k" .der)"
+done
 
 if [ -n "$media" ]; then
     echo "== the media partition: ERASING $media for the box's copies of the show videos"
@@ -90,15 +108,14 @@ PermitRootLogin no
 EOF
 systemctl reload ssh
 
-echo "== Bluetooth off (nothing here uses it)"
-grep -q "^dtoverlay=disable-bt" /boot/firmware/config.txt || echo "dtoverlay=disable-bt" >> /boot/firmware/config.txt
-systemctl disable --now bluetooth.service hciuart.service 2>/dev/null || true
+echo "== Bluetooth on, for a speaker: never discoverable; it pairs only when the dashboard asks"
+sed -i '/^dtoverlay=disable-bt$/d' /boot/firmware/config.txt      # a box set up before 2026-10-25 had it off
+systemctl enable hciuart.service 2>/dev/null || true             # a Pi 4's Bluetooth UART; a Pi 5 has none to enable
 
 echo "== start at boot: no login prompt, the browser instead"
 systemctl daemon-reload
 systemctl disable getty@tty1.service 2>/dev/null || true
 systemctl set-default graphical.target
-systemctl enable stage-mode.service stage-media.service stage-kiosk.service stage-agent.service
 udevadm control --reload
 
 if [ "$overlay" = 1 ]; then

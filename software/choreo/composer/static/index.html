@@ -40,8 +40,10 @@
       <button id="musicBtn" title="The show's music: choose a song from the library, add one, take it out of the show, or delete a song from the library. You can also drop an audio file anywhere on the page">♫ music</button>
     </span>
     <span class="spacer"></span>
+    <button id="clearBtn" title="Clear cues to start fresh with a clean interface (Undo is available)">clear</button>
     <button id="undo" disabled title="Undo (Ctrl/Cmd-Z)">undo</button>
     <button id="historyBtn" title="Earlier versions of this show — one is kept at every save and before an agent edits it. Compare any of them with now, and restore">history</button>
+    <button id="robot3dBtn" title="Toggle interactive 3D robot preview (hidden by default)">🤖 3D Robot</button>
     <button id="yamlBtn" title="Show the show's text — exactly what will be saved">YAML</button>
     <button id="save" title="Save (Ctrl/Cmd-S)">save</button>
     <span id="status" class="chip" title="The validator's verdict on the whole show. Valid means allowed, not safe">…</span>
@@ -70,6 +72,24 @@
       <h2>At the playhead <span class="dim" id="previewT"></span></h2>
       <div id="preview"></div>
       <div id="floor"></div>
+    </div>
+    <div class="pane" id="robot3dPane" hidden>
+      <div class="paneHead">
+        <h2>3D Robot <span class="dim" id="robot3dStatus">Ready</span></h2>
+        <span class="spacer"></span>
+        <button id="robot3dFloat" class="btn-xs" title="Detach to floating window / dock back into bottom bar">⛶</button>
+        <button id="robot3dClose" class="btn-xs" title="Hide 3D robot preview">✕</button>
+      </div>
+      <div id="robot3dViewport" class="robot3d-box">
+        <div class="robot3d-toolbar">
+          <button class="robot3d-vbtn active" data-view="iso">ISO</button>
+          <button class="robot3d-vbtn" data-view="front">FRONT</button>
+          <button class="robot3d-vbtn" data-view="side">SIDE</button>
+          <button class="robot3d-vbtn" data-view="top">TOP</button>
+          <button class="robot3d-vbtn" data-view="reset">RESET</button>
+        </div>
+        <canvas id="robot3dCanvas"></canvas>
+      </div>
     </div>
     <div class="pane" id="inspectorPane">
       <h2>Cue</h2>

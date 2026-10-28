@@ -154,14 +154,15 @@ function setData(d) {
 }
 /* Inside a clip (S.clip), the timeline is the clip's own and cue edits go into its cue list. */
 S.clip = null; S.multi = new Set(); S.multiMode = false;
-const inClip = (edits) => S.clip ? edits.map((e) => (["set", "delete", "add"].includes(e.op) ? { ...e, clip_name: S.clip } : e)) : edits;
+const inClip = (edits) => S.clip ? edits.map((e) => (["set", "delete", "add", "insert", "clear"].includes(e.op) ? { ...e, clip_name: S.clip } : e)) : edits;
 async function edit(edits, label) {
   try {
     const d = await api("api/edit", { path: S.path, text: S.text, edits: inClip(edits), clip: S.clip });
     S.undo.push(S.text);
     setData(d);
     if (label) toast(label, 1600);
-  } catch (e) { toast(e.message, 5000); }
+    return d;
+  } catch (e) { toast(e.message, 5000); throw e; }
 }
 async function undo() {
   if (!S.undo.length) return;
@@ -363,8 +364,9 @@ function seek(t) {
 
 /* ---------- rendering ---------- */
 function width() {
+  const sc = $("scroller"), scW = sc ? sc.clientWidth : 0;
   const d = Math.max(tl() ? tl().duration_s : 0, S.audio.buffer ? S.audio.buffer.duration : 0, 20) + 4;
-  return Math.min(30000, Math.ceil(d * S.pps));
+  return Math.max(scW, Math.min(30000, Math.ceil(d * S.pps)));
 }
 function render() {
   const d = S.data;
@@ -663,6 +665,127 @@ function renderPreview() {
   }
   $("preview").innerHTML = `<div class="pv">${out.join("")}</div>`;
   $("floor").innerHTML = T.crawler ? floorSVG(T, t) : "";
+  update3DRobot();
+}
+
+/* ---------- 3D visual robot preview (WebGL, dual-arm URDF kinematics) ---------- */
+const R3D = {
+  view: null,
+  loading: false,
+  visible: false,
+  floating: false,
+};
+
+async function toggle3DRobot() {
+  if (R3D.visible) {
+    R3D.visible = false;
+    $("robot3dPane").hidden = true;
+    $("robot3dBtn").classList.remove("active");
+    $("bottom").classList.remove("has-robot3d");
+    return;
+  }
+
+  R3D.visible = true;
+  $("robot3dPane").hidden = false;
+  $("robot3dBtn").classList.add("active");
+  if (!R3D.floating) $("bottom").classList.add("has-robot3d");
+
+  if (!R3D.view && !R3D.loading) {
+    R3D.loading = true;
+    $("robot3dStatus").textContent = "Loading 3D...";
+    try {
+      const { Robot3DView } = await import("./armview.js");
+      const canvas = $("robot3dCanvas");
+      R3D.view = await new Robot3DView(canvas).load();
+      $("robot3dStatus").textContent = "Ready";
+
+      // Bind view preset buttons
+      document.querySelectorAll(".robot3d-vbtn").forEach((btn) => {
+        btn.onclick = () => {
+          document.querySelectorAll(".robot3d-vbtn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          if (btn.dataset.view === "reset") {
+            R3D.view.frame();
+          } else {
+            R3D.view.setView(btn.dataset.view);
+          }
+        };
+      });
+    } catch (err) {
+      console.warn("Failed to load 3D Robot view:", err);
+      $("robot3dStatus").textContent = "WebGL Error";
+      toast("3D visualizer error: " + (err.message || err), 4000);
+      R3D.visible = false;
+      $("robot3dPane").hidden = true;
+      $("robot3dBtn").classList.remove("active");
+      $("bottom").classList.remove("has-robot3d");
+      return;
+    } finally {
+      R3D.loading = false;
+    }
+  }
+
+  if (R3D.view) {
+    R3D.view.resize();
+    update3DRobot();
+  }
+}
+
+function update3DRobot() {
+  if (!R3D.view || !R3D.visible || !R3D.view.ready) return;
+  const T = tl();
+  if (!T) return;
+  const t = S.t;
+
+  // 1. Dual-arm pose at playhead timestamp t
+  let leftPose = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+  let rightPose = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+  if (T.tracks.ARM_L) {
+    leftPose = armAt(T.tracks.ARM_L, t).pose;
+  }
+  if (T.tracks.ARM_R) {
+    rightPose = armAt(T.tracks.ARM_R, t).pose;
+  }
+
+  // 2. Grippers (1.0 = open, 0.0 = close)
+  let gripLeft = 1.0, gripRight = 1.0;
+  if (T.tracks.GRIP_L) {
+    const e = lastAt(T.tracks.GRIP_L, t);
+    gripLeft = e ? (e.cue.do === "close" ? 0.0 : e.cue.open ?? 1.0) : 1.0;
+  }
+  if (T.tracks.GRIP_R) {
+    const e = lastAt(T.tracks.GRIP_R, t);
+    gripRight = e ? (e.cue.do === "close" ? 0.0 : e.cue.open ?? 1.0) : 1.0;
+  }
+
+  R3D.view.setDualArmChoreoPose({
+    left: leftPose,
+    right: rightPose,
+    gripLeft: gripLeft,
+    gripRight: gripRight,
+  });
+
+  // 3. Ghost cue pose: if an ARM cue is selected on timeline, ghost arm displays target pose
+  const i = S.selected, a = (S.data && S.data.authored) || [];
+  if (i !== null && a[i] && (a[i].slot === "ARM_L" || a[i].slot === "ARM_R")) {
+    const c = a[i];
+    let targetPose = c.joints || null;
+    if (!targetPose) {
+      for (const v of Object.values(T.tracks)) {
+        for (const e of v) {
+          if (e.src && e.src.index === i && e.pose) {
+            targetPose = e.pose;
+            break;
+          }
+        }
+      }
+    }
+    if (targetPose) {
+      R3D.view.setGhostCuePose(c.slot, targetPose);
+      return;
+    }
+  }
+  R3D.view.setGhostVisible(false);
 }
 
 /* ---------- the crawling hand (twin only; effectors.py) ---------- */
@@ -762,6 +885,125 @@ function renderInspector() {
   } else if (evs.length) {
     resolved = `clip ${esc(c.clip)} → ${evs.length} cues, ${Math.min(...evs.map((e) => (e.kind === "keyframe" ? e.t : e.start))).toFixed(3)}–${Math.max(...evs.map((e) => e.end)).toFixed(3)} s <button data-openclip="${esc(c.clip)}" title="Show this clip's own cues on the timeline, from its start, and edit them there">edit the clip ✎</button>`;
   }
+
+  const isArm = (c.slot === "ARM_L" || c.slot === "ARM_R");
+  const isGrip = (c.slot === "GRIP_L" || c.slot === "GRIP_R");
+  const currentPlanner = c.planner || "spline";
+  const reachVal = c.reach ? (Array.isArray(c.reach) ? JSON.stringify(c.reach) : c.reach) : "";
+
+  let gripHtml = "";
+  if (isGrip && !S.clip) {
+    const isClosed = c.do === "close" || (c.open != null && Number(c.open) === 0);
+    const isOpen = c.do === "open" || (c.open != null && Number(c.open) === 1);
+    const openFrac = (c.do === "close") ? 0.0 : (c.do === "open") ? 1.0 : (c.open != null ? Math.max(0, Math.min(1, Number(c.open))) : 1.0);
+    const pct = Math.round(openFrac * 100);
+
+    gripHtml = `
+      <div class="grip-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-weight:600; font-size:11px;">Gripper State (${esc(c.slot)})</span>
+          <span class="badge" id="gripBadge" style="font-size:10px; padding:1px 6px;">${isClosed ? "CLOSED (0%)" : isOpen ? "OPEN (100%)" : pct + "%"}</span>
+        </div>
+        <div style="display:flex; gap:6px; margin-bottom:10px;">
+          <button id="btnGripOpen" class="btn-grip ${isOpen ? 'active' : ''}" style="flex:1;" title="Fully open the gripper (44 mm stroke)">
+            Open
+          </button>
+          <button id="btnGripClose" class="btn-grip ${isClosed ? 'active' : ''}" style="flex:1;" title="Fully close the gripper (0 mm stroke)">
+            Close
+          </button>
+        </div>
+        <div class="grip-slider-row" style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:11px; color:var(--dim); width:46px;">Position</span>
+          <input type="range" id="iGripSlider" min="0" max="100" step="1" value="${pct}" style="flex:1;" title="Fine-tune opening percentage (0% = closed, 100% = open)">
+          <span id="iGripVal" style="font-size:11px; font-family:monospace; width:36px; text-align:right;">${pct}%</span>
+        </div>
+      </div>`;
+  }
+
+  const JOINT_DEFS = [
+    { j: 1, name: "Shoulder Yaw", min: -75, max: 180 },
+    { j: 2, name: "Shoulder Pitch", min: -5, max: 180 },
+    { j: 3, name: "Shoulder Roll", min: -85, max: 85 },
+    { j: 4, name: "Elbow Pitch", min: 9, max: 135 },
+    { j: 5, name: "Wrist Yaw", min: -85, max: 85 },
+    { j: 6, name: "Wrist Pitch", min: -40, max: 40 },
+    { j: 7, name: "Wrist Roll", min: -85, max: 85 },
+  ];
+
+  let armJointsHtml = "";
+  let armRoutingHtml = "";
+  const currentJoints = {};
+  if (isArm && !S.clip) {
+    for (const d of JOINT_DEFS) {
+      let v = (c.joints && c.joints[d.j] != null)
+        ? Math.round(Number(c.joints[d.j]))
+        : (evs.length && evs[0].pose && evs[0].pose[d.j] != null)
+          ? Math.round(Number(evs[0].pose[d.j]))
+          : (d.j === 4 ? 15 : 0);
+      if (d.j === 4 && v < d.min) v = d.min;
+      currentJoints[d.j] = v;
+    }
+
+    const slidersHtml = JOINT_DEFS.map((d) => {
+      const val = currentJoints[d.j];
+      return `
+        <div class="joint-slider-row" title="${esc(d.name)} (${d.min}° to ${d.max}°)">
+          <span class="j-lbl" title="${esc(d.name)}">J${d.j}</span>
+          <input type="range" class="joint-slider" data-j="${d.j}" min="${d.min}" max="${d.max}" step="1" value="${val}">
+          <span class="j-val" id="jval_${d.j}">${val}°</span>
+        </div>`;
+    }).join("");
+
+    armJointsHtml = `
+      <div class="arm-joints-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-weight:600; font-size:11px;">Joint Angles (${esc(c.slot)})</span>
+          <div style="display:flex; gap:4px;">
+            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Set cue to pose: rest (safe hardware rest pose)">Rest</button>
+            <button id="btnToggle3DFromInsp" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Toggle 3D robot preview">🤖 3D Robot</button>
+          </div>
+        </div>
+        <div class="joint-sliders-container">
+          ${slidersHtml}
+        </div>
+      </div>`;
+
+    const planners = (S.info && S.info.planners) || {
+      spline: { name: "Spline (Default)", available: true },
+      cbirrt: { name: "CBiRRT (SSIK + Clearance)", available: true },
+      curobo: { name: "cuRobo (GPU Tensor)", available: true },
+    };
+    const plannerOptions = Object.entries(planners).map(([k, p]) => {
+      const label = p.name || k;
+      const disabled = p.available === false ? "disabled" : "";
+      const selected = (currentPlanner === k) ? "selected" : "";
+      return `<option value="${k}" ${selected} ${disabled}>${esc(label)}${p.available === false ? " (unavailable)" : ""}</option>`;
+    }).join("");
+
+    armRoutingHtml = `
+      <div class="arm-routing-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <span style="font-weight:600; font-size:11px;">Motion Tool & Routing</span>
+          <span class="badge" id="armPlannerBadge" style="font-size:10px; padding:1px 6px;">${esc(currentPlanner.toUpperCase())}</span>
+        </div>
+        <div class="row2" style="margin-bottom:6px; gap:6px;">
+          <label title="Select motion generator tool: Spline (standard cubic Hermite), CBiRRT (analytical kinematics + collision check), or cuRobo (GPU tensor)" style="font-size:11px; flex:1;">
+            Tool:
+            <select id="iArmPlanner">${plannerOptions}</select>
+          </label>
+          <button id="iPlanMove" class="btn-plan-tool" title="Plan collision-free path from previous pose to this pose using selected planner">⚡ Plan Path</button>
+        </div>
+        <div class="row2" style="gap:6px;">
+          <label title="Static Hand Position (v0): [x, y, z] in metres relative to chassis, or named target (head_screen, lift_platform)" style="font-size:11px; flex:1;">
+            Target:
+            <input id="iArmReach" placeholder="[x, y, z] or head_screen" value="${esc(reachVal)}">
+          </label>
+          <button id="iSolveReach" title="Solve target hand position and compute collision-free trajectory">Solve Reach</button>
+        </div>
+        <div id="planPreviewContainer"></div>
+      </div>`;
+  }
+
   el.innerHTML = `
     <div class="meta">cue ${i}${line ? ` · line ${line}` : ""}${c.slot ? " · " + c.slot : ""}${c.clip ? " · clip placement" : ""}</div>
     <div class="resolved">${resolved}</div>${probs}
@@ -776,6 +1018,9 @@ function renderInspector() {
     ${c.slot === "SOUND" ? `<div class="row2"><label title="Dialogue always plays from the tablet; music from the projector's speaker when a projector is ready. Unmarked is dialogue.">plays as
       <select id="iRole"><option value="dialogue" ${c.role !== "music" ? "selected" : ""}>dialogue — always the tablet</option>
       <option value="music" ${c.role === "music" ? "selected" : ""}>music — the projector, when one is ready</option></select></label></div>` : ""}
+    ${gripHtml}
+    ${armJointsHtml}
+    ${armRoutingHtml}
     <textarea id="iFields" spellcheck="false">${esc(JSON.stringify(rest))}</textarea>
     <div class="note">Fields as JSON. Key order is kept on save; new keys go last.</div>`;
   $("iApply").onclick = () => {
@@ -808,6 +1053,290 @@ function renderInspector() {
         + (r.next_problem ? ` · ${r.next_problem}` : ""), 8000);
     } catch (e) { toast(e.message, 5000); }
   };
+  if ($("iArmPlanner")) {
+    $("iArmPlanner").onchange = () => {
+      const val = $("iArmPlanner").value;
+      if ($("armPlannerBadge")) $("armPlannerBadge").textContent = val.toUpperCase();
+    };
+  }
+
+  function showPlanPreview(resp, plannerName) {
+    const container = $("planPreviewContainer");
+    if (!container) return;
+    const timeline = resp.analysis && resp.analysis.timeline;
+    const problems = (timeline && timeline.problems) || [];
+    const isFail = (timeline && timeline.verdict === "FAIL") || problems.length > 0;
+
+    let problemsHtml = "";
+    if (problems.length > 0) {
+      problemsHtml = `<ul class="problems-list">${problems.map(p => `<li>${esc(typeof p === "string" ? p : (p.msg || JSON.stringify(p)))}</li>`).join("")}</ul>`;
+    }
+
+    container.innerHTML = `
+      <div class="plan-preview-box ${isFail ? 'fail' : 'pass'}">
+        <div class="verdict-banner ${isFail ? 'fail' : 'pass'}">
+          ${isFail ? '⚠️ Validation FAIL (Show contains validation problems)' : `✅ Validation PASS (Planner clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
+        </div>
+        ${problemsHtml}
+        <div class="plan-msg">${esc(resp.message || "")}</div>
+        <div class="row2" style="margin-top:8px; gap:6px;">
+          <button id="btnApplyPlan" class="${isFail ? 'danger' : 'btn-primary'}" title="${isFail ? 'Validation has problems: apply anyway?' : 'Apply planned waypoints to show'}">
+            ${isFail ? 'Apply Anyway' : 'Apply Planned Path'}
+          </button>
+          <button id="btnDiscardPlan" class="btn-secondary">Discard</button>
+        </div>
+      </div>`;
+
+    $("btnApplyPlan").onclick = () => {
+      S.undo.push(S.text);
+      if (resp.analysis) setData(resp.analysis);
+      else { S.text = resp.text; render(); }
+      toast(isFail ? "Applied with validation warnings" : `Applied plan from ${plannerName}!`, 4000);
+      container.innerHTML = "";
+    };
+    $("btnDiscardPlan").onclick = () => {
+      container.innerHTML = "";
+    };
+  }
+
+  if ($("iPlanMove")) {
+    $("iPlanMove").onclick = async () => {
+      const planner = $("iArmPlanner") ? $("iArmPlanner").value : "cbirrt";
+      const btn = $("iPlanMove");
+      const origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Planning...";
+      try {
+        const resp = await api("api/arm/plan", {
+          path: S.path,
+          text: S.text,
+          index: i,
+          planner: planner,
+        });
+        if (resp.ok && resp.text) {
+          showPlanPreview(resp, planner);
+        }
+      } catch (err) {
+        toast(`Planning failed: ${err.message}`, 6000);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    };
+  }
+  if ($("iSolveReach")) {
+    $("iSolveReach").onclick = async () => {
+      const reachInput = $("iArmReach").value.trim();
+      if (!reachInput) {
+        toast("Please enter a target e.g. [0.45, -0.20, 1.0] or head_screen", 4000);
+        return;
+      }
+      const planner = $("iArmPlanner") ? $("iArmPlanner").value : "cbirrt";
+      const btn = $("iSolveReach");
+      const origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Solving...";
+      try {
+        const resp = await api("api/arm/plan", {
+          path: S.path,
+          text: S.text,
+          index: i,
+          planner: planner,
+          reach: reachInput,
+        });
+        if (resp.ok && resp.text) {
+          showPlanPreview(resp, planner);
+        }
+      } catch (err) {
+        toast(`Reach failed: ${err.message}`, 6000);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    };
+  }
+  if ($("btnToggle3DFromInsp")) {
+    $("btnToggle3DFromInsp").onclick = async () => {
+      await toggle3DRobot();
+      if (R3D.view && R3D.view.ready) {
+        const side = c.slot === "ARM_L" ? "left" : "right";
+        const dual = {};
+        dual[side] = currentJoints;
+        R3D.view.setDualArmChoreoPose(dual);
+        R3D.view.setGhostCuePose(c.slot, currentJoints);
+      }
+    };
+  }
+
+  if ($("btnZeroJoints")) {
+    $("btnZeroJoints").onclick = () => {
+      const cue = { ...c };
+      delete cue.joints; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
+      cue.pose = "rest";
+
+      const restVisual = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+      for (const d of JOINT_DEFS) {
+        currentJoints[d.j] = restVisual[d.j];
+        const valEl = $(`jval_${d.j}`);
+        if (valEl) valEl.textContent = `${restVisual[d.j]}°`;
+      }
+      el.querySelectorAll(".joint-slider").forEach((sl) => {
+        const j = +sl.dataset.j;
+        sl.value = restVisual[j];
+      });
+      try {
+        const fields = JSON.parse($("iFields").value);
+        delete fields.joints; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
+        fields.pose = "rest";
+        $("iFields").value = JSON.stringify(fields);
+      } catch (e) {}
+
+      if (R3D.view && R3D.view.ready) {
+        const side = c.slot === "ARM_L" ? "left" : "right";
+        const dual = {};
+        dual[side] = restVisual;
+        R3D.view.setDualArmChoreoPose(dual);
+        R3D.view.setGhostCuePose(c.slot, restVisual);
+      }
+
+      edit([{ op: "set", index: i, cue }], `set ${c.slot} to pose: rest`);
+    };
+  }
+
+  if (isGrip && !S.clip) {
+    const side = c.slot === "GRIP_L" ? "left" : "right";
+
+    if ($("btnGripOpen")) {
+      $("btnGripOpen").onclick = () => {
+        const cue = { ...c };
+        delete cue.open;
+        cue.do = "open";
+        try {
+          const fields = JSON.parse($("iFields").value);
+          delete fields.open;
+          fields.do = "open";
+          $("iFields").value = JSON.stringify(fields);
+        } catch (e) {}
+        if (R3D.view && R3D.view.ready) {
+          R3D.view.setGripper(side, 1.0);
+        }
+        edit([{ op: "set", index: i, cue }], `open ${c.slot}`);
+      };
+    }
+
+    if ($("btnGripClose")) {
+      $("btnGripClose").onclick = () => {
+        const cue = { ...c };
+        delete cue.open;
+        cue.do = "close";
+        try {
+          const fields = JSON.parse($("iFields").value);
+          delete fields.open;
+          fields.do = "close";
+          $("iFields").value = JSON.stringify(fields);
+        } catch (e) {}
+        if (R3D.view && R3D.view.ready) {
+          R3D.view.setGripper(side, 0.0);
+        }
+        edit([{ op: "set", index: i, cue }], `close ${c.slot}`);
+      };
+    }
+
+    if ($("iGripSlider")) {
+      const sl = $("iGripSlider");
+      sl.oninput = () => {
+        const pct = parseInt(sl.value, 10);
+        const frac = pct / 100.0;
+        const valEl = $("iGripVal");
+        if (valEl) valEl.textContent = `${pct}%`;
+        const badge = $("gripBadge");
+        if (badge) badge.textContent = pct === 0 ? "CLOSED (0%)" : pct === 100 ? "OPEN (100%)" : `${pct}%`;
+
+        const btnO = $("btnGripOpen");
+        const btnC = $("btnGripClose");
+        if (btnO) btnO.classList.toggle("active", pct === 100);
+        if (btnC) btnC.classList.toggle("active", pct === 0);
+
+        try {
+          const fields = JSON.parse($("iFields").value);
+          if (pct === 100) { delete fields.open; fields.do = "open"; }
+          else if (pct === 0) { delete fields.open; fields.do = "close"; }
+          else { delete fields.do; fields.open = round(frac, 2); }
+          $("iFields").value = JSON.stringify(fields);
+        } catch (e) {}
+
+        if (R3D.view && R3D.view.ready) {
+          R3D.view.setGripper(side, frac);
+        }
+      };
+
+      sl.onchange = () => {
+        const pct = parseInt(sl.value, 10);
+        const frac = round(pct / 100.0, 2);
+        const cue = { ...c };
+        if (pct === 100) {
+          delete cue.open;
+          cue.do = "open";
+        } else if (pct === 0) {
+          delete cue.open;
+          cue.do = "close";
+        } else {
+          delete cue.do;
+          cue.open = frac;
+        }
+        edit([{ op: "set", index: i, cue }], `${c.slot} set to ${pct === 100 ? "open" : pct === 0 ? "close" : pct + "%"}`);
+      };
+    }
+  }
+
+  el.querySelectorAll(".joint-slider").forEach((sl) => {
+    const j = +sl.dataset.j;
+    sl.oninput = () => {
+      const val = parseInt(sl.value, 10);
+      currentJoints[j] = val;
+      const valEl = $(`jval_${j}`);
+      if (valEl) valEl.textContent = `${val}°`;
+
+      try {
+        const fields = JSON.parse($("iFields").value);
+        delete fields.pose; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
+        if (!fields.joints) fields.joints = {};
+        fields.joints[j] = val;
+        $("iFields").value = JSON.stringify(fields);
+      } catch (e) {}
+
+      if (!R3D.visible) {
+        toggle3DRobot().then(() => {
+          if (R3D.view && R3D.view.ready) {
+            const side = c.slot === "ARM_L" ? "left" : "right";
+            const dual = {};
+            dual[side] = currentJoints;
+            R3D.view.setDualArmChoreoPose(dual);
+            R3D.view.setGhostCuePose(c.slot, currentJoints);
+          }
+        });
+      } else if (R3D.view && R3D.view.ready) {
+        const side = c.slot === "ARM_L" ? "left" : "right";
+        const dual = {};
+        dual[side] = currentJoints;
+        R3D.view.setDualArmChoreoPose(dual);
+        R3D.view.setGhostCuePose(c.slot, currentJoints);
+      }
+    };
+
+    sl.onchange = () => {
+      const cue = { ...c };
+      delete cue.pose; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
+      const jointsObj = {};
+      for (const d of JOINT_DEFS) {
+        jointsObj[d.j] = currentJoints[d.j];
+      }
+      cue.joints = jointsObj;
+      edit([{ op: "set", index: i, cue }], `set ${c.slot} J${j}=${sl.value}°`);
+    };
+  });
+
+  update3DRobot();
 }
 function deleteSelected() {
   if (S.selected === null) return;
@@ -842,7 +1371,8 @@ function addCue(slot) {
     /* "hold the pose here": a keyframe equal to the interpolated pose — move it from there */
     const p = armAt(tl().tracks[slot] || [], t).pose, joints = {};
     for (let j = 1; j <= 7; j++) if (Math.abs(p[j]) > 0.05) joints[j] = round(p[j], 1);
-    body = { joints: Object.keys(joints).length ? joints : { 7: 0 } };
+    if (!joints[4] || joints[4] < 9) joints[4] = 15;
+    body = { joints };
   }
   edit([...declareIfNeeded(slot), { op: "add", cue: { ...newCueTime(t), slot, ...body } }],
     `added ${slot} at ${t.toFixed(2)} s` + (declared().has(slot) ? "" : ` — and declared ${slot} in slots: (undo takes back both)`));
@@ -1340,6 +1870,61 @@ async function openFiles() {
   });
 }
 
+/* ---------- clear: wipe cues to work with a clean slate ---------- */
+function openClearDialog() {
+  const cues = (S.data && S.data.authored) || [];
+  const total = cues.length;
+  if (!total) {
+    toast("The timeline is already clear (no cues in this show).", 3000);
+    return;
+  }
+  const armCues = cues.filter((c) => c && (c.slot === "ARM_L" || c.slot === "ARM_R"));
+  const contextName = S.clip ? `clip '${S.clip}'` : `show '${S.path || "current"}'`;
+
+  const html = `
+    <section class="files">
+      <h3>Clear Timeline</h3>
+      <p style="margin-bottom:12px;">Delete existing cues from ${esc(contextName)} to work from a clean slate. Your previous show state is saved in undo history.</p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button id="fClearAll" class="danger" style="width:100%; text-align:left; padding:10px 14px;">
+          <strong>Clear All Cues</strong> (${total} cue${total > 1 ? "s" : ""} across all tracks)
+        </button>
+        ${armCues.length > 0 && armCues.length < total ? `
+        <button id="fClearArms" style="width:100%; text-align:left; padding:10px 14px;">
+          <strong>Clear Arm Cues Only</strong> (${armCues.length} cue${armCues.length > 1 ? "s" : ""} on ARM_L and ARM_R)
+        </button>` : ""}
+      </div>
+      <p class="note" style="margin-top:12px;">Undo (Ctrl/Cmd-Z) will immediately restore your cues if needed.</p>
+    </section>`;
+
+  showText("Clear Interface", "", [], html);
+
+  const go = async (fn, label) => {
+    try {
+      await fn();
+      $("textDlg").close();
+      S.selected = null;
+      S.multi = new Set();
+      update3DRobot();
+      toast(label, 5000);
+    } catch (e) {
+      toast(e.message, 6000);
+    }
+  };
+
+  if ($("fClearAll")) {
+    $("fClearAll").onclick = () => go(async () => {
+      await edit([{ op: "clear" }], "Cleared all cues");
+    }, "Cleared all cues — undo brings them back");
+  }
+
+  if ($("fClearArms")) {
+    $("fClearArms").onclick = () => go(async () => {
+      await edit([{ op: "clear", slots: ["ARM_L", "ARM_R"] }], "Cleared arm cues");
+    }, "Cleared arm cues — undo brings them back");
+  }
+}
+
 /* ---------- clips: make one from cues, a new one, edit inside one (the user's composer item #1) ---------- */
 function renderMultiInspector() {
   const a = (S.data && S.data.authored) || [], idx = [...S.multi].sort((x, y) => x - y);
@@ -1418,11 +2003,22 @@ function bind() {
   $("tap").onpointerdown = tap;
   $("tapUse").onclick = () => S.tapBpm && edit([{ op: "music", key: "bpm", value: S.tapBpm }], `tempo set to ${S.tapBpm} BPM`).then(loadAudio);
   $("beatOne").onclick = () => edit([{ op: "music", key: "offset_s", value: round(S.t, 3) }], `beat 1 is now at ${S.t.toFixed(3)} s`);
+  if ($("clearBtn")) $("clearBtn").onclick = openClearDialog;
   $("undo").onclick = undo;
   $("save").onclick = save;
   bindMusic();
   $("historyBtn").onclick = openHistory;
   $("filesBtn").onclick = openFiles;
+  if ($("robot3dBtn")) $("robot3dBtn").onclick = toggle3DRobot;
+  if ($("robot3dClose")) $("robot3dClose").onclick = toggle3DRobot;
+  if ($("robot3dFloat")) $("robot3dFloat").onclick = () => {
+    R3D.floating = !R3D.floating;
+    $("robot3dPane").classList.toggle("floating", R3D.floating);
+    $("bottom").classList.toggle("has-robot3d", R3D.visible && !R3D.floating);
+    $("robot3dFloat").textContent = R3D.floating ? "⤓" : "⛶";
+    $("robot3dFloat").title = R3D.floating ? "Dock back into bottom bar" : "Detach to floating window";
+    if (R3D.view) R3D.view.resize();
+  };
   $("textClose").onclick = () => $("textDlg").close();
   $("diskReview").onclick = reviewDisk; $("diskLoad").onclick = loadDisk; $("diskKeep").onclick = keepMine;
   setInterval(watchDisk, 2000);

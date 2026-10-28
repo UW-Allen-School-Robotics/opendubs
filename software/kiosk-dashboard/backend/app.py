@@ -128,10 +128,10 @@ def arms_status() -> JSONResponse:
 def arms_op(op: str, arm: str = "both") -> JSONResponse:
     """Run one arm operation, in the background, one at a time.
 
-    Everything here goes through `openarm-up` rather than reimplementing its guards: that script
-    knows switch_controllers is atomic, that the gripper controllers must come up or teleop dies on
-    an action-server timeout, and that `down` must refuse an arm which is not at its stow pose.
-    Two sources for those rules would be two answers to the same question.
+    park, hold, activate and down go to the arm service (software/openarm/gafro/arm_service.py) over
+    its socket; it owns the guards, and refuses what a person at the e-stop, CH5, CH6 or the start
+    pose do not allow. START brings that arm's service up through its systemd unit. There is no
+    fallback to `openarm-up`, and the dashboard has no other way to move an arm.
 
     Returns immediately: `activate` alone waits up to 10 s for the gripper motor, and an HTTP
     request held open that long is a browser timeout waiting to happen. Poll /api/arms/status.
@@ -143,8 +143,9 @@ def arms_op(op: str, arm: str = "both") -> JSONResponse:
         # not a queue -- and 400 for a malformed one.
         code = 409 if "still running" in detail else 400
         return JSONResponse({"ok": False, "error": detail,
-                             "hint": ("arm operations need a sudoers rule for "
-                                      "/usr/local/bin/openarm-up")}, status_code=code)
+                             "hint": ("arm operations go to the arm service (one per arm, "
+                                      "software/openarm/opendubs-arm@.service): START it first; the START button needs "
+                                      "the opendubs-arm sudoers rule")}, status_code=code)
     return JSONResponse({"ok": True, "started": detail, "poll": "/api/arms/status"})
 
 
@@ -507,10 +508,11 @@ from face_door import router as _face_door_router  # noqa: E402
 app.include_router(_face_door_router)
 from head_settings import router as _head_settings_router  # noqa: E402
 app.include_router(_head_settings_router)
-# The face looks this robot has, and the content folder's looks for the face (face_looks.py). Before the
+# The face looks this robot has, and the content folder's looks for the face (head_looks.py: not
+# face_looks, which is the show runner's module of that name, imported into this process by library.py). Before the
 # /face static mount below, which would otherwise answer /face/content itself.
-from face_looks import router as _face_looks_router  # noqa: E402
-app.include_router(_face_looks_router)
+from head_looks import router as _head_looks_router  # noqa: E402
+app.include_router(_head_looks_router)
 
 # The face page's microphone stream, relayed to the voice service on loopback (voice_proxy.py, the
 # Voice lane's). Before the static mounts, which would otherwise take the WebSocket's path.
@@ -539,6 +541,12 @@ app.include_router(_spoken_router)
 # projector's page out. The page itself is static: frontend/stage/.
 from stage import router as _stage_router  # noqa: E402
 app.include_router(_stage_router)
+# The wall tag test: hold the head, one back-camera frame, the AprilTags in it (tag_test.py).
+from tag_test import router as _tag_test_router  # noqa: E402
+app.include_router(_tag_test_router)
+# The stage box's sound: its output, Bluetooth speaker, volumes and test tone (stage_box.py).
+from stage_box import router as _stage_box_router  # noqa: E402
+app.include_router(_stage_box_router)
 FACE_DIR = Path(os.environ.get("OPENDUBS_FACE_WEB_DIR") or FRONTEND_DIR.parent.parent / "face-web")
 if FACE_DIR.is_dir():
     app.mount("/face", NoCacheStaticFiles(directory=str(FACE_DIR), html=True), name="face")
@@ -551,4 +559,6 @@ DOCS_DIR = FRONTEND_DIR.parent / "docs-site"
 if DOCS_DIR.is_dir():
     app.mount("/docs", NoCacheStaticFiles(directory=str(DOCS_DIR), html=True), name="docs")
 
-app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")
+# follow_symlink: in a checkout frontend/assets/arm is a symlink into description/openarm (the arm view's chain.json and meshes), which StaticFiles refuses by default, so the pose view
+# could not load anywhere but on the robot, where deploy.sh copies the files and there is no symlink.
+app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True, follow_symlink=True), name="static")

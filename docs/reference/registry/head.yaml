@@ -1,4 +1,4 @@
-# Troubleshooting entries: the head, the tablet, and the dashboard's own front door.
+# Troubleshooting entries: the head, the tablet, the stage box, and the dashboard's own front door.
 # Owned by the Tablet & head interface lane. Schema and usage: tools/faults.py. After editing, run
 #   tools/faults.py --inject
 # Links inside text are relative to docs/reference/; `see:` paths are relative to docs/.
@@ -79,3 +79,31 @@ entries:
     do:
       - Stop the show (Shows page, or STOP SHOW on the face), then press START CALL again.
       - To end a call, press END CALL on the Head & face page; the face comes back within a few seconds.
+
+  - code: LINK_STAGE_BOX_OFFLINE
+    title: The stage box is not reporting
+    symptom: [no-sound]
+    rank: 70
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      The stage box (the small computer that shows the stage page on a projector or a TV, and plays the
+      show's music) reports its sound to the robot every 2 seconds. The dashboard has heard nothing from
+      it for a while, so it cannot pass it a sound setting, a pairing or a test tone.
+    do:
+      - Check that the box is powered (its red light) and within range of the robot's Wi-Fi.
+      - Wait a minute after powering it on; the card on the Shows page shows it once it reports.
+
+  - code: SHOW_STAGE_SOUND_BUSY
+    title: The stage box's sound won't change during a show
+    symptom: [no-sound]
+    rank: 72
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      While a show is loaded or playing, the stage box's sound output, its test tone and pairing a
+      Bluetooth speaker are refused: the audience would hear the first two, and a newly connected speaker
+      can take the sound. Its volume can still be changed.
+    do:
+      - Stop the show on the Shows page, then change the output, pair or play the test tone.
+      - Set up the sound before the show is loaded.

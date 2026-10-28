@@ -141,9 +141,37 @@ except Exception:
   ssh "$HOST" rm -rf "$tmp"
 }
 
+# The stage box's software (software/stage-pi), which the box pulls and installs itself between shows,
+# REBOOTING to do so. Its version is the folder's git tree hash, not the deploy's commit, so a deploy that
+# does not change the folder offers the same version and the box is left alone; one the robot already
+# offers is not republished. publish-bundle.sh (the Tablet lane's) signs the manifest with
+# stack/firmware-signing/sign-firmware.sh stage and publishes it to /var/lib/opendubs/stage/.
+deploy_stage() {
+  git -C "$REPO" cat-file -e HEAD:software/stage-pi/release/publish-bundle.sh 2>/dev/null || return 0
+  local ver served tmp
+  ver=$(git -C "$REPO" rev-parse --short=12 HEAD:software/stage-pi)
+  served=$(ssh "$HOST" "cat /var/lib/opendubs/stage/manifest.json 2>/dev/null" | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("version") or "")
+except Exception:
+    print("")') || served=""
+  if [ "$served" = "$ver" ]; then
+    echo "== stage box: $HOST already offers its software $ver, nothing to publish =="
+    return 0
+  fi
+  echo "== publishing the stage box's software on $HOST: ${served:-nothing} -> $ver =="
+  tmp=$(ssh "$HOST" mktemp -d)
+  git -C "$REPO" archive HEAD software/stage-pi | ssh "$HOST" "tar -x -C $tmp"
+  ssh -t "$HOST" "sudo bash $tmp/software/stage-pi/release/publish-bundle.sh $tmp/software/stage-pi $ver" \
+    || echo "!! the stage box's software was NOT published (see above); the rest of the deploy is unaffected"
+  ssh "$HOST" rm -rf "$tmp"
+}
+
 echo "== provisioning $HOST (idempotent) =="
 ssh -t "$HOST" "sudo bash $DEST/provision-all.sh"
 deploy_kiosk
+deploy_stage
 deploy_voice
 
 # Post-deploy health readout — every opendubs unit, including the StamPLC->ROS bridge.

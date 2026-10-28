@@ -88,6 +88,18 @@ class Composer:
         return p
 
     def info(self) -> dict:
+        try:
+            import arm_planner_bridge
+            planners = arm_planner_bridge.get_available_planners()
+        except ImportError:
+            planners = {
+                "spline": {
+                    "id": "spline",
+                    "name": "Spline (Standard Hermite)",
+                    "available": True,
+                    "description": "Standard cubic Hermite trajectory interpolation",
+                }
+            }
         return {"shows_dir": self.shows_dir, "library_dir": self.library_dir,
                 "library_exists": library.load_index(self.library_dir) is not None,
                 "max_song_mb": MAX_SONG_BYTES // (1024 * 1024), "song_types": sorted(library.SONG_TYPES),
@@ -95,7 +107,8 @@ class Composer:
                 "limits_are_test_fixture": self.fixture, "preview_only": True,
                 "slots": list(cue.SLOTS), "face_emotes": list(cue.FACE_EMOTES),
                 "slot_requires": {s: cue.slot_requirements(s) for s in cue.SLOTS},
-                "speed_caps": cue.SPEED_CAP_DEG_S}
+                "speed_caps": cue.SPEED_CAP_DEG_S,
+                "planners": planners}
 
     def list_shows(self) -> list:
         out = []
@@ -617,3 +630,41 @@ class Composer:
         return {"side": side, "slot": "ARM_L" if side == "left" else "ARM_R",
                 "joints": {str(k): v for k, v in sorted(joints.items())},
                 "source": joint_state.get("source", "unknown")}
+
+    def plan_arm(self, rel: str, text: str, index: int, planner: str = "cbirrt", reach: str | list | None = None) -> dict:
+        """Plan a collision-free motion for an arm cue using the selected planner (spline, cbirrt, curobo)."""
+        self._path(rel)
+        try:
+            doc = cue.show_from_text(text, self._path(rel)).doc
+        except Exception:
+            doc = yaml.safe_load(text)
+        try:
+            import importlib
+            import arm_planner_bridge
+            import yamledit
+            importlib.reload(arm_planner_bridge)
+            importlib.reload(yamledit)
+        except ImportError as e:
+            raise ApiError(f"Motion planning bridge is unavailable: {e}") from e
+        try:
+            res = arm_planner_bridge.plan_arm_move(
+                doc=doc,
+                text=text,
+                index=int(index),
+                planner_choice=planner,
+                reach_target=reach,
+                limits_path=self.limits_path,
+            )
+        except Exception as e:
+            raise ApiError(f"Motion planning error: {e}") from e
+
+        ana = self.analyse(rel, res["text"])
+        return {
+            "ok": True,
+            "planner": res["planner"],
+            "text": res["text"],
+            "message": res["message"],
+            "min_clearance_mm": res["min_clearance_mm"],
+            "waypoints_inserted": res["waypoints_inserted"],
+            "analysis": ana,
+        }
