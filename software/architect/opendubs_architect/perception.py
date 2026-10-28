@@ -28,13 +28,19 @@ def camera_name(camera: str) -> str:
 
 
 class Perception:
-    """Requests and replies for one head pose: where the camera is, which the robot does not
-    publish yet (camera_frames.py), comes from the arm config's first `head` pose and `lift_mm`."""
+    """Requests and replies for one head pose. The lift's height, which the robot does not publish
+    yet (camera_frames.py), comes from the arm config's `lift_mm`; the head's pan and tilt are the
+    caller's (`turned`, from /head/joint_states), else the config's first `head` pose."""
 
     def __init__(self, head_pan_deg: float = 0.0, head_tilt_deg: float = 0.0, lift_m: float = 0.0,
                  frames: camera_frames.CameraFrames | None = None):
         self.frames = frames or camera_frames.CameraFrames()
+        self.lift_m = lift_m
         self.T = self.frames.camera_to_chassis(head_pan_deg, head_tilt_deg, lift_m)
+
+    def turned(self, head_pan_deg: float, head_tilt_deg: float) -> "Perception":
+        """The same robot with the head at these angles (degrees, the URDF's signs: + pan left, + tilt down)."""
+        return Perception(head_pan_deg, head_tilt_deg, self.lift_m, self.frames)
 
     @classmethod
     def from_arm_config(cls) -> "Perception":

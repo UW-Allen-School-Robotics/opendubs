@@ -8,14 +8,11 @@ link, 0.324 m behind `base_link` (the centre of the wheel rectangle) and 0.024 m
 
 The chain is read from the URDF: datum -> zaxis (the lift) -> head_pan -> head_tilt ->
 femto_mount_link -> camera_link. The camera's own camera_link -> colour optical frame is the
-driver's (it publishes it on /tf_static from the camera's calibration); without it, NOMINAL_OPTICAL
-places the colour camera where the camera's front marks put it (description/opendubs/dimensions.yaml:
-32 mm left of the depth camera, where camera_link sits) and turns it to the optical convention.
+driver's, from the camera's calibration (/tf_static): OPTICAL, as opendubs2's driver published it.
 
-The head's pan and tilt and the lift's height are not published yet (software/ros/robot-state-publisher.sh:
-"which nothing publishes yet"), so the caller says where they are: the arm config's first `head` pose
-and its `lift_mm`, the same assumption the clearance check makes. A program that moves the head
-before it looks would break that assumption; the arms profiles have no head primitive.
+The caller says where the head and the lift are. The head's pan and tilt are live on /head/joint_states
+(the dashboard's neck_state.py; client.py reads them at each call). The lift's height is not published
+yet, so it is the arm config's `lift_mm`, the same assumption the clearance check makes.
 """
 
 from __future__ import annotations
@@ -28,10 +25,11 @@ import numpy as np
 
 URDF = Path(__file__).resolve().parents[3] / "description" / "opendubs" / "opendubs.urdf"
 ROOT, CAMERA_LINK = "datum", "camera_link"
-#: camera_link -> camera_color_optical_frame when the driver's is not known: the colour camera
-#: 32 mm to the left of the depth camera (y +0.032) and 0.5 mm lower, turned to x right, y down,
-#: z forward (roll -90, yaw -90 degrees: REP 103's optical frame).
-NOMINAL_OPTICAL = {"xyz": (0.0, 0.032, -0.0005), "rpy": (-math.pi / 2, 0.0, -math.pi / 2)}
+#: camera_link -> camera_color_optical_frame: the Femto Bolt driver's own, from the camera's calibration
+#: (`tf2_echo camera_link camera_color_optical_frame` on opendubs2, 2026-10-27). The colour camera is
+#: 32 mm to the RIGHT of camera_link (y -0.032), turned to x right, y down, z forward. This used to be
+#: +0.032, read off the camera's front marks, which put every perceived point 64 mm too far left.
+OPTICAL = {"xyz": (-0.002, -0.032, -0.001), "rpy": (-math.pi / 2, 0.0, -math.pi / 2)}
 #: GraspNet's gripper frame (x the approach, y the closing direction) -> the tool site's (its +z out
 #: through the fingers, ik.py): tool z = grasp x, tool y = grasp y, tool x = -grasp z. ASSUMED: the
 #: tool site's closing axis is its y; the arm services do not yet hold an orientation anyway.
@@ -99,7 +97,7 @@ class CameraFrames:
                 "xyz": [float(v) for v in (o.get("xyz", "0 0 0") if o is not None else "0 0 0").split()],
                 "rpy": [float(v) for v in (o.get("rpy", "0 0 0") if o is not None else "0 0 0").split()],
                 "axis": [float(v) for v in (ax.get("xyz") if ax is not None else "1 0 0").split()]}
-        self.optical = optical or NOMINAL_OPTICAL
+        self.optical = optical or OPTICAL
 
     def link_pose(self, link: str, positions: dict) -> np.ndarray:
         """`link` in the chassis (datum) frame, with movable joints at `positions` (rad, or m)."""

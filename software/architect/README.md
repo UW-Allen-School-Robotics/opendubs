@@ -371,9 +371,12 @@ for a label) and `/perception/locate` (the middle of its visible surface). They 
 colour camera's optical frame; `perception.py` and `camera_frames.py` turn that into the chassis
 frame, the twin's `chassis` body and the robot description's `datum` link (0.324 m behind
 `base_link`). The chain is read from `description/opendubs/opendubs.urdf` and matches the twin's
-to 0.1 mm at every head pose tested. The head's pan and tilt and the lift's height are not published
-yet, so they are taken from the arm config's first `head` pose and `lift_mm`. The camera's own
-camera_link -> colour offset is nominal (the camera's marks) until the driver's /tf_static is read.
+to 0.1 mm at every head pose tested. The head's pan and tilt are read live at each call from
+`/head/joint_states` (the dashboard's `neck_state.py`); with nothing fresh there for a second the
+call is refused, never answered for a guessed head. The lift's height is not published yet, so it is
+the arm config's `lift_mm`. The camera's camera_link -> colour offset is its driver's, from the
+camera's calibration: the colour camera 32 mm to the right of camera_link. (Until 2026-10-27 it was
+read off the camera's marks as 32 mm to the left, which put every perceived point 64 mm too far left.)
 
 `PROFILE=arms_see tools/dev.sh dry|up` offers them to the program, and a show recorded at approval
 goes where the camera saw things then. For those calls the container joins the robot's ROS domain

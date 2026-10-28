@@ -35,6 +35,11 @@ READ_TRIES = 3
 READ_ONLY = frozenset({"detect_objects", "locate_object"})
 QUERY_TIMEOUT_S = 10.0
 COMMAND_TIMEOUT_S = 30.0
+#: The head's live angles (the dashboard's neck_state.py). Older than HEAD_STALE_S is unknown, never
+#: "unchanged" (its own rule); a look waits up to HEAD_WAIT_S for a fresh one, then is refused.
+HEAD_TOPIC = "/head/joint_states"
+HEAD_STALE_S = 0.15
+HEAD_WAIT_S = 1.0
 MOTION_TIMEOUT_S = 60.0
 NAVIGATION_TIMEOUT_S = 180.0
 
@@ -64,6 +69,8 @@ class OpenDubsRobotClient:
         self._clients: dict[str, object] = {}
         self._services = {name: (service, kind) for name, service, kind in api.PRIMITIVES}
         self._perception = None
+        self._head = None              # (monotonic time received, {joint: rad})
+        self._head_sub = None
 
     def destroy_node(self) -> None:
         self._node.destroy_node()
@@ -135,11 +142,33 @@ class OpenDubsRobotClient:
             client.remove_pending_request(future)
         raise RuntimeError(f"{service} did not reply after {READ_TRIES} tries of {READ_TRY_S:.0f} s")
 
+    def _on_head(self, msg) -> None:
+        import time
+        self._head = (time.monotonic(), dict(zip(msg.name, msg.position)))
+
+    def head_angles(self) -> tuple:
+        """The head's (pan, tilt) now, degrees in the URDF's signs, from /head/joint_states."""
+        import math
+        import time
+        if self._head_sub is None:
+            from sensor_msgs.msg import JointState
+            self._head_sub = self._node.create_subscription(JointState, HEAD_TOPIC, self._on_head, 10)
+        end = time.monotonic() + HEAD_WAIT_S
+        while True:
+            if self._head is not None and time.monotonic() - self._head[0] < HEAD_STALE_S:
+                q = self._head[1]
+                if "head_pan" in q and "head_tilt" in q:
+                    return math.degrees(q["head_pan"]), math.degrees(q["head_tilt"])
+            if time.monotonic() > end:
+                raise RuntimeError(f"the head's angle is unknown: nothing fresh on {HEAD_TOPIC} "
+                                   f"within {HEAD_WAIT_S:.0f} s (is the neck answering?)")
+            self._rclpy.spin_once(self._node, timeout_sec=0.05)
+
     def _frames(self):
         if self._perception is None:
             from opendubs_architect.perception import Perception
             self._perception = Perception.from_arm_config()
-        return self._perception
+        return self._perception.turned(*self.head_angles())
 
     # ------------------------------------------------------------------
     # Perception
