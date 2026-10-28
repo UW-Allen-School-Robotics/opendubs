@@ -297,6 +297,43 @@ class Smoother:
         self.p, self.v = np.asarray(reachable, float).copy(), self.v * 0.5
 
 
+# -- one capture (V1) ---------------------------------------------------------------------------------------------
+
+class HandCapture:
+    """V1: one offered palm, captured once it has STOPPED moving. A hand being raised is still travelling, so the palm
+    counts only after `frames` tracker frames in a row in which the same hand is lifted (Offer) and every palm lies
+    within `still_m` of their mean; any frame without it starts the count again. The capture is the LATEST of those
+    palms. update() returns (side, palm) once, then None."""
+
+    def __init__(self, offer: Offer, frames=5, still_m=0.05):
+        self.offer, self.frames, self.still_m = offer, frames, still_m
+        self.run = {s: [] for s in SIDES}
+        self.done = None
+
+    def update(self, palms, shoulders):
+        """palms, shoulders: {side: xyz in arm_mount} of one tracker frame (missing sides absent)."""
+        if self.done is not None:
+            return None
+        for s in SIDES:
+            palm, shoulder = palms.get(s), shoulders.get(s)
+            other = "right" if s == "left" else "left"
+            if shoulder is None and shoulders.get(other) is not None:
+                shoulder = shoulders[other] + np.array([0.0, SHOULDER_WIDTH if s == "right" else -SHOULDER_WIDTH, 0.0])
+            if palm is None or shoulder is None or not self.offer.check(s, palm, shoulder)[0]:
+                self.run[s] = []
+                continue
+            run = self.run[s] + [np.asarray(palm, float)]
+            mean = np.mean(run, axis=0)
+            while run and max(float(np.linalg.norm(p - mean)) for p in run) > self.still_m:
+                run = run[1:]                     # still moving: keep only the palms that agree with the newest
+                mean = np.mean(run, axis=0)
+            self.run[s] = run
+            if len(run) >= self.frames:
+                self.done = (s, run[-1].copy())
+                return self.done
+        return None
+
+
 # -- the arm ------------------------------------------------------------------------------------------------------
 
 @dataclass

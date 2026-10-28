@@ -11,6 +11,9 @@
 #   treat_follow.sh down [--camera]     the follower, the simulated arm and the tracker stopped
 #   treat_follow.sh run [options]       the follower in the foreground (what `up` starts); options: treat_follow.py -h
 #   treat_follow.sh reset | ctl ...     the simulated arm (grasp_to_sim.sh's)
+#   treat_follow.sh reach [options]     V1, one shot (treat_reach.py): the tracker and the simulated arm started if not
+#                                       running (no follower), the head centres the person (THE HEAD MOVES), a raised and
+#                                       still hand is sent once to the SIMULATED arm's reach_pose action; then it exits
 #
 # It shares the camera, the tracker and the simulated arm with hand_follow.sh, and refuses to start while that
 # follower runs: two followers would fight over right/target and the head.
@@ -27,6 +30,28 @@ ros() {
   [[ -f "${WS}/install/setup.bash" ]] || "${HERE}/perception_call.sh" status >/dev/null 2>&1 || true
   set +u; source /opt/gafro/setup.bash; source "${WS}/install/setup.bash"
   export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}" FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+}
+arm_interfaces() {   # opendubs_arm_interfaces (the ArmCommand action) into the same workspace, as perception_call.sh builds its own
+  local pkg="${HERE}/../../openarm/interfaces/opendubs_arm_interfaces"
+  if [[ ! -f "${WS}/install/opendubs_arm_interfaces/share/opendubs_arm_interfaces/package.xml" ]] \
+     || ! cmp -s "${pkg}/action/ArmCommand.action" "${WS}/src/opendubs_arm_interfaces/action/ArmCommand.action"; then
+    echo "building opendubs_arm_interfaces in ${WS} ..." >&2
+    mkdir -p "${WS}/src"; rm -rf "${WS}/src/opendubs_arm_interfaces"; cp -r "${pkg}" "${WS}/src/opendubs_arm_interfaces"
+    (set +u; source /opt/ros/jazzy/setup.bash; cd "${WS}" && colcon build --packages-select opendubs_arm_interfaces >/dev/null) \
+      || { echo "build failed; run colcon in ${WS} to see why" >&2; exit 1; }
+  fi
+}
+stack_up() {   # the tracker and the simulated arm, not the follower
+  mkdir -p "${GRASP_SIM_DIR}"
+  "${HERE}/hand_stack.sh" up
+  if alive "${GRASP_SIM_DIR}/pids"; then
+    echo "sim: already running"
+  else
+    setsid nohup "${HERE}/grasp_to_sim.sh" sim --port 8098 > "${GRASP_SIM_DIR}/sim.out" 2>&1 < /dev/null &
+    wait_log "${GRASP_SIM_DIR}/sim.out" "following right/target" 90 \
+      || { echo "the simulated arm did not start; see ${GRASP_SIM_DIR}/sim.out" >&2; tail -5 "${GRASP_SIM_DIR}/sim.out" >&2; exit 1; }
+    echo "sim: up, viewer at http://$(hostname -I | cut -d' ' -f1):8098"
+  fi
 }
 alive() { [[ -f "$1" ]] && kill -0 $(cat "$1") 2>/dev/null; }
 wait_log() {   # wait_log <file> <pattern> <seconds>
@@ -87,11 +112,20 @@ case "${cmd}" in
   reset|ctl)
     exec "${HERE}/grasp_to_sim.sh" "${cmd}" "$@"
     ;;
+  reach)
+    if alive "${PID}" || alive "${GRASP_SIM_DIR}/follow.pid"; then
+      echo "a follower is running: stop it first ($0 down, or TERM ${PID})" >&2; exit 1
+    fi
+    arm_interfaces
+    stack_up
+    ros
+    exec python3 -u "${HERE}/treat_reach.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@"
+    ;;
   run)
     ros
     exec python3 -u "${HERE}/treat_follow.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@"
     ;;
   *)
-    sed -n '2,17p' "$0"; exit 1
+    sed -n '2,20p' "$0"; exit 1
     ;;
 esac

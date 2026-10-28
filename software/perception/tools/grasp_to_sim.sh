@@ -28,6 +28,9 @@ case "${cmd}" in
     port=8097
     while [[ $# -gt 0 ]]; do case "$1" in --port) port="$2"; shift 2 ;; *) echo "unknown: $1" >&2; exit 1 ;; esac; done
     set +u; source /opt/gafro/setup.bash
+    # opendubs_arm_interfaces, if built (treat_follow.sh reach builds it): the service then serves /right_arm/command
+    ARM_WS="${ROBOT_API_WS:-$HOME/robot_api_ws}"
+    [[ -f "${ARM_WS}/install/setup.bash" ]] && source "${ARM_WS}/install/setup.bash"
     export ROS_DOMAIN_ID="${SIM_DOMAIN}" FASTDDS_BUILTIN_TRANSPORTS=UDPv4
     if ss -ltn 2>/dev/null | grep -qE ":${port}\b"; then
       echo "port ${port} is in use; pick another with --port" >&2; exit 1

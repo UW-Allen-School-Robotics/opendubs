@@ -120,3 +120,29 @@ def test_head_turns_toward_the_torso_settles_and_freezes_when_the_arm_is_out():
     assert h.step(2.0, {"below_deg": 7.0, "right_deg": 0}, 2.0, hold_still=True) is None   # under the lock while following
     assert h.step(10.0, None, 0.0, hold_still=True) is None and h.mode == "freeze"
     assert h.step(10.1, None, 0.0) is not None and h.mode == "search" and not h.acquired
+
+
+def test_capture_waits_for_a_still_raised_hand_and_takes_the_latest():
+    from treat_brain import HandCapture
+    c = HandCapture(Offer(OfferParams()), frames=5, still_m=0.05)
+    assert c.update({"right": HANGING}, SH) is None                  # not lifted: nothing
+    for i in range(6):                                               # rising 8 cm a frame: moving, never captured
+        assert c.update({"right": HELD_OUT + np.array([0, 0, -0.4 + 0.08 * i])}, SH) is None
+    got, sent = None, None
+    for i in range(5):                                               # held there, a centimetre of noise
+        palm = HELD_OUT + np.array([0.01 * (i % 2), 0, 0])
+        if got is None:
+            got, sent = c.update({"right": palm}, SH), palm
+    assert got is not None and got[0] == "right"
+    np.testing.assert_allclose(got[1], sent)                         # the latest palm, the one that completed the run
+    assert c.update({"right": HELD_OUT}, SH) is None                 # once only
+
+
+def test_capture_starts_over_when_the_hand_drops():
+    from treat_brain import HandCapture
+    c = HandCapture(Offer(OfferParams()), frames=5)
+    for _ in range(4):
+        assert c.update({"right": HELD_OUT}, SH) is None
+    assert c.update({"right": HANGING}, SH) is None                  # dropped on the 5th
+    assert all(c.update({"right": HELD_OUT}, SH) is None for _ in range(4))
+    assert c.update({"right": HELD_OUT}, SH) is not None
