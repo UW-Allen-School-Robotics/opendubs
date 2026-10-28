@@ -167,7 +167,6 @@ FACE tracks stay opendubs2's.
 
 ## Where the code goes
 
-**Open: the maintainers decide.** Proposed: `software/spot/` in this repository, owned by a Spot lane
-(the lanes table would need its row); the alternative is a separate private repository. Either way
-the driver runs on the operator's machine and is not deployed by `deploy-all.sh`: nothing on
-opendubs2 changes.
+`software/spot/` in this repository, owned by the Spot lane (decided by the maintainers, 2026-10-27;
+workplan `notes/workplan-spot.md`). The driver runs on the operator's machine and is not deployed by
+`deploy-all.sh`: nothing on opendubs2 changes.
