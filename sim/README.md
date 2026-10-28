@@ -186,6 +186,19 @@ Caveat worth remembering: the arm model's *collision* geometry is a single `body
 that still contains the cover's volume, so clearance against the torso is conservative until we
 supply our own frame collision mesh.
 
+**Props: the candy bucket** for ARCHITECT's trick-or-treat pick. `--candy-bucket` adds it, on a
+stand, to `scene.py` and `clearance.py` (and `scene.build(candy_bucket=True)` for code), so a render,
+a clearance check and a pick plan all see the same object. By default its candy is where the
+coverage study puts the best seen-and-reachable spot for the right gripper (0.40 m forward, 0.20 m
+right, 0.90 m above the floor); `--candy-bucket X,Y,H` moves it. The mesh in `props/` is the user's
+Fusion model, flipped right way up and in metres; it is drawn only, and the bucket collides as a
+base, wall panels and a handle, so its inside stays free for a hand. Details in `props.py`.
+
+```bash
+python3 scene.py --candy-bucket --render /tmp/bucket.png --az 200 --el -15 --dist 2.2
+python3 clearance.py --candy-bucket --joints "right:2=40,right:4=90"   # the wrist ends up inside the wall
+```
+
 ## Status
 
 `dimensions.yaml` holds what we know, with provenance, and `TODO` for what we do not. Nothing
