@@ -48,7 +48,7 @@ To try a newer upstream model without vendoring it, pass the checkout to `sim/sc
 | The dashboard's arm view (`software/kiosk-dashboard/frontend/armview.js`) | `openarm/chain.json` + `openarm/meshes/collision/`, through `frontend/assets/arm`, a symlink to `openarm/` in a checkout. `deploy.sh` copies just those files to the robot |
 | `tools/arm_chain.py` | `openarm/urdf/v1.urdf` → writes `openarm/chain.json` |
 | `opendubs/gen_urdf.py` | `opendubs/dimensions.yaml` → writes `opendubs/opendubs.urdf` (the ROS TF tree for `robot_state_publisher`) |
-| `opendubs/variants.py` | `opendubs/dimensions.yaml` → swaps an alternative part (the 30° Femto mount) into an `opendubs.xml` MjSpec before it is compiled |
+| `opendubs/variants.py` | `opendubs/dimensions.yaml` → swaps an alternative part (the straight Femto mount; the 30° one is fitted) into an `opendubs.xml` MjSpec before it is compiled |
 
 ## Regenerating the derived files
 

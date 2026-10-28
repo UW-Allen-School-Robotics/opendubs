@@ -107,9 +107,9 @@ head:
     groups:
       neck: rides head_pan    # meshes/head_neck_pan.stl: the neck, without its servos (below)
       face: rides head_tilt   # meshes/head_face_tilt.stl: the tablet, its holder and the arms that carry it
-      femto_mount: rides head_tilt   # meshes/femto_mount.stl: the Femto Bolt's mount (the module, below)
-      femto_bolt: rides head_tilt    # meshes/femto_bolt.stl: the camera's 115 x 65 x 40 envelope, not Orbbec's CAD
-      femto_mount_tilt30: rides head_tilt   # meshes/femto_mount_tilt30.stl: the ALTERNATIVE mount, camera envelope included
+      femto_mount_tilt30: rides head_tilt   # meshes/femto_mount_tilt30.stl: the FITTED 30-degree mount, camera envelope included
+      femto_mount: rides head_tilt   # meshes/femto_mount.stl: the straight mount (the variant, below)
+      femto_bolt: rides head_tilt    # meshes/femto_bolt.stl: the camera's 115 x 65 x 40 envelope on it, not Orbbec's CAD
       chest_cover: rides lift_platform      # meshes/chest_cover.stl: the chest cover, the neck's M5Dial on its back
     registered:
       # femto_mount_tilt30.stl was NOT exported in this frame: it comes 380 mm to the robot's right
@@ -194,7 +194,7 @@ meshes:
   # The head, exported in the head assembly's own frame (see head.export above):
   head_neck:      { file: meshes/head_neck_pan.stl }    # 1500 triangles; rides head_pan
   head_face:      { file: meshes/head_face_tilt.stl }   # 5948 triangles; rides head_tilt
-  femto_mount:    { file: meshes/femto_mount.stl }      # 1348 triangles; the module's mount
+  femto_mount:    { file: meshes/femto_mount.stl }      # 1348 triangles; the straight mount
   femto_bolt:     { file: meshes/femto_bolt.stl }       # 1526 triangles; the camera's envelope
   femto_mount_tilt30: { file: meshes/femto_mount_tilt30.stl }   # 2792 triangles; the 30-degree mount with the camera
   chest_cover:    { file: meshes/chest_cover.stl }      # 16370 triangles; the chest cover, on lift_platform
@@ -295,17 +295,18 @@ head_assembly:
       parent: head_tilt_link
       at: femto_interface
       rpy_deg: [0, 0, 0]
-      module: femto_bolt
-      # Two mounts fit the same pockets. `module` above is the one FITTED, and opendubs.urdf and
-      # opendubs.xml describe it; each variant here also gets its own URDF,
-      # opendubs-femto-<variant>.urdf, and description/opendubs/variants.py swaps it into the MJCF.
-      # On a robot that carries a variant, point robot_state_publisher at its URDF (OPENDUBS_URDF).
+      module: femto_bolt_tilt30
+      # Two mounts fit the same pockets. `module` above is the one FITTED (the 30-degree mount, on
+      # opendubs2 since 2026-10-28), and opendubs.urdf and opendubs.xml describe it; each variant
+      # here also gets its own URDF, opendubs-femto-<variant>.urdf, and
+      # description/opendubs/variants.py swaps it into the MJCF. On a robot that carries the other
+      # mount, point robot_state_publisher at its URDF (OPENDUBS_URDF).
       variants:
-        straight: { module: femto_bolt }           # the camera square to the face (the default)
-        tilt30:   { module: femto_bolt_tilt30 }    # the camera tilted 30 deg down
+        tilt30:   { module: femto_bolt_tilt30 }    # the camera tilted 30 deg down (the default)
+        straight: { module: femto_bolt }           # the camera square to the face
   modules:
     femto_bolt:
-      # Orbbec Femto Bolt on the user's mount. The geometry is the user's (head.export: femto_mount
+      # Orbbec Femto Bolt on the straight mount. The geometry is the user's (head.export: femto_mount
       # and femto_bolt); the camera is its 115 x 65 x 40 mm envelope, as x 65.2 (deep) x y 115.2
       # x z 40.2 here, front face at x = 89.7 in the export, facing +x.
       fitted: true
@@ -330,8 +331,8 @@ head_assembly:
         position inside the housing is not in this geometry (TODO_CAD).
       meshes: [femto_mount, femto_bolt]
     femto_bolt_tilt30:
-      # The same camera on the 30-degree mount (head.export.registered): one mesh carries the mount
-      # and the camera's envelope. Frames as femto_bolt's, 30 deg further down.
+      # The same camera on the 30-degree mount, the FITTED one (head.export.registered): one mesh
+      # carries the mount and the camera's envelope. Frames as femto_bolt's, 30 deg further down.
       fitted: true
       frames:
         camera_link: { at: femto_depth_mark_tilt30, rpy_deg: [0, 36, 0] }    # 6 deg (Orbbec) + 30 (the mount)

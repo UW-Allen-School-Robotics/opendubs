@@ -87,9 +87,9 @@ def envelopes(tilt_band):
 
 
 # A mount at any down-tilt, for choosing one to print. The two real mounts fix it: the 30-degree
-# mesh's camera is the default's turned 30 deg about the y-parallel line through this point (head
-# export frame, mm), which solves (I - R) c = t exactly for its measured transform. Turning the default
-# camera about the same line by any angle reproduces both real mounts and models a reprint between or
+# mesh's camera is the straight mount's turned 30 deg about the y-parallel line through this point
+# (head export frame, mm), which solves (I - R) c = t exactly for its measured transform. Turning the
+# straight mount's camera about the same line by any angle reproduces both real mounts and models a reprint between or
 # beyond them. A reprint drawn differently would hinge elsewhere, by millimetres.
 TILT_PIVOT_EXPORT = (88.179, 957.693)                 # x, z
 DEPTH_PITCH_DEG = 6.0                                 # Orbbec: depth 6 deg below colour
@@ -97,16 +97,16 @@ DEPTH_PITCH_DEG = 6.0                                 # Orbbec: depth 6 deg belo
 
 class Head:
     """The description's head, posed kinematically: camera sites in base_link for a lift and pan/tilt.
-    `mount` is a real mount (variants.FEMTO_MOUNTS); `tilt` instead poses the default camera turned
-    `tilt` degrees down about TILT_PIVOT_EXPORT."""
+    `mount` is a real mount (variants.FEMTO_MOUNTS; None for the fitted one); `tilt` instead poses the straight mount's camera
+    turned `tilt` degrees down about TILT_PIVOT_EXPORT."""
 
-    def __init__(self, mount: str = "straight", tilt: float | None = None):
+    def __init__(self, mount: str | None = None, tilt: float | None = None):
         import mujoco
         import variants
         import yaml
         self.mj = mujoco
         spec = mujoco.MjSpec.from_file(str(OURS / "opendubs.xml"))
-        variants.femto_mount(spec, mount if tilt is None else "straight")
+        variants.femto_mount(spec, (mount or variants.FITTED) if tilt is None else "straight")
         if tilt is not None:
             d = yaml.safe_load((OURS / "dimensions.yaml").read_text())
             marks = d["head"]["export"]["landmarks_export_mm"]
@@ -511,7 +511,7 @@ def sweep(reach, ws, heights, env, tilts, out, plt):
     ax.text(rec[0], 2, f" recommended {rec[0]:.0f}°", fontsize=8)
     ax.axvline(30, color="0.6", lw=0.8)
     ax.text(30, 8, " the printed 30° mount", fontsize=7, color="0.4")
-    ax.set_xlabel("Femto mount down-tilt (deg; 0 = the default mount)"); ax.set_ylabel("% covered")
+    ax.set_xlabel("Femto mount down-tilt (deg; 0 = the straight mount)"); ax.set_ylabel("% covered")
     ax.set_ylim(0, 102); ax.grid(alpha=0.3); ax.legend(fontsize=7.5, loc="lower left")
     ax.set_title("Choosing the mount's tilt: the bucket zone against the room (lift down, gaze envelope)", fontsize=9.5)
     fig.tight_layout()
@@ -538,7 +538,7 @@ def write_table(spots, sweep_rows, rec, out, band, ws_src, heights):
         L += [f"| {t:.0f} | {a:.0%} | {b:.0%} | {c:.0%} | {d:.0%} |" for t, a, b, c, d in sweep_rows]
         L += ["", f"The zone: every spot an arm reaches at {', '.join(f'{h:.2f}' for h in heights)} m, not over the "
               "robot, box or not. People: colour camera; floor: depth NFOV. The tilts other than 0 and 30 are modelled "
-              "by turning the default camera about the 30° mount's hinge line (TILT_PIVOT_EXPORT).", ""]
+              "by turning the straight mount's camera about the 30° mount's hinge line (TILT_PIVOT_EXPORT).", ""]
     L += ["## The best bucket spots (inside today's workspace box)", "",
           "| mount | arm | x (m) | y (m) | height (m) | margin (m) | head turn (deg) | seen at rest | zone cells |",
           "|---|---|---|---|---|---|---|---|---|"]
@@ -563,7 +563,7 @@ def main() -> int:
     ap.add_argument("--heights", default="0.7,0.75,0.8,0.9,1.0,1.1",
                     help="bucket heights above the floor (m) for the reach and the zone")
     ap.add_argument("--lifts", default="0,275", help="lift heights in mm for the coverage views (reach: lift down)")
-    ap.add_argument("--mounts", default="straight,tilt30", help="the real mounts to draw")
+    ap.add_argument("--mounts", default="tilt30,straight", help="the real mounts to draw")
     ap.add_argument("--sweep-tilt", default="0:45:5", help="down-tilts to score, start:stop:step degrees; '' for none")
     args = ap.parse_args()
 
