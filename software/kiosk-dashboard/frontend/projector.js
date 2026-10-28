@@ -171,7 +171,8 @@
 
   // The stage pages' show loading and their local videos (GET /api/stage, Choreography #479): a local
   // copy on the box plays with no Wi-Fi; otherwise a page buffers the show before it may start. A page
-  // that ran dry mid-show is a stall, and the tablet then plays the music.
+  // that ran dry mid-show is a stall: the tablet takes the music only if it holds a copy, and music chosen
+  // for the stage box has none (#591), so the line does not say who has it.
   function stageStatus(j) {
     const lines = [], loads = Array.isArray(j && j.preload) ? j.preload : [];
     loads.forEach((p, i) => {
@@ -184,7 +185,7 @@
       lines.push(`${who}${p.id ? esc(p.id) + ": " : ""}${s}`);
     });
     for (const st of (j && j.stalls) || []) {
-      lines.push(`<span class="pj-bad">stalled at ${Number(st.at_s || 0).toFixed(1)} s — the tablet has the music</span>`);
+      lines.push(`<span class="pj-bad">stalled at ${Number(st.at_s || 0).toFixed(1)} s: the page ran out of data</span>`);
     }
     if (j && j.show && j.show.muted) lines.push(`<span class="pj-bad">stage pages silent for this show</span>`);
     const info = Array.isArray(j && j.pages_info) ? j.pages_info.find((x) => x && "media_items" in x) : null;
