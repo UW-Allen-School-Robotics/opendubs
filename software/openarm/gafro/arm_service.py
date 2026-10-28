@@ -59,8 +59,9 @@ from arm_client import send, socket_for  # noqa: E402,F401  -- `ctl`, and the te
 from engage import DEFAULT_MODEL, EngageRefused, PermitKeeper, permit_groups  # noqa: E402
 
 # How long `activate` and `park` take, seconds, whatever the distance. Stow to ready (joint 4 travels 1.8 rad, the most) peaks at 1.875 * 1.8 / 5 = 0.68 rad/s. Measured on the
-# arm (2026-10-26): 11.2 s and 7 s track within 10 mrad, 5 s within 11 mrad, and 3 s does not: the path asks 1.15 rad/s and the driver tops out at 1.0, so the arm lags by up to
-# 79 mrad. trajectory.Limits therefore refuses a path over 1.0 rad/s (stow to ready: under about 3.4 s), so a time the arm cannot follow is refused, not played.
+# arm (2026-10-26, with the driver's max_velocity at its default 1.0): 11.2 s and 7 s track within 10 mrad, 5 s within 11 mrad, and 3 s does not: the path asks 1.15 rad/s, so the arm
+# lags by up to 79 mrad. trajectory.Limits refuses a path over its max_speed, so a time the arm cannot follow is refused, not played: 1.0 then (stow to ready under about 3.4 s),
+# 3.5 now that the driver is given the same (stow to ready under about 1 s). The 5 s here is the measured one, and is not changed by the raise.
 MOVE_SECONDS = 5.0
 COMMANDS = ("status", "activate", "park", "follow", "hold", "down", "supervise", "unsupervise")
 
@@ -480,6 +481,9 @@ def main() -> int:
     if bringup.gate(args, motion=False):    # the bus must be to ourselves; nothing moves until a command, which is gated again
         return 1
 
+    if args.backend == "hardware":
+        for warning in guards.driver_speed_warnings(args.hardware_config, permit_groups(args.side), trajectory.Limits().max_speed):
+            print(f"warning: {warning}", flush=True)
     robot, _, _ = bringup.connect(args)
     service = ArmService(robot, args)
     service.watch()

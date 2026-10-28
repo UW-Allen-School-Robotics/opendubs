@@ -31,12 +31,16 @@ VIBRATION_SAMPLES = 6
 @dataclasses.dataclass
 class Limits:
     """STARTING VALUES, the ones play_show.py has (none has been run on an arm for a show)."""
-    max_speed: float = 1.0            # rad/s: a faster path is refused. The driver tops out at 1.0: a 1.15 rad/s path lagged by 79 mrad on the arm (2026-10-26)
+    max_speed: float = 3.5            # rad/s: a faster path is refused. Raised from 1.0 (2026-10-28, #474): 1.0 was the bring-up value, the driver's `max_velocity` default, and a 1.15 rad/s path
+                                      # lagged 79 mrad on the arm (2026-10-26) because of its ramp. 3.5 clears the show caps' smoothed peaks (the dances peak at 3.25). The motors' ranges are
+                                      # 5.4-20.9 rad/s and the driver trips at 6 (4.9 on J3, J4). The driver must be given the same: `max_velocity` in the robot's hardware config
+                                      # (hardware.example.yaml; guards.driver_speed_warnings says at start if it is not). NOT run on an arm at this speed: check with a person present.
     start_tolerance_deg: float = 3.0  # the arm must start this near the path's first point
     max_error: float = 0.2            # rad from the path: stop
     goal_tolerance: float = 0.05      # rad from the path's end at the end (the simulator ends 0.034 short: position mode has no integral action)
     max_torque: float = 12.0          # N m
-    max_joint_speed: float = 2.5      # rad/s for ~12 ms: vibration, stop
+    max_joint_speed: float = 4.5      # rad/s for ~12 ms: vibration, stop, for a path (pose_follow keeps 2.5). Was 2.5 under the 1.0 rad/s path limit; at 2.5 a 3.2 rad/s path stopped itself in the simulator (VIBRATION on joint 4).
+                                      # It must sit above max_speed plus the tracking lag, and under the driver's own trip (6 rad/s, 4.9 on J3 and J4)
     gain: float | None = None         # the position controller's (`follow_path` of controllers.yaml) unless named: these five
     max_lead: float | None = None
     leash: float | None = None
