@@ -7,8 +7,9 @@ Topics (under the node's namespace, /perception in tools/hand_stack.sh):
                                                  frame (camera_color_optical_frame: x right, y down, z forward, metres),
                                                  stamped with the image. Nothing is published for a lost or rough palm,
                                                  so a follower's "fresh palm" test is also its "trustworthy palm" test.
-  hand/state         std_msgs/String (JSON)      every processed frame: person distance and, per side, the source, xyz
-                                                 and whether it was published; for watching (`ros2 topic echo`).
+  hand/state         std_msgs/String (JSON)      every processed frame: person distance; per side the palm's source, xyz
+                                                 and whether it was published, and the shoulder's xyz (pose + depth),
+                                                 all in the same frame. tools/hand_follow.py follows from this.
 <side> is the person's own hand (palm.py): `right` is their right hand.
 
 --follow (palm.py's sources):
@@ -189,10 +190,12 @@ def main(argv=None):
             rgb, depth_m = image_to_numpy(rgb_msg), image_to_numpy(deserialize_message(depth_raw, Image))
             depth_m[~np.isfinite(depth_m)] = 0
             k = frames.info.k
-            person_z, palms = tracker.track(rgb, depth_m, (k[0], k[4], k[2], k[5]), stamp)
+            person_z, palms, shoulders = tracker.track(rgb, depth_m, (k[0], k[4], k[2], k[5]), stamp)
             n += 1
             state = {"v": 1, "stamp": stamp, "frame": rgb_msg.header.frame_id,
-                     "person_z": None if person_z is None else round(float(person_z), 3), "palms": {}}
+                     "person_z": None if person_z is None else round(float(person_z), 3), "palms": {},
+                     "shoulders": {s: None if shoulders.get(i) is None else [round(float(c), 4) for c in shoulders[i]]
+                                   for i, s in enumerate(SIDES)}}
             for i, side in enumerate(SIDES):
                 palm = palms.get(i)
                 src, xyz = (palm[0], palm[2]) if palm else (None, None)

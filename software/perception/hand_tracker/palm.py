@@ -247,8 +247,8 @@ class PalmTracker:
         self._last_ms = -1
 
     def track(self, rgb, depth_m, K, stamp_s):
-        """(person distance or None, {side index: (source, (u, v), xyz) or None}) for one frame. K = (fx, fy, cx, cy);
-        depth in metres, aligned to colour (resized to it if the driver's differs)."""
+        """(person distance or None, {side index: (source, (u, v), xyz) or None}, {side index: shoulder xyz or None}) for
+        one frame. K = (fx, fy, cx, cy); depth in metres, aligned to colour (resized to it if the driver's differs)."""
         h, w = rgb.shape[:2]
         if depth_m.shape != (h, w):
             import cv2
@@ -278,4 +278,12 @@ class PalmTracker:
         for side in ((0, 1) if idx is not None else sorted(by_side)):
             palms[side] = track_palm(by_side.get(side), pose_lm, side, depth_m, K, w, h, self.min_vis,
                                      self.occl_tol, self.arm_tol, world.get(side))
-        return (person_z if idx is not None else None), palms
+        # The person's shoulders, with depth: whether a hand is held out in front is a matter of where it is against its
+        # shoulder (a follower asks it in a frame that knows which way is up)
+        shoulders = {}
+        if pose_lm is not None:
+            for side, j in ((0, L_SHOULDER), (1, R_SHOULDER)):
+                p = pose_lm[j]
+                z = sample_depth(depth_m, p.x * w, p.y * h, r=6) if p.visibility > self.min_vis else None
+                shoulders[side] = deproject(p.x * w, p.y * h, z, K) if z else None
+        return (person_z if idx is not None else None), palms, shoulders
