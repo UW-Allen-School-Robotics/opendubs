@@ -34,7 +34,9 @@ THIS = Path(__file__).resolve()
 TARGETS = {
     "opendubs-urdf": ("description/opendubs/gen_urdf.py",
                       ["description/opendubs/dimensions.yaml"],
-                      ["description/opendubs/opendubs.urdf"]),
+                      ["description/opendubs/opendubs.urdf",
+                       "description/opendubs/opendubs-femto-straight.urdf",
+                       "description/opendubs/opendubs-femto-tilt30.urdf"]),
     "openarm-chain": ("tools/arm_chain.py",
                       ["description/openarm/urdf/v1.urdf"],
                       ["description/openarm/chain.json"]),
