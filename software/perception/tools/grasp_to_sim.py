@@ -133,6 +133,26 @@ def camera_to_base(up_cam, cam_xyz, yaw_deg):
     return t
 
 
+def retilt(t_base_cam, t_base_tilt, pitch_deg):
+    """The camera pose turned about the head's tilt axis (t_base_tilt's +y through its origin; + tips the face down)
+    until the camera's pitch is `pitch_deg` down. Returns (pose, the turn in degrees)."""
+    axis, origin = t_base_tilt[:3, 1] / np.linalg.norm(t_base_tilt[:3, 1]), t_base_tilt[:3, 3]
+
+    def turned(delta):
+        k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+        r = np.eye(3) + math.sin(delta) * k + (1 - math.cos(delta)) * (k @ k)    # Rodrigues
+        t = np.eye(4)
+        t[:3, :3] = r @ t_base_cam[:3, :3]
+        t[:3, 3] = r @ (t_base_cam[:3, 3] - origin) + origin
+        return t
+
+    delta = 0.0
+    for _ in range(5):                  # the pitch is not quite linear in the turn when the head is panned
+        up = turned(delta)[:3, :3].T @ np.array([0.0, 0.0, 1.0])
+        delta += math.radians(pitch_deg - camera_tilt(up)[0])
+    return turned(delta), math.degrees(delta)
+
+
 def camera_tilt(up_cam):
     """(pitch down, roll right) of the camera, degrees, from the world's up in its optical frame."""
     up = np.asarray(up_cam, float) / np.linalg.norm(up_cam)
@@ -370,6 +390,9 @@ def main():
     ap.add_argument("--label", default="bottle")
     ap.add_argument("--arm-frame", default=ARM_FRAME, help="the TF frame at the arm model's root")
     ap.add_argument("--tf-topics", default="", help="extra TF topics, comma-separated (e.g. a private robot_state_publisher's)")
+    ap.add_argument("--head-tilt-from", choices=("imu", "neck"), default="imu",
+                    help="imu: the head's tilt is the camera accelerometer's measurement (the neck reports its commanded angle, "
+                         "which its stop can keep it short of); neck: the neck's report as TF has it")
     ap.add_argument("--max-tilt-disagree-deg", type=float, default=3.0,
                     help="stop when TF's up and the camera IMU's differ by more than this")
     ap.add_argument("--cam-xyz", default=None, help="MANUAL mode, instead of TF: the colour camera's position in the arm frame, metres")
@@ -456,8 +479,21 @@ def main():
                        "from head_joint_relay, plus the Orbbec driver's camera_link frames")
             raise SystemExit(f"no transform {args.arm_frame} <- {CAMERA_FRAME}: {why}")
         tf_up = t_base_cam[:3, :3].T @ np.array([0.0, 0.0, 1.0])
-        disagree = math.degrees(math.acos(max(-1.0, min(1.0, float(tf_up @ up_cam)))))
         tf_pitch, tf_roll = camera_tilt(tf_up)
+        if args.head_tilt_from == "imu":
+            # The neck reports the tilt it was COMMANDED to (no encoder): against its stop the head is short of it. The
+            # camera's accelerometer measures the real one, so turn the camera about the head's own tilt axis (TF's
+            # head_tilt_link, which carries the live pan) until its pitch is the measured pitch.
+            try:
+                t_tilt = tf.lookup(args.arm_frame, "head_tilt_link", data.get("stamp"))
+            except LookupError as error:
+                raise SystemExit(f"no transform {args.arm_frame} <- head_tilt_link ({error}): needed for --head-tilt-from imu")
+            t_base_cam, delta = retilt(t_base_cam, t_tilt, camera_tilt(up_cam)[0])
+            print(f"camera tilt (neck): {tf_pitch:.1f} deg down; measured (IMU) {camera_tilt(up_cam)[0]:.1f}: "
+                  f"turned {delta:+.1f} deg about head_tilt to the measured tilt")
+            tf_up = t_base_cam[:3, :3].T @ np.array([0.0, 0.0, 1.0])
+            tf_pitch, tf_roll = camera_tilt(tf_up)
+        disagree = math.degrees(math.acos(max(-1.0, min(1.0, float(tf_up @ up_cam)))))
         print(f"camera tilt (TF):  {tf_pitch:.1f} deg down, roll {tf_roll:+.1f} deg -> {disagree:.1f} deg from the IMU's")
         if disagree > args.max_tilt_disagree_deg:
             raise SystemExit(f"TF and the camera's IMU disagree about up by {disagree:.1f} deg (limit "
