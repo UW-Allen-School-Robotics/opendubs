@@ -13,7 +13,6 @@ FOLLOWABLE, by policy (followable()):
   hand (default)  any point ON THE HAND with ToF depth: the palm, a single hand landmark (`hand:<NAME>`, `?` when fewer
                   than 3 agree), the palm with a wider depth sample (`hand:PALM(wide)`), or the pose model's hand points
                   (`pose:PALM(...)`, `pose:WRIST`, ...). Whatever part of the hand the camera sees, at any height of person.
-  palm            the prototype's: only the hand landmarker with ToF depth on at least 3 landmarks.
 Never followable: the distance from the hand's size alone (`hand:PALM(size)`: 0.3-0.8x the true distance) and the
 elbow (`pose:ELBOW`, not the hand). Those are reported, so a follower can hold, never steered by.
 
@@ -48,7 +47,7 @@ PALM_POINTS = [0, 5, 9, 13, 17]          # wrist + finger MCPs outline the palm
 PALM_SEGMENTS = [(0, 5), (0, 9), (0, 17), (5, 17), (5, 9), (9, 17)]
 
 
-def followable(source: str | None, policy: str = "hand") -> bool:
+def followable(source: str | None, policy: str = "palm") -> bool:
     if not source or source.endswith("(size)") or source == "pose:ELBOW":
         return False
     if policy == "palm":

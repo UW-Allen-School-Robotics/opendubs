@@ -48,7 +48,7 @@ def main(argv=None):
     ap.add_argument("--occl-tol", type=float, default=0.05, help="m; depth gap that splits a hand's landmarks into clusters")
     ap.add_argument("--arm-tol", type=float, default=0.45, help="m; pose hand points farther than this from the elbow are rejected")
     ap.add_argument("--always", action="store_true", help="process every frame, subscribers or not")
-    ap.add_argument("--follow", choices=POLICIES, default="hand",
+    ap.add_argument("--follow", choices=POLICIES, default="palm",
                     help="what is published as a palm: hand = any point on the hand with depth, palm = the palm only (palm.py)")
     ap.add_argument("--delegate", choices=("gpu", "cpu"), default="gpu",
                     help="where MediaPipe runs (gpu: 9 ms a landmarker on the Thor, cpu: 25-35 ms; gpu needs --runtime nvidia)")

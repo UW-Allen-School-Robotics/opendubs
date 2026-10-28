@@ -41,12 +41,12 @@ THE FRAMES, end to end:
                                          (openarm_right_hand_tcp) in this frame.
 
 THE TARGET, by --mode:
-  relative (default)  the arm's hand moves as the person's hand moves, from where each was when tracking (re)started:
+  absolute (default)  the palm itself, in arm_mount: direct. A palm beyond --max-reach of the shoulder is reached TOWARD:
+                      the point at the reach on the line from the shoulder to the palm (--standoff stops short of it).
+  relative            the arm's hand moves as the person's hand moves, from where each was when tracking (re)started:
                       goal = hand_then + --gain * M (palm_now - palm_then), both in arm_mount, M by --mapping:
-                      body (default) the person's own frame, facing the robot: their right is the arm's right, toward the
-                      robot is its forward, up is up; world: the same direction in the room. Where the person stands does
-                      not matter.
-  absolute            the palm itself, --standoff short of it toward the shoulder, between --min-reach and --max-reach.
+                      body the person's own frame, facing the robot: their right is the arm's right, toward the robot is
+                      its forward, up is up; world: the same direction in the room.
 Then inside --box (a generous safety box: the workspace is the IK's), low-passed (--smooth-s) and speed-limited
 (--max-speed), and solved by PositionIk for the right arm alone: the pose of the solution is sent, its orientation the
 IK's.
@@ -54,8 +54,8 @@ IK's.
 HOLDING, so the arm never drops: once a target has been sent, every tick sends one. Stopped, a palm older than --stale-s
 (occluded, out of view, a rough palm, the tracker stopped) or no transform: the LAST COMMANDED pose is sent again, latched
 (never the measured hand, which a sagging arm would walk down). When the palm comes back, following goes on from the held
-pose, low-passed and speed-limited, so there is no jump. Only when this process ends does the arm service's own reference
-go stale (it holds too: Staleness.Hold).
+pose, low-passed and speed-limited, so there is no jump. When this process ends (Ctrl-C, TERM from `hand_follow.sh down`)
+it tells the arm service to `hold`: the follow ends and the arm stays where it is, by the service's own controller.
 
 Nothing here reaches a real arm: targets go only to --sim-domain, which must differ from the robot's. The real arm service
 reads the same right/target, so what is tuned here is what it would follow.
@@ -274,7 +274,7 @@ class PositionIk:
     asked for one it can only approach into a joint limit (it stalled 150-500 mm short of most of the workspace when the
     orientation was held). An unreachable position is solved to the nearest reachable one."""
 
-    def __init__(self, model_spec, side="right", margin=0.05, damping=0.05, posture_gain=0.1):
+    def __init__(self, model_spec, side="right", margin=0.05, damping=0.05, posture_gain=0.1, min_elbow=0.35):
         import mujoco
         from gafro_ri_ros2_bridge.models import resolve_model
         self.mj = mujoco
@@ -287,6 +287,10 @@ class PositionIk:
         self.qadr = np.array([self.m.jnt_qposadr[j] for j in jids])
         self.dadr = np.array([self.m.jnt_dofadr[j] for j in jids])
         self.lo, self.hi = self.m.jnt_range[jids, 0] + margin, self.m.jnt_range[jids, 1] - margin
+        # The elbow (joint 4) kept bent: straight, the arm is singular and the pose controller oscillates there. Seen on the
+        # simulated arm: joint 4 driven to -2.3 deg, the service's guard stopped the follow (VIBRATION in joint 4).
+        # At full reach the arm points at the hand a little short of straight instead.
+        self.lo[3] = max(self.lo[3], min_elbow)
         self.damping, self.posture_gain = damping, posture_gain
         self.posture = self.d.qpos[self.qadr].copy()
         self.jacp, self.jacr = np.zeros((3, self.m.nv)), np.zeros((3, self.m.nv))
@@ -348,7 +352,7 @@ def main():
     ap.add_argument("command", nargs="?", default="run", choices=("run", "frames"))
     ap.add_argument("--hand", default="right", choices=("left", "right"),
                     help="which of the person's hands (hand_tracker/palm.py)")
-    ap.add_argument("--mode", default="relative", choices=("relative", "absolute"))
+    ap.add_argument("--mode", default="absolute", choices=("absolute", "relative"))
     ap.add_argument("--mapping", default="body", choices=tuple(MAPPINGS), help="relative mode: whose frame the motion is in")
     ap.add_argument("--gain", type=float, default=1.0, help="relative mode: metres of arm per metre of hand")
     ap.add_argument("--palm-topic", default=None, help="default /perception/hand/<hand>/palm")
@@ -358,14 +362,14 @@ def main():
     ap.add_argument("--tf-topics", default="", help="extra TF topics, comma-separated (a private robot_state_publisher's)")
     ap.add_argument("--head-tilt-from", choices=("imu", "neck"), default="imu")
     ap.add_argument("--max-tilt-disagree-deg", type=float, default=3.0)
-    ap.add_argument("--standoff", type=float, default=0.10, help="m the hand stops short of the palm, toward the shoulder")
+    ap.add_argument("--standoff", type=float, default=0.0, help="absolute mode: m the hand stops short of the palm, toward the shoulder")
     ap.add_argument("--min-reach", type=float, default=0.25, help="m from the shoulder, at least")
-    ap.add_argument("--max-reach", type=float, default=0.55, help="m from the shoulder, at most")
+    ap.add_argument("--max-reach", type=float, default=0.60, help="m from the shoulder, at most: a palm farther is reached toward")
     ap.add_argument("--box", default="0.05,0.85,-0.85,0.50,0.15,1.40",
                     help="x0,x1,y0,y1,z0,z1: the goal is kept inside this box in arm_mount, metres. A safety box, larger "
                          "than the reach: the IK solves what is out of reach to the nearest reachable point")
-    ap.add_argument("--smooth-s", type=float, default=0.20, help="time constant of the target's low-pass")
-    ap.add_argument("--max-speed", type=float, default=0.30, help="m/s the target may move at")
+    ap.add_argument("--smooth-s", type=float, default=0.08, help="time constant of the target's low-pass")
+    ap.add_argument("--max-speed", type=float, default=0.50, help="m/s the target may move at (0.5: the arm service's own pose limit)")
     ap.add_argument("--stale-s", type=float, default=0.60, help="a palm older than this is not followed")
     ap.add_argument("--rate", type=float, default=50.0)
     ap.add_argument("--start", action="store_true", help="following from the start, as if /perception/hand_follow/start was called")
@@ -379,6 +383,8 @@ def main():
     ap.add_argument("--sim-domain", type=int, default=78)
     ap.add_argument("--reference", default="right")
     ap.add_argument("--model", default=g2s.REPO_MODEL if os.path.exists(g2s.REPO_MODEL) else "openarm_assets:bimanual")
+    ap.add_argument("--arm-socket", default=os.environ.get("HAND_ARM_SOCKET"),
+                    help="the arm service's command socket, told to `hold` when this exits (hand_follow.sh sets it)")
     args = ap.parse_args()
     if args.sim_domain == args.robot_domain:
         raise SystemExit("--sim-domain must differ from the robot's domain: the simulation's joint_states would reach the robot")
@@ -626,10 +632,34 @@ def main():
         pass
     finally:
         g2s.shutdown_all(rclpy)
+        hold_arm(args.arm_socket, args.reference)
     return 0
 
 
+def hold_arm(socket_path, side):
+    """THE END: this process stops sending targets, so the arm service is told to hold (its `hold`: the follow ends and
+    the arm stays where it is, by its own controller), rather than left to treat a silent reference however it does.
+    `hand_follow.sh up` starts the service's follow again."""
+    import subprocess
+    service = os.path.join(HERE, "..", "..", "openarm", "gafro", "arm_service.py")
+    if not socket_path or not os.path.exists(socket_path):
+        print(f"exit: no arm service socket at {socket_path!r}: nothing told to hold", file=sys.stderr, flush=True)
+        return
+    try:
+        out = subprocess.run([sys.executable, service, "ctl", "--side", side, "--socket", socket_path, "hold"],
+                             capture_output=True, text=True, timeout=10)
+        print(f"exit: arm service: {(out.stdout or out.stderr).strip()}", flush=True)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"exit: could not tell the arm service to hold: {error}", file=sys.stderr, flush=True)
+
+
+def _sigterm(*_):
+    raise KeyboardInterrupt      # `hand_follow.sh down` sends TERM: the same way out as Ctrl-C, so the arm is held
+
+
 if __name__ == "__main__":
+    import signal
+    signal.signal(signal.SIGTERM, _sigterm)
     try:
         code = main()
     finally:

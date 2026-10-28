@@ -22,6 +22,7 @@ export GRASP_SIM_DIR="${HAND_SIM_DIR:-${TMPDIR:-/tmp}/hand-sim-${USER}}"
 DASH="${OPENDUBS_DASH:-http://127.0.0.1:8080}"
 WS="${ROBOT_API_WS:-$HOME/robot_api_ws}"
 FOLLOW_PID="${GRASP_SIM_DIR}/follow.pid"
+export HAND_ARM_SOCKET="${GRASP_SIM_DIR}/arm-right.sock"   # the follower tells it to `hold` when it exits
 ros() {
   # robot_api_interfaces: perception_call.sh builds it into ~/robot_api_ws the first time
   [[ -f "${WS}/install/setup.bash" ]] || "${HERE}/perception_call.sh" status >/dev/null 2>&1 || true
@@ -39,7 +40,8 @@ case "${cmd}" in
     mkdir -p "${GRASP_SIM_DIR}"
     "${HERE}/hand_stack.sh" up
     if alive "${GRASP_SIM_DIR}/pids"; then
-      echo "sim: already running"
+      # a follower that exited left the arm service holding: following right/target again
+      echo "sim: already running; $("${HERE}/grasp_to_sim.sh" ctl follow 2>&1 | tail -1)"
     else
       setsid nohup "$0" sim > "${GRASP_SIM_DIR}/sim.out" 2>&1 < /dev/null &
       wait_log "${GRASP_SIM_DIR}/sim.out" "following right/target" 90 \
