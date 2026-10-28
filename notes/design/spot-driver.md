@@ -20,15 +20,17 @@ Nothing is built and nothing has been sent to a Spot.**
 - **Per-unit values stay off the repository:** Spot's address, its credentials, and its limits once
   measured.
 
-## Open: for the maintainers
+## This Spot (from the maintainers, 2026-10-27)
 
-1. **The arm.** Is the arm and gripper fitted? ENCORE's `spot@arm-v1` assumes it; without it, any show
-   with ARM or GRIP is refused.
-2. **The software release** (on Spot's tablet: Settings, About). `bosdyn-client` is pinned to match it.
-3. **The Choreography licence.** Boston Dynamics' Choreography service needs one. Without it, the body,
-   arm and jaw cues still play, but Spot can't step on the beat.
-4. **Who holds the stops.** Recommended: two people for the first runs, one on opendubs2's deadman and
-   one on Spot's E-Stop.
+- **The arm and gripper are fitted,** so ENCORE's `spot@arm-v1` profile applies.
+- **The latest software release.** Confirmed at the robot, and updated there if needed.
+  `bosdyn-client` is pinned to whatever release it reports.
+- **No Choreography licence.** The driver uses only the basic mobility, arm and gripper commands. It
+  doesn't use the Choreography service or uploaded dance sequences.
+- **One person runs a two-robot show** and must be able to reach both stops: opendubs2's deadman and
+  e-stop, and Spot's E-Stop (its tablet or controller). The two are separate devices. Letting go of
+  opendubs2's deadman ends the run, and the driver then stops Spot (see Stopping); Spot's own E-Stop
+  stays the backstop for Spot.
 
 ## Spot's interface
 
@@ -43,34 +45,38 @@ Hygiene checks its licence before this repository is public.
   driver reads the E-Stop status (read-only) and refuses to power on or send while no endpoint is
   registered, or one is stopped. Where a stop level is chosen, SETTLE_THEN_CUT (Spot sits, then power is
   cut) over CUT (power cut at once: Spot drops).
-- **Two ways to move Spot:**
-  - **A. Plain commands (no licence), built first.** ENCORE's spec:
-    - BODY: a stand command whose mobility parameters carry a `base_offset_rt_footprint` SE3 trajectory
-      (the body moves over planted feet);
-    - ARM: an `ArmJointTrajectory`, six joints with velocities;
-    - GRIP: a claw-gripper open-fraction trajectory (the jaw: 0 closed, 1 open);
-    - BASE: an SE2 trajectory (where Spot stands; Spot plans its own steps);
-    - one synchro command per window (20 s, a placeholder), each with a `reference_time` from TimeSync.
-  - **B. The Choreography service (licence needed), added later if available.** Spot's own dance engine:
-    a sequence cut into quarter-beat slices at one tempo, started at a time on Spot's clock, with
-    ENCORE's keyframes uploaded as animated moves. Only B can step on the beat (`march`).
+- **Moving Spot: the basic commands only,** as ENCORE's spec has them:
+  - BODY: a stand command whose mobility parameters carry a `base_offset_rt_footprint` SE3 trajectory
+    (the body moves over planted feet);
+  - ARM: an `ArmJointTrajectory`, six joints with velocities;
+  - GRIP: a claw-gripper open-fraction trajectory (the jaw: 0 closed, 1 open);
+  - BASE: an SE2 trajectory: where Spot stands. Spot plans its own steps and their timing, so a BASE move
+    arrives roughly when asked, never step by step on the beat;
+  - one synchro command per window (20 s, a placeholder), each with a `reference_time` from TimeSync.
 - **The mouth.** The gripper's jaw, GRIP `open`. The arm is unfolded and folded by the show itself
   (`spot.unstow`, `spot.settle`).
 
 ## Mapping ENCORE's cues
 
-| Cue | Parts | Mode A | Notes |
+Re-checked against the basic commands, with no Choreography licence:
+
+| Cue | Parts | Plays | Notes |
 |---|---|---|---|
 | `spot.unstow`, `spot.settle` | ARM (+ BODY, GRIP) | yes | |
-| `spot.head_bob`, `spot.head_tilt`, `spot.wag` | BODY, ARM | yes | |
+| `spot.head_bob`, `spot.head_tilt`, `spot.wag` | BODY, ARM | yes | the body and arm keep the beat: both are timed trajectories |
 | `spot.howl` | ARM, GRIP, BODY | yes | the jaw opens on the note |
 | `spot.play_bow` | ARM, BODY | yes | front down, within the body's pitch range |
-| `spot.sniff`, `spot.sniff_slow_lift` | ARM, BODY, BASE | yes | the 0.15 m creep forward is Spot's own gait |
-| `spot.turn` | BASE | yes | turns up to 60 deg; Spot's own steps |
 | Duet's BODY track | BODY | yes | |
-| `spot.march` | BASE `march`, `y` | **B only** | in A the side-steps play and the march is dropped, said in the log |
+| `spot.sniff`, `spot.sniff_slow_lift` | ARM, BODY, BASE | **mostly** | the head and body play on time; the 0.15 m creep forward and back is Spot's own steps, roughly on time |
+| `spot.turn` | BASE | **loosely** | the turn (up to 60 deg) arrives roughly when asked, in Spot's own steps, not stepping on the beats; with `march: 1` the march is dropped |
+| `spot.march` | BASE `march`, `y` | **mostly not** | the side-steps (±0.09 m) play loosely in Spot's own steps; marching in place on the beat doesn't: the basic commands have no step-in-place. The driver drops `march` and says so in the log |
 | `spot.react` (rule) | | **refused** | needs `touch` and `person_seen` events Spot doesn't produce yet |
 | `spot.wag_policy`, `spot.keyboard` | | **refused** | a live stream needs the runtime guard in the driver: the last step of the rollout |
+
+So for the Werewolves show, every head, body and jaw cue plays on the beat. Spot's stepping (the
+marches and the turn) plays loosely or not at all. ENCORE's preview still draws Spot stepping on the
+beats: a gap Choreography may want ENCORE to show, through a `spot` profile flag for a build without
+the licence.
 
 **Limits.** The profile's body ranges and speed caps are placeholders, not Boston Dynamics' figures.
 Before a run, the driver re-checks every point against the limits Spot reports and those measured,
@@ -123,8 +129,8 @@ FACE tracks stay opendubs2's.
   service, and the person's E-Stop stays the backstop. What Spot actually does is checked with its
   motors off, before it ever stands.
 - **Rollout, one step per GO, a person on Spot's E-Stop throughout:**
-  1. Connect read-only, motors off: the release, the licences, the limits, the E-Stop status, the
-     lost-link behaviour.
+  1. Connect read-only, motors off: the release (updated first if it isn't the latest), the limits,
+     the E-Stop status, the lost-link behaviour.
   2. Power on, stand, stop, sit.
   3. One body-only track (Duet's BODY).
   4. The arm and jaw (`spot.howl`).
