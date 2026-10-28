@@ -64,6 +64,16 @@ PY
     echo "logs in ${SIM_DIR}; Ctrl-C (or grasp_to_sim.sh stop) ends it" >&2
     wait "${service}"
     ;;
+  reset)
+    # the simulated arm back to `ready`, then following again. `status` keeps "last: activate done" from the previous
+    # activate, so wait for this one to start and then to leave "running", not for that text
+    set +u; source /opt/gafro/setup.bash
+    ctl() { python3 "${REPO}/software/openarm/gafro/arm_service.py" ctl --side right --socket "${SOCKET}" "$@"; }
+    ctl hold >/dev/null
+    ctl activate --allow-large
+    for _ in $(seq 40); do sleep 0.5; ctl status | head -1 | grep -q "activate running" || break; done
+    ctl follow
+    ;;
   ctl)
     set +u; source /opt/gafro/setup.bash
     exec python3 "${REPO}/software/openarm/gafro/arm_service.py" ctl --side right --socket "${SOCKET}" "$@"
