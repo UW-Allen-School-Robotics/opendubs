@@ -327,6 +327,18 @@ DAY=1 SHOW=architect-ce957446f66e tools/dev.sh listen              # the listene
 FAKE=1 SHOW=architect-ce957446f66e tools/dev.sh day                # a desk: no palette, nobody seen
 ```
 
+**At boot.** `SHOW=architect-ce957446f66e tools/dev.sh install` installs three systemd units from
+`deploy/` (camera, listener with `DAY=1`, coordinator), filled in with this checkout, and starts
+them; `dev.sh uninstall` removes them, `dev.sh status` says whether they run. They are TEST units,
+like `archit-perception`'s: no deploy or provisioner touches them, and they run this checkout, so
+they move to a `main` checkout once this merges. The coordinator starts **PAUSED**, so a robot
+switched on for other work never arms a show by itself. On the day:
+
+```sh
+curl -X POST 127.0.0.1:8096/api/resume      # begin: patrol, visitors, candy, the random shows
+curl -X POST 127.0.0.1:8096/api/pause       # stop everything (only resume restarts it)
+```
+
 ## Routing around the body (the show path)
 
 `live_arms.Planner` moves an arm in a smoothed straight line in joint space and refuses a move that

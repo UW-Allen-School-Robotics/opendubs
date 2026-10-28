@@ -25,6 +25,11 @@
 #                                  is a stub (moves nothing) until the nav stack is here; who is near comes from
 #                                  the perception services. FAKE=1: no palette and nobody seen, for a desk.
 #                                  Start the listener with DAY=1 so "trick or treat" asks it first
+#   dev.sh install                 start camera, listen and day at boot: the systemd units in deploy/, filled in with
+#                                  this checkout (REPO), DATA, SHOW and you; enabled and started now. TEST UNITS, like
+#                                  archit-perception's: no deploy or provisioner installs or touches them. The
+#                                  coordinator starts PAUSED (curl -X POST 127.0.0.1:8096/api/resume on the day)
+#   dev.sh uninstall               stop and remove them;   dev.sh status: whether they run
 #   dev.sh camera                  the Orbbec's colour image as a small JPEG on 127.0.0.1:8097/frame.jpg, for the
 #                                  dashboard's ARCHITECT tab (archit-architect-camera; read-only, subscribed only
 #                                  while asked; joins archit-perception-camera's IPC, as the perception server does)
@@ -77,6 +82,10 @@ LISTENER=archit-architect-listener
 ARMS_NAME=archit-architect-arms
 CAMERA_NAME=archit-architect-camera
 DAY_NAME=archit-architect-day
+# FOREGROUND=1: camera, listen and day run in the foreground (the boot units' way: systemd keeps them)
+DETACH=-d
+[ "${FOREGROUND:-0}" = 1 ] && DETACH=""
+UNITS=(archit-architect-camera archit-architect-listener archit-architect-day)
 PERCEPTION_CAMERA=archit-perception-camera
 
 # The arm stack's joint_limits.yaml, the file the show runner validates against: its drop-in binds the
@@ -178,7 +187,7 @@ camera() {  # the colour image for the dashboard tab, from the perception stack'
     echo "dev.sh: ${CAMERA_NAME} is already running; 'dev.sh down' first" >&2; exit 1
   fi
   # The driver hands frames over by shared memory: a container of its own discovers the topic and gets none.
-  ${DOCKER} run -d --rm --name "${CAMERA_NAME}" --network host --ipc "container:${PERCEPTION_CAMERA}" \
+  ${DOCKER} run ${DETACH} --rm --name "${CAMERA_NAME}" --network host --ipc "container:${PERCEPTION_CAMERA}" \
     -e ROS_DOMAIN_ID=0 -e PYTHONPATH=/work/software/architect -v "${REPO}:/work:ro" \
     "${IMAGE}" python3 -u -m opendubs_architect.camera_feed
   echo "started ${CAMERA_NAME}: http://127.0.0.1:8097/frame.jpg"
@@ -193,7 +202,8 @@ day() {  # the coordinator: reads the palette and the perception services, drive
   [ -n "${CHOREO:-}" ] && args="${args} --choreo ${CHOREO}"
   [ -n "${EVERY:-}" ] && args="${args} --every ${EVERY}"
   [ "${FAKE:-0}" = 1 ] && args="${args} --people fake --palette fake"
-  ${DOCKER} run -d --rm --name "${DAY_NAME}" --network host \
+  [ "${PAUSED:-0}" = 1 ] && args="${args} --start-paused"
+  ${DOCKER} run ${DETACH} --rm --name "${DAY_NAME}" --network host \
     -e ROS_DOMAIN_ID=0 -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 -e PYTHONPATH=/work/software/architect \
     -e OPENDUBS_ARCHITECT_ARMS=/data/architect-arms.yaml -v "${DATA}:/data" -v "${REPO}:/work:ro" \
     "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_day ${args} 2>&1 | tee /data/demo_day.log"
@@ -222,7 +232,7 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
     [ -d "${DATA}/models/butler" ] || { echo "dev.sh: no butler voice; run 'dev.sh butler' first (or VOICE=heart)" >&2; exit 1; }
     show="${show} --tts butler"
   fi
-  ${DOCKER} run -d --rm --name "${LISTENER}" --network host \
+  ${DOCKER} run ${DETACH} --rm --name "${LISTENER}" --network host \
     --device /dev/snd --group-add "${gid}" "${tts[@]}" \
     -e HOME=/data/home -w /data/home -e PYTHONPATH=/work/software/architect \
     -e OPENDUBS_VOICE_MODELS=/models -e HF_HUB_OFFLINE=1 -e HF_HOME=/tmp/hf \
@@ -233,6 +243,31 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
   if [ -n "${SHOW:-}" ]; then echo "started ${LISTENER}: the Jabra; trick or treat plays ${SHOW} (start ${START:-deadman})"
   else echo "started ${LISTENER}: the Jabra, say on 127.0.0.1:8099; start the runner with LISTEN=1"; fi
   echo "what it hears, live: ssh -L 8099:127.0.0.1:8099 <you>@opendubs2, then http://localhost:8099/"
+}
+
+install_units() {  # the boot units: deploy/*.service with this checkout, DATA, SHOW and the user filled in
+  [ -n "${SHOW:-}" ] || { echo "dev.sh: SHOW=<the candy routine> is needed" >&2; exit 1; }
+  local u
+  for u in "${UNITS[@]}"; do
+    sed -e "s|@REPO@|${REPO}|g" -e "s|@DATA@|${DATA}|g" -e "s|@SHOW@|${SHOW}|g" -e "s|@USER@|$(id -un)|g" \
+      "${REPO}/software/architect/deploy/${u}.service" | sudo -n tee "/etc/systemd/system/${u}.service" >/dev/null
+  done
+  sudo -n systemctl daemon-reload
+  for u in "${UNITS[@]}"; do   # a hand-started container of the same name would make the unit refuse
+    ${DOCKER} stop -t 5 "${u}" >/dev/null 2>&1 || true
+    sudo -n systemctl enable --now "${u}.service"
+  done
+  echo "installed and started: ${UNITS[*]} (from ${REPO}; the coordinator starts PAUSED)"
+}
+
+uninstall_units() {
+  local u
+  for u in "${UNITS[@]}"; do
+    sudo -n systemctl disable --now "${u}.service" 2>/dev/null || true
+    sudo -n rm -f "/etc/systemd/system/${u}.service"
+  done
+  sudo -n systemctl daemon-reload
+  echo "removed: ${UNITS[*]}"
 }
 
 case "${1:-}" in
@@ -259,6 +294,15 @@ case "${1:-}" in
     ;;
   day)
     day
+    ;;
+  install)
+    install_units
+    ;;
+  uninstall)
+    uninstall_units
+    ;;
+  status)
+    systemctl --no-pager --lines=0 status "${UNITS[@]/%/.service}" 2>/dev/null | grep -E "^. |Active:" || true
     ;;
   live)
     [ -n "${PROGRAM:-}" ] || echo "dev.sh: PROGRAM not set; the fixed program is examples/arms_wave.py" >&2
@@ -287,6 +331,6 @@ case "${1:-}" in
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}" 2>/dev/null || true
     ;;
   *)
-    sed -n '2,64p' "$0"; exit 1
+    sed -n '2,69p' "$0"; exit 1
     ;;
 esac

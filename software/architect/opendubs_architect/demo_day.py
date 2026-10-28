@@ -15,7 +15,9 @@ THE STATES. One at a time, IDLE_NAV the default:
     CHOREO     one of the 3-5 preprogrammed palette shows (arms, music, the face): a random pick every
                CHOREO_EVERY_S of patrolling, or spoken ("OpenDubs, dance", "... play monster mash")
     PAUSED     the operator's pause (POST /api/pause), or the e-stop: everything stops. Only the
-               operator's POST /api/resume leaves it, so an e-stop released does not restart the base
+               operator's POST /api/resume leaves it, so an e-stop released does not restart the base.
+               The boot unit starts here (--start-paused): a robot switched on for other work never
+               arms a show by itself
 
 THE RULES, each kept here and tested (tests/test_demo_day.py):
   * No show is started, and no candy granted, until the base is stopped and still (Nav.still).
@@ -497,6 +499,8 @@ def main(argv=None) -> int:
                     help="a random choreo pick after this long patrolling")
     ap.add_argument("--people", choices=("perception", "fake"), default="perception")
     ap.add_argument("--palette", choices=("dashboard", "fake"), default="dashboard")
+    ap.add_argument("--start-paused", action="store_true",
+                    help="start PAUSED (the boot unit's way): nothing is armed until POST /api/resume")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8096)
     args = ap.parse_args(argv)
@@ -517,6 +521,8 @@ def main(argv=None) -> int:
     people = PerceptionPeople() if args.people == "perception" else Nobody()
     co = Coordinator(StubNav(log), people, palette, safety, args.candy, args.choreo, log=log,
                      choreo_every=tuple(args.every))
+    if args.start_paused:
+        co.pause("started paused: POST /api/resume to begin the demo day")
 
     def loop():
         while True:
