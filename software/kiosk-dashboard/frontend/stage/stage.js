@@ -176,7 +176,6 @@
     if (!it) {                                       // between videos, or after: black (or the last frame held)
       const last = (show.videos || []).filter((v) => v.end_t <= at(v, st)).pop();
       if (!(last && last.end === "hold")) { video.pause(); video.hidden = true; }
-      keepVideo.dry = 0;                             // not playing: not running dry either
       return st;
     }
     if (video.dataset.url !== it.url) { video.dataset.url = it.url; video.src = src(it.url); }   // the box's copy, if it has one
@@ -184,9 +183,6 @@
     video.hidden = !!it.audio;                       // a song alone: heard, under the page's own scene
     if (show.muted && !video.muted) video.muted = true;     // the tablet took the music after a stall
     if (video.paused) {
-      // a (re)start clears the dry clock: one left from an earlier show reported every show's first frame,
-      // still loading, as a stall (opendubs2 2026-10-28: "ran out of video at -0.2 s", the Boom muted)
-      keepVideo.dry = 0;
       video.currentTime = want; video.muted = !!show.muted;
       video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });   // a browser may refuse sound
       keepVideo.synced = now;
