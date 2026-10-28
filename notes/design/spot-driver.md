@@ -104,8 +104,17 @@ FACE tracks stay opendubs2's.
 - **Stopping:**
   - When the runner leaves RUNNING (completed, aborted, e-stopped), the driver drops Spot's remaining
     windows and sends a stop: Spot holds its stand, the arm where it is, as opendubs2's arms do.
-  - Every command carries a short end time, so a driver that stops sending leaves Spot still, not
-    finishing a 20 s window.
+  - **This stop is best effort, not a safety function.** It crosses two network hops (the runner's
+    status to the driver, the driver to Spot) and depends on the driver being alive. Its latency, as a
+    target until measured at rollout step 6: the driver reads the runner's status at 10 Hz (up to
+    0.1 s), plus the Wi-Fi round trips and Spot taking the command, under 0.5 s in all from the runner
+    ending to Spot stopping. **Spot's own E-Stop is the real backstop** for Spot, as opendubs2's
+    deadman and e-stop are for opendubs2.
+  - A driver that stops sending leaves Spot finishing at most the window it already has. So windows
+    are kept short (about 2 s, sent 1 s ahead), and every command carries an end time at its window's
+    end. ENCORE's plan uses 20 s windows today: the window length becomes a plan parameter, asked of
+    Choreography for ENCORE. Until then, the most a dead driver leaves playing is one window of
+    already-checked motion.
   - When Spot stops (its E-Stop, a lost lease, a refused command), the driver POSTs the runner's
     `/api/stop`, best effort, and logs why. Stop only: never `/api/run` or anything that starts or arms.
     Agreed with Choreography, 2026-10-27.
@@ -122,7 +131,7 @@ FACE tracks stay opendubs2's.
     excursion.
   - People stay outside a 3 m clear radius around Spot, the figure Spot's choreography documentation
     gives (`choreo-format-v1.md`).
-- **When the driver dies.** Its commands expire and Spot stands still. Losing the lease does not by
+- **When the driver dies.** Its last window plays out (see Stopping), then Spot stands still. Losing the lease does not by
   itself make Spot sit: per Boston Dynamics' documentation, sitting and powering off on a lost link
   comes from the E-Stop's check-in timeout or a policy set with the Keepalive service. So the driver
   registers a Keepalive policy (sit after a few seconds without the driver) where the release has that
