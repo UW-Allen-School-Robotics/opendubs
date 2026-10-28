@@ -67,8 +67,20 @@ existing paths'.
 A skin that draws no mouth (the ghost) plays the line with no lip-sync, and the page says so on that
 show.
 
-**Wake word and Talk** (open, with the Voice lane). Proposed: while a show is running, its dialogue
-suppresses the wake word, and a Talk press does not cut a line.
+**Who yields on the head's speaker** (proposed; to agree with the Voice lane before anyone builds it).
+voice.js has no arbitration today: a voice reply and a show's line would simply overlap in one
+audio context. The order, highest first:
+1. **Safety earcons** (an e-stop, a fault): always heard, over anything.
+2. **A show's dialogue, while a show runs:** the show owns the head's speaker from ARMED to its end.
+   The wake word is suppressed, a Talk press does not cut a line, and a voice reply waits until the
+   show ends rather than being dropped mid-word.
+3. **The voice service's replies**, outside a show.
+4. **Other earcons** (acknowledgements): ducked under speech, never cutting it.
+5. **AirPlay and ambient music:** already muted by the hub during a show; they duck under speech
+   otherwise.
+
+ARCHITECT's speech plays on its own speakerphone today, not the head, so it is not a claimant. If it
+moves to the head, it ranks with the voice service's replies.
 
 **Refusal.** A chosen dialogue output that is not ready at preflight refuses the run
 (SHOW_AUDIO_OUTPUT_MISSING), as for music. For `face`, that means the head not up, or no `LINE ready`
