@@ -726,3 +726,32 @@ body.op-faulted .op-clearfault{ display:inline-flex; }
 #helpSheet .help-close { min-height: 40px; padding: 0 18px; border-radius: 8px;
   border: 1px solid var(--line); background: var(--panel); color: var(--txt); font-weight: 800; }
 #helpSheet iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+
+/* ---------- ARCHITECT tab (architect.js) ---------- */
+.architectview.active { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: var(--gap); align-items: start; }
+.architectview .arch-left { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+@media (max-width: 900px) { .architectview.active { grid-template-columns: minmax(0, 1fr); } }
+#archCam { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 6px; display: block; }
+.arch-summary { font-size: 15px; margin-bottom: 4px; }
+.arch-code { font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #05080c; border: 1px solid var(--line); border-radius: 6px; padding: 8px 0; overflow: auto; max-height: 60vh; }
+.arch-line { display: grid; grid-template-columns: 3.2em 1fr; white-space: pre; }
+.arch-no { color: var(--dim); text-align: right; padding-right: 10px; user-select: none; }
+.arch-k { color: #c792ea; } .arch-s { color: #c3e88d; } .arch-n { color: #f78c6c; } .arch-c { color: var(--dim); font-style: italic; } .arch-f { color: var(--accent); }
+.arch-add { color: var(--good); white-space: pre; padding: 0 10px; } .arch-del { color: var(--bad); white-space: pre; padding: 0 10px; }
+.arch-meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 2px 0 6px; } .arch-meter > div { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.architectview .arch-right { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
+.arch-feed { list-style: none; margin: 6px 0; padding: 0; max-height: 52vh; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.arch-feed li { max-width: 88%; }
+.arch-feed .arch-you { align-self: flex-start; } .arch-feed .arch-robot { align-self: flex-end; text-align: right; }
+.arch-feed .arch-bubble { font-size: 17px; line-height: 1.35; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); }
+.arch-feed .arch-you .arch-bubble { border-bottom-left-radius: 3px; }
+.arch-feed .arch-robot .arch-bubble { border-color: var(--accent); color: var(--accent); border-bottom-right-radius: 3px; }
+.arch-feed .arch-who { font-size: 11px; letter-spacing: 1.5px; color: var(--dim); margin: 0 4px 2px; font-weight: 700; }
+.arch-feed .arch-when { font-size: 11px; color: var(--dim); margin: 2px 4px 0; font-variant-numeric: tabular-nums; }
+.arch-feed .arch-note, .arch-feed .arch-act { align-self: center; max-width: 100%; text-align: center; font-size: 12px; color: var(--dim); }
+.arch-feed .arch-act { color: var(--txt); font-weight: 700; }
+.arch-arm-canvas { height: 300px; flex: none; }
+.arch-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.arch-step { font-size: 11px; letter-spacing: 1.2px; font-weight: 700; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+.arch-step.on { border-color: var(--accent); color: var(--accent); background: rgba(127, 127, 127, .12); }
+.arch-step.on.paused { border-color: var(--bad); color: var(--bad); }
