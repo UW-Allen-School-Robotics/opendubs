@@ -211,7 +211,11 @@ def shutdown_all(rclpy):
 
 
 class TfReader:
-    """A tf2 buffer filled from /tf and /tf_static, plus any `extra` TF topics (a *tf_static name is read as static)."""
+    """A tf2 buffer filled from /tf and /tf_static, plus any `extra` TF topics (a *tf_static name is read as static).
+
+    A frame an `extra` topic publishes overrides the robot's own publisher of that frame, whichever arrives first: the extras
+    are a description under test (a robot_state_publisher on a corrected URDF) beside the robot's deployed one, and two
+    publishers of one transform otherwise leave the buffer with whichever came last."""
 
     def __init__(self, rclpy, node, extra=()):
         import tf2_ros
@@ -221,13 +225,18 @@ class TfReader:
         self.rclpy, self.tf2 = rclpy, tf2_ros
         self.buf = tf2_ros.Buffer(cache_time=Duration(seconds=30))
         static_qos = QoSProfile(depth=100, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+        self.overridden = set()     # child frames an extra topic has published
         for topic in ("/tf", "/tf_static", *extra):
             static = topic.endswith("tf_static")
-            node.create_subscription(TFMessage, topic, self._adder(static), static_qos if static else 100)
+            node.create_subscription(TFMessage, topic, self._adder(static, topic in extra), static_qos if static else 100)
 
-    def _adder(self, static):
+    def _adder(self, static, override):
         def add(msg):
             for t in msg.transforms:
+                if override:
+                    self.overridden.add(t.child_frame_id)
+                elif t.child_frame_id in self.overridden:
+                    continue
                 (self.buf.set_transform_static if static else self.buf.set_transform)(t, "grasp_to_sim")
         return add
 
