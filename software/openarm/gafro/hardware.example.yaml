@@ -33,9 +33,11 @@ left_arm:
   # The gripper, a Damiao motor on this arm's bus (ids 0x08 / 0x18). Off until it has been calibrated: the two angles are this robot's, found with
   # the gripper moving freely (the motor's angle at fully open and at fully shut, radians), and have no default. Speed, torque and the grasp
   # margin are starting values.
-  use_gripper: false
-  # gripper_open_position: <found on this robot>
-  # gripper_closed_position: <found on this robot>
+  # DERIVED, NOT MEASURED in motor units: from the opendubs2 finger calibration of 2026-10-12 (left open +0.0008 / closed -0.0496 m) through the old plugin's
+  # approximate -23.8 rad/m. The left motor was zeroed open, the right closed; the angle rises as either closes. Confirm against the motor's angle over CAN.
+  use_gripper: true
+  gripper_open_position: -0.02
+  gripper_closed_position: 1.18
   # gripper_speed: 2.0
   # gripper_torque: 0.3
   # gripper_grasp_margin: 0.05
@@ -53,5 +55,7 @@ right_arm:
   direction: [1, 1, 1, 1, 1, 1, 1]
   zero_offset: [0, 0, 0, 0, 0, 0, 0]
   verify_motors: true
-  use_gripper: false               # as on the left arm: off until calibrated (gripper_open_position, gripper_closed_position)
+  use_gripper: true                # derived as on the left arm (right open +0.0489 / closed -0.0008 m, zeroed shut)
+  gripper_open_position: -1.16
+  gripper_closed_position: 0.02
   realtime_priority: 0
