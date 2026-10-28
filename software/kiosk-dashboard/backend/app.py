@@ -500,6 +500,9 @@ app.include_router(_library_router)
 
 from show_light import router as _show_light_router  # noqa: E402  a show's colour, layered (state_out.py)
 app.include_router(_show_light_router)
+# The ARCHITECT tab: the program, what the listener hears, the Orbbec's image. Read-only (architect_proxy.py).
+from architect_proxy import router as _architect_router  # noqa: E402
+app.include_router(_architect_router)
 
 # The tablet face: its door (/ws/face) and its page (/face/), from software/face-web beside this app
 # (/opt/opendubs/face-web on the robot, deploy.sh). Before the static mount, so neither is shadowed.

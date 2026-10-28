@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=9f38be46" />
+  <link rel="stylesheet" href="style.css?v=a65bee5b" />
 </head>
 <body>
   <div id="app">
@@ -330,6 +330,59 @@
       </section>
     </main>
 
+    <!-- ARCHITECT: the demo day's state, the program it wrote, the Orbbec's image, what the listener hears (architect.js; read-only) -->
+    <main id="view-architect" class="view architectview">
+      <div class="arch-left">
+      <section class="card arch-cam">
+        <h2>CAMERA <span id="archCamBadge" class="badge dimbadge">—</span></h2>
+        <img id="archCam" alt="The Orbbec colour camera's latest frame">
+        <div id="archCamNote" class="sub">—</div>
+      </section>
+      <section class="card arch-arms">
+        <h2>ARMS <span id="archArmSrc" class="badge dimbadge">no joint data</span></h2>
+        <div class="tp-views">
+          <button class="iobtn on" data-arch-armview="iso">ISO</button>
+          <button class="iobtn" data-arch-armview="top">TOP</button>
+          <button class="iobtn" data-arch-armview="side">SIDE</button>
+          <button class="iobtn" data-arch-armview="front">FRONT</button>
+          <span class="tp-spacer"></span>
+          <span id="archStowL" class="sub">left —</span>
+          <span id="archStowR" class="sub">right —</span>
+        </div>
+        <canvas id="archArmCanvas" class="tp-canvas arch-arm-canvas"></canvas>
+      </section>
+      </div>
+      <div class="arch-right">
+      <section class="card arch-day">
+        <h2>DEMO DAY <span id="archDayBadge" class="badge dimbadge">—</span></h2>
+        <div class="arch-steps">
+          <span class="arch-step" data-day-state="IDLE_NAV">PATROL</span>
+          <span class="arch-step" data-day-state="APPROACH">APPROACH</span>
+          <span class="arch-step" data-day-state="ENGAGED">WITH A VISITOR</span>
+          <span class="arch-step" data-day-state="CANDY">CANDY</span>
+          <span class="arch-step" data-day-state="CHOREO">SHOW</span>
+          <span class="arch-step" data-day-state="PAUSED">PAUSED</span>
+        </div>
+        <div id="archDayWhy" class="arch-summary">—</div>
+        <div id="archDayMeta" class="sub">—</div>
+      </section>
+      <section class="card arch-speech">
+        <h2>SPEECH <span id="archEars" class="badge dimbadge">—</span></h2>
+        <div class="arch-meter" title="The Jabra microphone's level"><div id="archLevel"></div></div>
+        <div id="archHeardNote" class="sub">—</div>
+        <ol id="archFeed" class="arch-feed"></ol>
+        <div class="sub">Left: exactly what Parakeet heard in each clip it was given (after the spotter caught a phrase, or while the robot waited for a reply). Right: exactly what the robot said on the Jabra. Between: what the listener did, timed from the phrase. Newest first; kept in memory on the robot only.</div>
+      </section>
+      <section class="card arch-prog">
+        <h2>PROGRAM <span id="archProgBadge" class="badge dimbadge">—</span></h2>
+        <div id="archSummary" class="arch-summary">—</div>
+        <div id="archMeta" class="sub"></div>
+        <div id="archCode" class="arch-code"></div>
+        <details id="archDiffBox" hidden><summary id="archDiffNote">Changes</summary><div id="archDiff" class="arch-code"></div></details>
+      </section>
+      </div>
+    </main>
+
     <!-- ARMS view (placeholder) -->
     <main id="view-arms" class="view placeholder">
       <div class="ph"><h1>ARMS</h1><p>Dual OpenArm 7-DOF</p><p class="dim">telemetry pending — layout to be designed</p></div>
@@ -536,13 +589,15 @@
     <div class="ditem" data-view="payload">Payload / mast<span class="ch">›</span></div>
     <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
     <div class="ditem" data-view="shows">Shows — routines<span class="ch">›</span></div>
+    <div class="ditem" data-view="architect">ARCHITECT — program, camera, speech<span class="ch">›</span></div>
     <div class="ditem" data-view="headface">Head &amp; face — idle, looks, sound<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
-  <script src="app.js?v=48740d1e"></script>
+  <script src="app.js?v=8c2fceb6"></script>
   <script src="operate.js?v=a416f5b7"></script>
   <script type="module" src="teleop.js?v=88924ca4"></script>
   <script src="show_audio.js?v=b2f6a4e4"></script>
+  <script type="module" src="architect.js?v=cd084c5c"></script>
   <script src="choreo.js?v=e4aa7cbc"></script>
   <script src="headface.js?v=ea3f18f3"></script>
   <script src="projector.js"></script>
