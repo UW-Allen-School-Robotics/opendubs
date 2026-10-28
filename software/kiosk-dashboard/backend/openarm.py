@@ -67,19 +67,17 @@ OPS = {
     "relink":    (lambda arm: _sudo([OPENARM_UP, "relink", arm]), 30, "restarts one arm's CAN link"),
 }
 
-#: The ROS stack's half (what the dashboard did before the arm service): the same words, through `openarm-up`, which keeps the guards (switch_controllers is atomic, `down` refuses an
-#: arm not at stow, ...). Used only while `active_stack()` says "ros". `prepare` is its own action: openarm-up has no such command, so it runs `activate`, which energizes the arm and
-#: drives it to ZERO where the arm service's prepare goes to `ready`; the runner moves each arm to zero first either way. follow, supervise and unsupervise are the arm service's alone.
+#: The old ROS stack's half, kept only so a dashboard that finds `ros2_control_node` running still does what it did on main: the same words through `openarm-up`. Used only while
+#: `active_stack()` says "ros". The arm service is the stack now; everything it added (prepare, follow, supervise, unsupervise) is the service's alone and is refused here.
 ROS_OPS = {
     "park":     (lambda arm: _sudo([OPENARM_UP, "park", arm]), 180, "moves the arm to its stow pose"),
     "activate": (lambda arm: _sudo([OPENARM_UP, "activate", arm]), 180, "ENERGIZES and drives the arm to zero"),
-    "prepare":  (lambda arm: _sudo([OPENARM_UP, "activate", arm]), 180, "ENERGIZES and drives the arm to zero, for a show"),
     "down":     (lambda arm: _sudo([OPENARM_UP, "down"]), 180, "de-energizes both arms"),
     "up":       (lambda arm: _sudo([OPENARM_UP]), 120, "starts the stack, arms stay limp"),
     # HOLD drives the arm to where it already is: it preempts a running trajectory and leaves the arm commanded to its present pose.
     "hold":     (lambda arm: _sudo([OPENARM_UP, "hold", arm]), 90, "stops the arm where it is"),
 }
-SERVICE_ONLY = ("follow", "supervise", "unsupervise")
+SERVICE_ONLY = ("follow", "supervise", "unsupervise", "prepare")
 
 
 def _ros_running():
