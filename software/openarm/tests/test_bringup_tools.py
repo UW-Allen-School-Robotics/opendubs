@@ -76,10 +76,10 @@ bent = line.copy()
 bent[1, 15] = np.radians(3)
 lo, hi = -np.ones(7) * 2, np.ones(7) * 2
 check("goto_hand: a path 3 deg off the straight line reads as 3 deg", round(goto_hand.path_bend_deg(bent), 2), 3.0)
-check("goto_hand: a good plan passes", goto_hand.check_plan(dict(states=line), lo, hi, 1.0, 15, 6.0, np.array([0.03, 0, 0])), None)
-check("goto_hand: an offset over the limit refuses", refuses(lambda: goto_hand.check_plan(dict(states=line), lo, hi, 1.0, 15, 6.0, np.array([0.07, 0, 0])), "limit is 6 cm"), True)
-check("goto_hand: a joint leaving its range refuses", refuses(lambda: goto_hand.check_plan(dict(states=line), lo * 0.01, hi * 0.01, 1.0, 15, 6.0, np.array([0.03, 0, 0])), "range"), True)
-check("goto_hand: a bent path refuses", refuses(lambda: goto_hand.check_plan(dict(states=bent), lo, hi, 1.0, 15, 6.0, np.array([0.03, 0, 0])), "bends", "3.0"), True)
+check("goto_hand: a good plan passes", goto_hand.check_plan(dict(states=line), lo, hi, 1.0), None)
+check("goto_hand: a large move is not refused for its size", goto_hand.check_plan(dict(states=line * 5), lo * 10, hi * 10, 1.0), None)
+check("goto_hand: a joint leaving its range refuses", refuses(lambda: goto_hand.check_plan(dict(states=line), lo * 0.01, hi * 0.01, 1.0), "range"), True)
+check("goto_hand: a bent path refuses", refuses(lambda: goto_hand.check_plan(dict(states=bent), lo, hi, 1.0), "bends", "3.0"), True)
 check("goto_hand: a bad offset refuses", run(goto_hand.main, *base, "--offset-cm", "3,0")[0], 1)
 check("goto_hand: gate, connect, plan, checks, clearance, typed `hand`, deadman, first permit",
       in_order(goto_hand.main, "bringup.gate(", "bringup.connect(", "hand_plan.plan_hand(", "check_plan(", "require_clearance(", 'typed != "hand"', "bringup.deadman_held(", "keeper.start()"), True)
@@ -152,7 +152,7 @@ class _System:
 check("limits: of_model reads each actuated joint's range by its index and skips the others", robot_limits.of_model(_System()), {"a": (-1.0, 1.0), "b": (-2.0, 2.5)})
 lo, hi = np.array([0.0] + [-1.396] * 6), np.array([3.49] * 7)      # a model whose right joint 1 stops at the cables
 backward = np.linspace(0, 1, 31)[None, :] * np.radians([-5, 0, 0, 0, 0, 0, 5])[:, None]
-check("goto_hand: a path backward past a model limit on joint 1 refuses", refuses(lambda: goto_hand.check_plan(dict(states=backward), lo, hi, 1.0, 15, 6.0, np.array([-0.04, 0, 0])), "range"), True)
+check("goto_hand: a path backward past a model limit on joint 1 refuses", refuses(lambda: goto_hand.check_plan(dict(states=backward), lo, hi, 1.0), "range"), True)
 
 check("track_hand: the cable case (hand 20 mm behind, 0 mm advanced, 0.83 N m) stalls", track_hand.stall_reason(20.0, -0.8, -0.8, 0.83) is not None, True)
 check("track_hand: a forward move keeping up (lag 8 mm, 1.0 N m) does not stall", track_hand.stall_reason(30.0, 22.0, 12.0, 1.0), None)

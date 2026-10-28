@@ -20,7 +20,11 @@ controllers:
     maximum_lead: 0.02          # rad per joint: the offset that closes what the actuator did not do (friction dead band)
     maximum_error: 0.15         # rad per joint: the leash of the anchor on the measured position
     offset_gain: 2.0            # 1/s
-    regularization: 0.05
+    # Damping: 0.05 away from a singularity, rising to 0.3 as the smallest singular value of a stage's response falls below 0.15 (the arm works at 0.03-0.11; radians and metres mixed).
+    # It bounds the joint speed when the hand leaves the edge of the reach (simulation, target out to 24 cm and back: peak joint speed 4.4 rad/s without it, 1.6-1.9 with it, no vibration
+    # stop) and constrains no direction, which a guard stage above the pose did not manage: it held the singular value at its floor and the hand stayed where it caught it. Cost: a hand
+    # held at the very edge of the reach tracks less closely (18 and 20 cm reaches, mean error 0.6 / 0.8 mm without it, 1.7 / 3.2 mm with it); circles are unchanged (1.9 mm).
+    regularization: {base: 0.05, singularity: {below: 0.15, ceiling: 0.3}}
     limits: {joint_velocity: model}
     stages:
       - name: guards

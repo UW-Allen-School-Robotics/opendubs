@@ -88,22 +88,22 @@ def test_a_move_takes_the_time_asked():
             took = time.time() - began
             assert service.last == f"{name} done" and expected <= took < expected + 2.5, f"{name} took {took:.1f} s, asked {expected:g}: {service.last}"
         assert np.abs(position() - ready).max() < 0.05
-        args.stow_conf = conf                                   # 0.52 rad in 0.4 s peaks at 2.4 rad/s: over the limit
-        assert service.start("park", 0.4) == "park started"
+        args.stow_conf = conf                                   # 0.52 rad in 0.2 s peaks at 4.9 rad/s: over the limit (3.5)
+        assert service.start("park", 0.2) == "park started"
         wait(service)
         assert "rad/s" in service.last and "park stopped" in service.last, service.last
         assert np.abs(position() - ready).max() < 0.05, "a refused move moved the arm"
 
-        # the case measured on the arm: 1.8 rad on joint 4 in 3 s peaks at 1.125 rad/s, over what the driver follows (1.0): refused; in 4 s it peaks at 0.84: played
+        # 1.8 rad on joint 4 in 0.9 s peaks at 3.75 rad/s, over the limit (3.5): refused; in 1.5 s it peaks at 2.25: played (in 3 s, 1.125 rad/s, it was refused at the old limit of 1.0)
         far = ready.copy()
         far[3] = 0.0
         with open(conf, "w") as stream:
             stream.write(f"{side.upper()}_STOW=" + ",".join(f"{v:.4f}" for v in np.degrees(far)) + "\n")
-        assert service.start("park", 3.0) == "park started"
+        assert service.start("park", 0.9) == "park started"
         wait(service)
         assert "park stopped" in service.last and "rad/s" in service.last, service.last
         assert np.abs(position() - ready).max() < 0.05, "a refused move moved the arm"
-        assert service.start("park", 4.0) == "park started"
+        assert service.start("park", 1.5) == "park started"
         wait(service)
         assert service.last == "park done", service.last
         assert abs(position()[3]) < 0.05
@@ -276,9 +276,13 @@ def test_trajectory_and_follow(side):
         times = np.linspace(0, 2, 11)
         s = times / 2
         path = np.array([q0 + move * x for x in s**3 * (10 - 15 * s + 6 * s**2)])
+        began = time.time()
         result = service.follow(times, path)
+        took = time.time() - began
         assert result.code == 0, result.message
         assert np.abs(position() - path[-1]).max() < 0.05
+        # T4, T5: a runner's goal starts at acceptance and returns once the arm is at the path's end, not 0.3 s late at the start and a second late at the end
+        assert took < times[-1] + 0.25, f"the goal took {took:.2f} s for a {times[-1]:g} s path"
 
         away = path + np.array([0.3, 0, 0, 0, 0, 0, 0])
         assert service.follow(times, away).code == trajectory_refusal(), "a path that starts away from the arm must be refused"

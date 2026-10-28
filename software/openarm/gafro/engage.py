@@ -92,6 +92,20 @@ class PathCheck:
                         f"({fraction:.0%} of the way), nearer than at either end")
         return None
 
+    def path_refusal(self, knots, per_segment: int = 12) -> str | None:
+        """`refusal` for a path through `knots` (full configurations, the straight lines between them): the pair that comes nearer anywhere along it than at the path's two ends."""
+        knots = [np.asarray(k, dtype=float) for k in knots]
+        allowed = np.minimum(np.minimum(self.distances(knots[0]), self.distances(knots[-1])) - MARGIN, CLEARANCE)
+        for index in range(len(knots) - 1):
+            for fraction in np.linspace(0.0, 1.0, per_segment + 1)[:-1 if index < len(knots) - 2 else None]:
+                here = self.distances(knots[index] + (knots[index + 1] - knots[index]) * fraction)
+                worse = np.where(here < allowed)[0]
+                if worse.size:
+                    first, second = self.pairs[worse[np.argmin(here[worse] - allowed[worse])]]
+                    return (f"{self.model.geom(first).name} and {self.model.geom(second).name} come to {1000 * here[worse].min():.0f} mm "
+                            f"({(index + fraction) / (len(knots) - 1):.0%} of the way), nearer than at either end")
+        return None
+
 
 def build(name: str, controllers: dict, system, side: str, configuration: np.ndarray, pose, reference, posture, rate=None, twist=None):
     from gafro.control import spec

@@ -79,6 +79,33 @@ run and revoke it on exit, and the arm service will do that once it exists. In t
 sim's own sag, 0.057 rad: its hold is MuJoCo's position servo, which gets none of the driver's gravity feedforward. On the arm that figure is the
 thing to look at. Not yet run on an arm.
 
+## The command action: reach a pose, go to ready, pick a candy
+
+`/<side>_arm/command` is one action, `opendubs_arm_interfaces/action/ArmCommand` (`software/openarm/interfaces/`: build it into the workspace the arm service runs in, as `robot_api_interfaces` is built; without
+it the service logs that the action is skipped), served beside `follow_joint_trajectory` and `gripper_cmd` on the same node. The goal is a `name` and JSON `params`; the result a code (`SUCCESS`, `FAILURE`,
+`INVALID_INPUT`, `NOT_FOUND`), a message and JSON `data`; the feedback the stage it is in. **A goal is rejected while anything else is running** (another command, a trajectory, `activate`, `follow`) and when its
+name or params are not valid; a cancel holds the arm where it is. The poses are in the arm model's frame, the one `<side>/target` is in (+x forward, +y left, +z up, metres; quaternions w, x, y, z).
+
+| `name` | `params` | Success means |
+|---|---|---|
+| `reach_pose` | `{"position": [x, y, z], "orientation": [w, x, y, z]?, "speed"?, "duration"?, "tolerance_mm"?, "tolerance_deg"?}` (orientation left out is held; `duration` fixes the move's time in seconds, refused if the arm cannot follow it, where `speed` leaves the time to the planner) | the hand is within 15 mm and 6 deg of the pose, measured once the arm has stopped (a move that stopped short is made again, twice) |
+| `ready` | `{}` | the arm is at the model's `ready` keyframe: the pose `follow` (hand tracking) starts from |
+| `candy_grasp` | `{"basket": {"position": [x, y, z], "orientation"?}?, "approach"?, "lift"?, "speed"?, "then": "ready" or "stay"}` | open, above the basket, down, close on a candy, lift, then to `ready`. A close on nothing fails and opens again |
+
+The gripper alone is `gripper_cmd` (position in finger metres, 0.044 open, 0 shut; a close that stops on something aborts as stalled).
+
+```sh
+ros2 action send_goal --feedback /right_arm/command opendubs_arm_interfaces/action/ArmCommand '{name: reach_pose, params: "{\"position\": [0.45, -0.13, 0.55]}"}'
+```
+
+`reach_pose` (reach_pose.py) asks reach.py whether the pose is inside the reach, takes the clear posture on its self-motion arc nearest the arm's own with room to the joint limits, plans the
+path with iLQR as a double integrator (`tools/hand_plan.py plan_pose(dynamics="double")`: joints and velocities from rest to rest, acceleration as control, seeded with that posture; the plan carries its own
+timing), checks it for self-collision along its length (the model's own geometry; there is no environment in it), and plays it in position mode under the same gate and stops as a trajectory. There is no limit on
+the size of the move. Speeds follow `trajectory.Limits`: a request's `speed` is at most the smaller of 0.9 of `max_speed` and 0.8 of `max_joint_speed` (the vibration stop), and the default is three quarters of
+that. The head and the camera mount are not in the collision model. `candy_grasp.yaml` holds the basket's pose per arm and is **not taught**: until it is (or the params carry a basket) the goal is rejected as
+`INVALID_INPUT`. Tests: `tests/test_arm_services_sim.py` (run it in `lab/venv`: the dev venv's ssik has no `Manipulator`, so the reach check is off there). Not run on a real arm, and the ROS binding
+(`ros_actions.serve_command`) not run at all, with its interface package not built: there is no ROS here.
+
 ## The gripper
 
 The driver commands each arm's gripper (one more Damiao motor on the arm's bus, ids 0x08 and 0x18) as RI's `<name>/gripper`, closure 0 open and

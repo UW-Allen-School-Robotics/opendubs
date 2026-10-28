@@ -32,6 +32,7 @@ after it ends: the e-stop power cycle releases them), and starting the service a
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import socket
@@ -58,8 +59,9 @@ from arm_client import send, socket_for  # noqa: E402,F401  -- `ctl`, and the te
 from engage import DEFAULT_MODEL, EngageRefused, PermitKeeper, permit_groups  # noqa: E402
 
 # How long `activate` and `park` take, seconds, whatever the distance. Stow to ready (joint 4 travels 1.8 rad, the most) peaks at 1.875 * 1.8 / 5 = 0.68 rad/s. Measured on the
-# arm (2026-10-26): 11.2 s and 7 s track within 10 mrad, 5 s within 11 mrad, and 3 s does not: the path asks 1.15 rad/s and the driver tops out at 1.0, so the arm lags by up to
-# 79 mrad. trajectory.Limits therefore refuses a path over 1.0 rad/s (stow to ready: under about 3.4 s), so a time the arm cannot follow is refused, not played.
+# arm (2026-10-26, with the driver's max_velocity at its default 1.0): 11.2 s and 7 s track within 10 mrad, 5 s within 11 mrad, and 3 s does not: the path asks 1.15 rad/s, so the arm
+# lags by up to 79 mrad. trajectory.Limits refuses a path over its max_speed, so a time the arm cannot follow is refused, not played: 1.0 then (stow to ready under about 3.4 s),
+# the driver's max_velocity now (3.5 in the example config: stow to ready under about 1 s). The 5 s here is the measured one, and is not changed by the raise.
 MOVE_SECONDS = 5.0
 COMMANDS = ("status", "activate", "park", "follow", "hold", "down", "supervise", "unsupervise")
 
@@ -150,19 +152,48 @@ class ArmService:
     def __init__(self, robot, args):
         self.robot, self.args = robot, args
         self.groups = permit_groups(args.side) if args.backend == "hardware" else ()
-        self.real = False
+        self.limits = trajectory.Limits()    # on a real bus: the path speed limit is the driver's max_velocity (guards.driver_max_velocity), the one setting
+        self.real, self.interfaces = False, []
+        self.fault = None              # why the service has stopped moving the arm (the old stack started, the link is off), or None; set by `watch`
         if args.backend == "hardware":
-            _, self.real = guards.buses_of(args.hardware_config, self.groups)
+            self.interfaces, self.real = guards.buses_of(args.hardware_config, self.groups)
+            speed = guards.driver_max_velocity(args.hardware_config, self.groups)
+            if speed is not None:
+                self.limits = trajectory.Limits(max_speed=speed)
+        self.paths = None              # the collision check of the model (reach_pose.path_check), built when first asked
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
         self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
         self.behaviour = ""            # what `follow` is doing about its target now ("following", "holding: ..."), while it runs
         self.running = None            # the name of the command in progress (a gripper command does not count: it runs beside the others)
-        self.permit = SharedPermit(self.groups, guards.motion_gate(args.dashboard) if self.real else None)
+        self._authority = guards.motion_gate(args.dashboard) if self.real else None
+        self.permit = SharedPermit(self.groups, self._permitted if self.real else None)
         self.last = ""                 # how the last command ended
         self.cancel = threading.Event()   # ends a trajectory in progress
         self.grip_cancel = threading.Event()   # ends a gripper command in progress
         self.quit = threading.Event()
         self.lock = threading.Lock()
+
+    def _permitted(self):
+        """The permit's gate: the authority layer says yes and nothing has faulted since the service started."""
+        return self.fault is None and self._authority()
+
+    def check_faults(self):
+        """Look for what the start checks cannot see later: the old stack starting, or the arm's link going off. On one, whatever runs is held and nothing moves until the
+        service is restarted (it is not cleared when the cause is: the arm was stopped mid-command, and a person decides). Called by `watch` once a second."""
+        if self.fault or not self.real:
+            return
+        why = guards.conflict(self.interfaces)
+        if why:
+            self.fault = why
+            print(f"fault: {why}: holding the arm", flush=True)
+            self.hold()
+
+    def watch(self, period=1.0):
+        """Run `check_faults` every `period` seconds until the service quits."""
+        def loop():
+            while not self.quit.wait(period):
+                self.check_faults()
+        threading.Thread(target=loop, daemon=True).start()
 
     # -- what a command may start from ---------------------------------------------------------------------------------------------------
 
@@ -173,11 +204,14 @@ class ArmService:
         indices = np.asarray(self.robot.get_system().get_task_space(self.args.side).get_joint_indices())
         return np.asarray(self.robot.get_state().get_position(), dtype=float)[indices]
 
-    def _gate(self):
-        """What a moving command needs on a real bus, before it grants anything: the same as engage.py's. Returns (known_starts, tolerance, gate)."""
+    def _gate(self, own_move=True):
+        """What a moving command needs on a real bus, before it grants anything: the same as engage.py's. Returns (known_starts, tolerance, gate).
+        `own_move` False is a runner's goal (trajectory, gripper): the head clause of the supervision statement is for the service's own moves."""
         if not self.real:
             return None, None, None
-        guards.require_motion_permitted(self.args.supervised, self.args.dashboard, deadman=True)
+        if self.fault:
+            raise guards.Refused(self.fault)
+        guards.require_motion_permitted(self.args.supervised, self.args.dashboard, deadman=True, own_move=own_move)
         stow = self._stow()
         if stow is None:
             raise guards.Refused(f"no stow pose configured in {self.args.stow_conf or engage.STOW_CONF}: a move on a real bus starts near stow or ready")
@@ -283,36 +317,55 @@ class ArmService:
         shape = fraction**3 * (10.0 - 15.0 * fraction + 6.0 * fraction**2)
         slope = 30.0 * fraction**2 * (1.0 - fraction) ** 2 / duration
         result = trajectory.follow(robot, side, times, start + np.outer(shape, target - start), np.outer(slope, target - start), self.permit.lease(), self.cancel,
-                                   log=self._log, record=self._recording(name))
+                                   limits=self.limits, log=self._log, record=self._recording(name))
         if result.code != trajectory.SUCCESSFUL or result.cancelled:
             raise EngageRefused(result.message)
+
+    def begin(self, name, own_move=True):
+        """Take the arm for `name` (a command made of several moves, or one): None, or why not. The gate answers as `follow`'s does. Ends with `end`. `own_move` False is a runner's goal
+        (a trajectory), whose head clearance the runner has swept; a pose the service plans itself (reach_pose, candy_grasp) is its own move, as activate and park are."""
+        with self.lock:
+            if self.running:
+                return f"{self.running} is running"
+            try:
+                self._gate(own_move=own_move)
+            except guards.Refused as refused:
+                return str(refused)
+            self.running = name
+            self.cancel.clear()
+        return None
+
+    def end(self):
+        self.running = None
+
+    def play(self, times, positions, velocities=None, name="trajectory", limits=None):
+        """Play a joint path on the arm `begin` has taken, and return a trajectory.Result. Blocks until it ends, is cancelled (`hold`) or is stopped. `limits`: the trajectory's
+        (default: the service's, with the hold and the lead-in)."""
+        try:
+            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, limits=limits or self.limits,
+                                       log=self._log, record=self._recording(name))
+        except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
+            result = trajectory.Result(trajectory.INVALID_GOAL, f"{type(error).__name__}: {error}")
+        self.last = f"{name}: {result.message}"
+        return result
 
     def follow(self, times, positions, velocities=None):
         """Play a joint trajectory (the show runner's goal) and return a trajectory.Result. Refused while anything else runs; gated as `activate` is, and the gate is asked
         again before every permit renewal. Blocks until the path ends, is cancelled (`hold`) or is stopped."""
-        with self.lock:
-            if self.running:
-                return trajectory.Result(trajectory.INVALID_GOAL, f"{self.running} is running")
-            try:
-                _, _, gate = self._gate()
-            except guards.Refused as refused:
-                return trajectory.Result(trajectory.INVALID_GOAL, str(refused))
-            self.running = "trajectory"
-            self.cancel.clear()
+        refusal = self.begin("trajectory", own_move=False)
+        if refusal:
+            return trajectory.Result(trajectory.INVALID_GOAL, refusal)
         try:
-            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, log=self._log,
-                                       record=self._recording("trajectory"))
-        except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
-            result = trajectory.Result(trajectory.INVALID_GOAL, f"{type(error).__name__}: {error}")
+            # A runner's goal starts at acceptance by default: its show is timed to the music, and the 0.1 s hold and 0.2 s lead-in the service's own moves have made the arm trail by 0.3 s.
+            limits = dataclasses.replace(self.limits, hold_seconds=getattr(self.args, "goal_hold_seconds", 0.0), lead_in=getattr(self.args, "goal_lead_in", 0.0))
+            return self.play(times, positions, velocities, limits=limits)
         finally:
-            self.running = None
-        self.last = f"trajectory: {result.message}"
-        return result
+            self.end()
 
     def grip(self, metres):
         """Move the gripper's finger to `metres` (a gripper.Result). Runs beside an arm command: the permit is shared. Gated as the others are."""
         try:
-            self._gate()
+            self._gate(own_move=False)
         except guards.Refused as refused:
             return gripper.Result(message=str(refused))
         self.grip_cancel.clear()
@@ -349,13 +402,15 @@ class ArmService:
         return "down"
 
     def state(self):
-        """What the arm service is doing, for the topic and the viewer: {state: held | <the running command>, supervised: yes | no, last: how the last command ended}."""
+        """What the arm service is doing, for the topic and the viewer: {state: held | down (with a reason) | <the running command>, supervised: yes | no, last: how the last command ended}."""
+        if self.fault:
+            return {"state": "down", "reason": self.fault, "supervised": "no", "last": self.last or "none", "behaviour": ""}
         return {"state": self.running or "held", "supervised": "yes" if self.args.supervised else "no", "last": self.last or "none",
                 "behaviour": self.behaviour if self.running == "follow" else ""}
 
     def status(self):
         q = self._position()
-        return (f"{self.args.side} arm, {self.args.backend}: " + (f"{self.running} running" if self.running else "held") + f"; last: {self.last or 'none'}\n"
+        return (f"{self.args.side} arm, {self.args.backend}: " + (f"DOWN, {self.fault}" if self.fault else f"{self.running} running" if self.running else "held") + f"; last: {self.last or 'none'}\n"
                 + "joints (deg) " + " ".join(f"{np.degrees(v):+.1f}" for v in q) + f"\nsupervised: {'yes' if self.args.supervised else 'no'}")
 
     def handle(self, request):
@@ -426,6 +481,9 @@ def main() -> int:
         p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
         p.add_argument("--socket", default=None, help="default: the side's, in $OPENDUBS_ARM_SOCKET_DIR (one service per arm)")
         p.add_argument("--socket-mode", default="600", help="the socket's permissions, octal: 660 lets the dashboard's user (the directory's group) send commands")
+        p.add_argument("--goal-hold-seconds", type=float, default=0.0, help="a runner's trajectory goal: seconds holding before the path is published (0: start at acceptance; trajectory.Limits' own is 0.1)")
+        p.add_argument("--goal-lead-in", type=float, default=0.0, help="a runner's trajectory goal: seconds between publishing the path and its first knot (0: start at acceptance; trajectory.Limits' own is 0.2). "
+                       "If the start is not clean on the arm, 0.1 and 0.2 give back the old 0.3 s")
         p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 5 s from stow to ready; under about 3.4 s the arm cannot follow and the move is refused)")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--reach-clearance", type=float, default=reach.CLEARANCE, help="m: the least gap between any two balls of the collision cover for a target to count as reachable (default %(default)s: the cover "
@@ -447,6 +505,10 @@ def main() -> int:
 
     robot, _, _ = bringup.connect(args)
     service = ArmService(robot, args)
+    if service.real:
+        print(f"path speed limit {service.limits.max_speed:g} rad/s: the driver's max_velocity in {args.hardware_config}"
+              f"{'' if service.limits.max_speed != guards.DRIVER_DEFAULT_SPEED else ' (1.0 is its default; set max_velocity there to play faster paths)'}", flush=True)
+    service.watch()
     service.reach = reach.build(robot.get_system(), args.side, service._log, args.reach_clearance)
     server = listen(service, args.socket, int(args.socket_mode, 8))
     try:

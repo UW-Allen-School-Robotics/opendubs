@@ -28,6 +28,9 @@ if pgrep -f ros2_control_node >/dev/null 2>&1; then
     exit 2
 fi
 
+# The instance names the arm: --side in OPENDUBS_ARM_ARGS would override it (the last one wins), so a unit could say one arm and move another.
+case " ${OPENDUBS_ARM_ARGS:-} " in *" --side"*) echo "opendubs-arm: --side comes from the unit's instance ($side), not from OPENDUBS_ARM_ARGS" >&2; exit 64 ;; esac
+
 setup="${OPENDUBS_GAFRO_SETUP:-/opt/gafro/setup.bash}"
 if [ -r "$setup" ]; then
     # The ROS and venv setup scripts read variables they never set (ROS: AMENT_TRACE_SETUP_FILES), so `set -u` would end this wrapper inside them with exit 1, 46 ms

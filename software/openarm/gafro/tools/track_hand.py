@@ -174,8 +174,6 @@ def main(argv=None) -> int:
     p.add_argument("--max-joint-speed", type=float, default=1.5, help="rad/s: if any joint stays faster than this for ~12 ms the run stops renewing the permit (the arm holds): a joint that fast during a 4 cm hand move is vibrating")
     p.add_argument("--csv", default=None, help="the raw samples (default ~/track_hand-<time>.csv)")
     p.add_argument("--weight", type=int, default=10)
-    p.add_argument("--max-offset-cm", type=float, default=6.0)
-    p.add_argument("--max-joint-deg", type=float, default=15.0)
     p.add_argument("--max-bend-deg", type=float, default=1.0)
     p.add_argument("--min-clearance-mm", type=float, default=motion_plan.DEFAULT_MIN_CLEARANCE_MM)
     p.add_argument("--skip-clearance", action="store_true")
@@ -220,7 +218,7 @@ def main(argv=None) -> int:
             lower = np.asarray(system.get_joint_limits_min().coefficients())[indices]
             upper = np.asarray(system.get_joint_limits_max().coefficients())[indices]
             limits_note = robot_limits.NOTE
-            goto_hand.check_plan(plan, lower, upper, 180.0 if args.controller == "position" else args.max_bend_deg, args.max_joint_deg, args.max_offset_cm, offset)
+            goto_hand.check_plan(plan, lower, upper, 180.0 if args.controller == "position" else args.max_bend_deg)
             closest = None
             if not args.skip_clearance:
                 clearance_of = motion_plan.twin_clearance(args.side, args.assets, args.sim_dir or os.environ.get("OPENDUBS_SIM_DIR"))

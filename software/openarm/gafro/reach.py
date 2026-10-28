@@ -81,6 +81,31 @@ class Reach:
             return False
         return False
 
+    def clear_postures(self, motor, rest=None) -> list:
+        """Every clear posture on the self-motion arcs through `motor`: the arm's seven joints, inside the limits and `clearance` clear of itself (empty where `reachable` says no)."""
+        found = []
+        try:
+            family = self._arms.charts_at(self.manipulator, np.asarray(motor.to_transformation_matrix(), dtype=float))
+            for component in self._manifold.from_charts(family, self.lower, self.upper, exact=False):
+                for arc in getattr(component, "arcs", None) or []:
+                    found += [np.asarray(q, dtype=float) for q in arc.configurations if self.clear(np.asarray(q, dtype=float), rest)]
+        except Exception:  # noqa: BLE001 -- a pose the charts cannot be made at has no posture
+            return []
+        return found
+
+    def best_posture(self, motor, q_now, rest=None, margin: float = 0.05):
+        """The posture for `motor` to plan to: of the clear ones with at least `margin` rad to every joint limit, the nearest to `q_now` (the shortest move); where none has the margin, the
+        one with the most. None if the pose is unreachable."""
+        postures = self.clear_postures(motor, rest)
+        if not postures:
+            return None
+        table = np.array(postures)
+        room = np.minimum(table - self.lower, self.upper - table).min(axis=1)
+        roomy = np.where(room >= margin)[0]
+        if not roomy.size:
+            return table[int(np.argmax(room))]
+        return table[roomy[int(np.argmin(np.linalg.norm(table[roomy] - np.asarray(q_now, dtype=float), axis=1)))]]
+
 
 def build(system, side: str, log=print, clearance: float = CLEARANCE) -> Reach | None:
     """The `Reach` of `side`, or None (and why, to `log`) where ssik or self_motion_charts is not installed or the arm is not one they chart."""

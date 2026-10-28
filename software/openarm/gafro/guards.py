@@ -9,6 +9,9 @@ Nothing here talks to a motor. Each guard fails closed: a question it cannot ans
                                      parameter writes (0x7FF with function 0x55 or 0xAA). A read-only status refresh (0x7FF, 0xCC) is
                                      not one: something on opendubs2 polls both arms with it every 2.2 s, and it asks, it does not
                                      command. Its replies (0x011 to 0x018) are not looked at either.
+  require_own_arm                    the config's real buses are exactly this arm's (`arm_<side>`): RobotInterface.initialize() enables every real group in
+                                     the config, so a left unit given a config whose only real bus is the right arm's would command the right arm.
+  link_problem / conflict            the arm's CAN link is up and not BUS-OFF, and the old stack has not started since this service did.
   require_motion_permitted           CH5 permits motion (MANUAL or AUTO, DEC-21), the e-stop is clear, and a person has said, with
                                      --supervised, that they are at the e-stop. The state is the dashboard's read-only
                                      /api/choreo/robot, the one the runner reads; an unanswered or unknown state is a refusal.
@@ -143,6 +146,86 @@ def buses_of(config_path: str, groups) -> tuple[list[str], bool]:
     return interfaces, real
 
 
+def real_buses(config_path: str) -> dict:
+    """{group: can_interface} for every group in the hardware config on a real bus (a group is a top-level entry with a `driver`)."""
+    import yaml
+
+    try:
+        with open(config_path) as handle:
+            config = yaml.safe_load(handle) or {}
+    except OSError as error:
+        raise Refused(f"cannot read the hardware config {config_path!r} ({error})") from error
+    return {group: entry.get("can_interface") for group, entry in config.items()
+            if isinstance(entry, dict) and "driver" in entry and entry.get("bus", "can") == "can"}
+
+
+def require_own_arm(config_path: str, side: str) -> None:
+    """Refuse unless the config's real buses are exactly the `side` arm's own (`arm_<side>`, the udev name). `initialize()` enables every real group in the config, so the
+    instance, `--side` and the one real bus must all name the same arm; a config with no real bus is the simulator and passes."""
+    real = real_buses(config_path)
+    if not real:
+        return
+    own, interface = f"{side}_arm", f"arm_{side}"
+    others = sorted(f"{group} ({iface})" for group, iface in real.items() if group != own)
+    if own not in real:
+        raise Refused(f"this is the {side} arm's service, but {config_path} has no real bus for {own}; its real bus(es): {', '.join(others)}. "
+                      f"Starting would command the other arm.")
+    if real[own] != interface:
+        raise Refused(f"{own} in {config_path} is on {real[own]!r}, not {interface!r}: the {side} service must not command another arm's motors.")
+    if others:
+        raise Refused(f"{config_path} also has real buses for {', '.join(others)}: initialize() would enable them from the {side} service. "
+                      f"One config per arm, with the other arm's bus: fake.")
+
+
+def link_problem(interface: str, run=subprocess.run) -> str | None:
+    """Why `interface` cannot carry the arm's frames (down, BUS-OFF, no carrier, or unreadable), or None. ERROR-PASSIVE is not one: the left shoulders sit there on
+    their lost replies and the arm still works. Nothing restarts a link under the service (it has no privilege to), so a BUS-OFF link is reported, not healed."""
+    try:
+        result = run(["ip", "-details", "-json", "link", "show", interface], capture_output=True, text=True, timeout=2)
+        link = json.loads(result.stdout)[0]
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError) as error:
+        return f"link off: {interface} cannot be read ({type(error).__name__})"
+    flags = set(link.get("flags", []))
+    state = (link.get("linkinfo", {}).get("info_data", {}) or {}).get("state")
+    if "UP" not in flags:
+        return f"link off: {interface} is down"
+    if state in ("BUS-OFF", "STOPPED"):
+        return f"link off: {interface} is {state}"
+    if "NO-CARRIER" in flags or "LOWER_UP" not in flags:
+        return f"link off: {interface} has no carrier"
+    return None
+
+
+def conflict(interfaces, stack=stack_running, link=link_problem) -> str | None:
+    """What makes a running service stop moving its arm: the old stack's `ros2_control_node` has started since, or an arm's link is off. None if neither."""
+    running = stack()
+    if running:
+        return "the existing arm stack is running (" + "; ".join(running) + ")"
+    for interface in interfaces:
+        why = link(interface)
+        if why:
+            return why
+    return None
+
+
+DRIVER_DEFAULT_SPEED = 1.0                      # the openarm driver's `max_velocity` when the config does not name one
+
+
+def driver_max_velocity(config_path: str, groups) -> float | None:
+    """The speed the driver will follow a path at on `groups`' real buses, rad/s: the smallest `max_velocity` among them (the driver's default, 1.0, where the config names none), or
+    None when there is no real bus (the simulator, which has no driver). The arm service takes its path speed limit from this, so the service and the driver cannot disagree."""
+    import yaml
+
+    try:
+        with open(config_path) as handle:
+            config = yaml.safe_load(handle) or {}
+    except OSError:
+        return None
+    speeds = [float(entry.get("max_velocity", DRIVER_DEFAULT_SPEED)) for group in groups
+              if isinstance(entry := config.get(group), dict) and entry.get("bus", "can") == "can"]
+    return min(speeds) if speeds else None
+
+
 # -- the authority layer's state -----------------------------------------------------------------------------------------------------
 
 def robot_state(url: str = DASHBOARD, timeout: float = 2.0, opener=urllib.request.urlopen) -> dict:
@@ -172,9 +255,13 @@ def require_deadman(url: str = DASHBOARD, state=robot_state) -> None:
         raise Refused(why)
 
 
-def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot_state, deadman: bool = False) -> None:
-    """Refuse a move unless a person has said they are at the e-stop, CH5 is MANUAL or AUTO, and the e-stop is clear; with `deadman`, and CH6 is held."""
+def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot_state, deadman: bool = False, own_move: bool = True) -> None:
+    """Refuse a move unless a person has said they are at the e-stop, CH5 is MANUAL or AUTO, and the e-stop is clear; with `deadman`, and CH6 is held.
+    `own_move` is a move the service plans itself (activate, park, follow): only those assume the head is still and the neck centred. A runner's goal is swept in the twin
+    with its own head motion, so its refusal does not ask for head tracking OFF."""
     if not supervised:
+        if not own_move:
+            raise Refused("a move needs --supervised: a person at the e-stop and the arm supported or clear.")
         raise Refused("a move needs --supervised: a person at the e-stop, the arm supported or clear, head tracking OFF and the neck centred "
                       "(the head moves on its own and the twin and the stow check assume it does not; the arm service that would check is not built).")
     try:

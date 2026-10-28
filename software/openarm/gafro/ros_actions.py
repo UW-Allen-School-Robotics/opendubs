@@ -1,15 +1,19 @@
 """The ROS side of arm_service.py's slices 3 and 4: the actions the show runner sends each arm's routine and gripper cues to,
 `/<side>_controller/follow_joint_trajectory` and `/<side>_gripper_controller/gripper_cmd`, and this arm's joints and the gripper's finger joints on `/joint_states`.
 
-Only the adapters: the trajectory one checks the goal's joint names, turns the points into arrays and calls `ArmService.follow` (trajectory.py), which gates and plays it, a cancel
+Also the one command action of commands.py (`serve_command`). Only the adapters: the trajectory one checks the goal's joint names, turns the points into arrays and calls `ArmService.follow` (trajectory.py), which gates and plays it, a cancel
 being `ArmService.hold`; the gripper one calls `ArmService.grip` (gripper.py): a close that stops on something aborts as stalled, the signal the runner reads as "something is in there".
-Written against rclpy and control_msgs without a ROS here to run it: NEVER RUN, the first run is on a machine with ROS.
+Written against rclpy and control_msgs. It has run on the Thor (2026-10-26: `settle()` cites the error seen there, 2d53026); what that run covered beyond the trajectory goal is not recorded here.
 """
 from __future__ import annotations
 
+import json
 import threading
+import time
 
 import numpy as np
+
+import trajectory
 
 
 def joint_names(side: str) -> list:
@@ -39,6 +43,44 @@ def settle(handle, cancelled: bool, succeeded: bool) -> None:
         handle.succeed()
     else:
         handle.abort()
+
+
+def limits_urdf(robot, limits=None, sides=("left", "right")) -> str:
+    """A limits-only description of the arms' joints for the runner: `<joint name=... ><limit lower upper effort velocity/></joint>` for every joint of `sides`, in the order of the
+    model's own names, the limits the model holds (the ones `trajectory.follow` checks a path against, so there is one source). Not a full URDF (no links, no parents): the runner
+    (`arm_output.urdf_ranges`) reads only the `<limit>`s. `velocity` and `effort` are the service's own `Limits` (`limits`; the defaults if none is given), so they follow the driver's max_velocity."""
+    from xml.sax.saxutils import quoteattr
+
+    system = robot.get_system()
+    lower = np.asarray(system.get_joint_limits_min().coefficients())
+    upper = np.asarray(system.get_joint_limits_max().coefficients())
+    limits = limits or trajectory.Limits()
+    joints = []
+    for side in sides:
+        indices = np.asarray(system.get_task_space(side).get_joint_indices())
+        for name, index in zip(arm_joint_names(robot, side), indices):
+            joints.append(f'  <joint name={quoteattr(name)} type="revolute">'
+                          f'<limit lower="{lower[index]:.9f}" upper="{upper[index]:.9f}" effort="{limits.max_torque}" velocity="{limits.max_speed}"/></joint>')
+    return '<robot name="openarm_gafro_limits">\n' + "\n".join(joints) + "\n</robot>"
+
+
+def _serve_ranges(service, node_names):
+    """The two parameters the runner reads its clamp range from (`arm_output.controller_ranges`): `/<side>_controller` `joint_position_margin` (0.0: the limits are the model's, with
+    no margin) on this service's own node, and `robot_description` on `/robot_state_publisher` (both arms' limits, from the model). The second is served only if no node of that
+    name is on the graph: never shadow a real robot_state_publisher, and with two services (one per arm) the second finds the first's. Returns the nodes to spin."""
+    import rclpy
+
+    side = service.args.side
+    node = rclpy.create_node(f"{side}_controller")
+    node.declare_parameter("joint_position_margin", 0.0)
+    nodes = [node]
+    if "robot_state_publisher" not in node_names():
+        description = rclpy.create_node("robot_state_publisher")
+        description.declare_parameter("robot_description", limits_urdf(service.robot, service.limits))
+        nodes.append(description)
+    else:
+        node.get_logger().info("a /robot_state_publisher is already on the graph: its robot_description is left alone")
+    return nodes
 
 
 def serve_trajectory(service):
@@ -79,11 +121,15 @@ def serve_trajectory(service):
 
     group = ReentrantCallbackGroup()
     serve_gripper(service, node)                 # one node, one executor: the gripper cues come while the routine plays
+    serve_command(service, node)
     serve_state(service, node, service.args.state_rate)
     ActionServer(node, FollowJointTrajectory, f"/{side}_controller/follow_joint_trajectory", execute, goal_callback=on_goal, cancel_callback=on_cancel,
                  callback_group=group)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
+    time.sleep(1.0)                              # let discovery see the graph before looking for a robot_state_publisher on it
+    for extra in _serve_ranges(service, lambda: [name for name, _ in node.get_node_names_and_namespaces()]):
+        executor.add_node(extra)
     threading.Thread(target=executor.spin, daemon=True).start()
     return node
 
@@ -148,6 +194,45 @@ def serve_gripper(service, node=None, finger_rate: float = 20.0):
 
     node.create_timer(1.0 / finger_rate, publish)
     return node
+
+
+def serve_command(service, node):
+    """The arm's one command action, `ArmCommand` on `/<side>_arm/command` (commands.py: reach_pose, ready, candy_grasp). A goal is REJECTED while another
+    command, a trajectory or any other move is running, or when its name or params are not valid; a cancel holds the arm where it is. The stage it is in goes out as feedback. Skipped, with
+    a line in the log, where opendubs_arm_interfaces is not importable (build software/openarm/interfaces into the workspace)."""
+    try:
+        from opendubs_arm_interfaces.action import ArmCommand
+    except ImportError as error:
+        node.get_logger().warn(f"no arm command action: opendubs_arm_interfaces is not importable ({error}); build software/openarm/interfaces and source it")
+        return
+    from rclpy.action import ActionServer, CancelResponse, GoalResponse
+    from rclpy.callback_groups import ReentrantCallbackGroup
+
+    import commands
+
+    def on_goal(goal):
+        why = commands.check(service, goal.name, goal.params)
+        if why:
+            node.get_logger().warn(f"rejected {goal.name}: {why}")
+            return GoalResponse.REJECT
+        return GoalResponse.ACCEPT
+
+    def on_cancel(_):
+        service.hold()
+        return CancelResponse.ACCEPT
+
+    def execute(handle):
+        def progress(stage):
+            handle.publish_feedback(ArmCommand.Feedback(stage=stage))
+
+        request = handle.request
+        outcome = commands.run(service, request.name, request.params, progress)
+        result = ArmCommand.Result(result_code=int(outcome.code), message=outcome.message, data=json.dumps(outcome.data))
+        node.get_logger().info(f"{request.name}: {outcome.message}")
+        settle(handle, outcome.cancelled, outcome.ok)
+        return result
+
+    ActionServer(node, ArmCommand, f"/{service.args.side}_arm/command", execute, goal_callback=on_goal, cancel_callback=on_cancel, callback_group=ReentrantCallbackGroup())
 
 
 def arm_joint_names(robot, side: str) -> list:
