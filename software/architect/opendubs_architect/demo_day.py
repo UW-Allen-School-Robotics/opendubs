@@ -141,6 +141,8 @@ class Coordinator:
         old, self.state, self.since, self.why = self.state, state, self.clock(), why
         if state not in MOVING:
             self._stop_base()
+        if state == "PAUSED":
+            self.next_choreo = None              # a resume starts a fresh wait, never a show at once
         if state == "IDLE_NAV":
             self.near_since = None
             if self.next_choreo is None:

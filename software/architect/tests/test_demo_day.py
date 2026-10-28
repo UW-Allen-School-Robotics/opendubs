@@ -178,6 +178,14 @@ class Day(unittest.TestCase):
         self.co.tick()
         self.assertEqual((self.co.state, self.nav.moving), ("IDLE_NAV", True))
 
+    def test_a_resume_after_a_long_pause_does_not_start_a_show_at_once(self):
+        self.co.tick()
+        self.co.pause()
+        self.clock.t += 3600                                 # paused longer than the random pick's wait
+        self.co.resume()
+        self.run_for(5)
+        self.assertEqual((self.co.state, self.pal.runs), ("IDLE_NAV", []))
+
     def test_a_pause_stops_a_running_show(self):
         self.co.request("choreo", "play the monster mash")
         self.assertEqual(self.pal.runs, ["monster_mash"])
