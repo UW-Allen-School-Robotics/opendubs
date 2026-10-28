@@ -323,6 +323,15 @@ class PositionIk:
         return self.d.xpos[self.tcp].copy(), self.d.xmat[self.tcp].reshape(3, 3).copy(), q.copy()
 
 
+def turn_toward(r_from, r_to, max_angle):
+    """r_to, or the rotation `max_angle` (rad) from r_from toward it."""
+    angle = math.radians(g2s.angle_between(r_from, r_to))
+    if angle <= max_angle:
+        return r_to
+    q = g2s.slerp(g2s.mat_to_quat(r_from), g2s.mat_to_quat(r_to), max_angle / angle)
+    return g2s.quat_to_mat(*q)
+
+
 MAPPINGS = {"body": np.diag([-1.0, -1.0, 1.0]),   # facing the robot, in the person's own frame: your right is its right,
                                                    # toward the robot is its forward, up is up (a puppet, not a mirror)
             "world": np.eye(3)}                     # the same direction in the room as the hand moves
@@ -370,6 +379,10 @@ def main():
                          "than the reach: the IK solves what is out of reach to the nearest reachable point")
     ap.add_argument("--smooth-s", type=float, default=0.08, help="time constant of the target's low-pass")
     ap.add_argument("--max-speed", type=float, default=0.50, help="m/s the target may move at (0.5: the arm service's own pose limit)")
+    ap.add_argument("--max-accel", type=float, default=2.0, help="m/s^2 the target may accelerate at")
+    ap.add_argument("--max-turn", type=float, default=1.0, help="rad/s the target's orientation may turn at")
+    ap.add_argument("--no-auto-resume", dest="auto_resume", action="store_false",
+                    help="do not restart the arm service's follow when it stops (it does by default: simulation only)")
     ap.add_argument("--stale-s", type=float, default=0.60, help="a palm older than this is not followed")
     ap.add_argument("--rate", type=float, default=50.0)
     ap.add_argument("--start", action="store_true", help="following from the start, as if /perception/hand_follow/start was called")
@@ -377,6 +390,8 @@ def main():
     ap.add_argument("--dummy-z", type=float, default=0.55)
     ap.add_argument("--dummy-r", type=float, default=0.10)
     ap.add_argument("--dummy-period", type=float, default=8.0)
+    ap.add_argument("--dummy-hz", type=float, default=0.0, help="the dummy palm as steps at this rate, as the tracker's (0: every tick)")
+    ap.add_argument("--dummy-noise", type=float, default=0.0, help="m: the dummy palm's noise (standard deviation)")
     ap.add_argument("--save", default=None, help="frames: write the transform as cam_to_arm JSON")
     ap.add_argument("--palm", default=None, help="frames: x,y,z of a palm in the camera frame, to see where it lands")
     ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
@@ -457,6 +472,31 @@ def main():
     follow = {"on": False, "hand": args.hand, "sub": None, "state": "stopped", "info": None, "error": None}
     lock = threading.Lock()
 
+    # The arm service, watched: its status once a second over its command socket (arm_client.py). A follow its guard
+    # stopped (VIBRATION, a torque limit, the permit) leaves the arm held where it is; without this the follower kept
+    # sending targets nobody followed, which looked like an arm stuck in between.
+    sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
+    import arm_client
+    arm = {"following": None, "line": "not asked yet"}
+
+    def arm_command(command):
+        try:
+            return arm_client.send(command, path=args.arm_socket, timeout=5.0).strip().splitlines()[0]
+        except (OSError, IndexError, TypeError) as error:
+            return f"no answer from {args.arm_socket}: {error}"
+
+    def watch_arm():
+        while True:
+            line = arm_command("status")
+            following = "follow running" in line
+            arm.update(following=following, line=line.split("last: ", 1)[-1] if not following else line)
+            time.sleep(1.0)
+
+    if args.arm_socket:
+        threading.Thread(target=watch_arm, daemon=True).start()
+    else:
+        print("no --arm-socket: the arm service is not watched", file=sys.stderr, flush=True)
+
     def palm_topic(hand):
         return args.palm_topic or f"/perception/hand/{hand}/palm"
 
@@ -497,6 +537,12 @@ def main():
             _, info = frames.camera_in_arm()
         except LookupError as error:
             return reply(response, ResultCode.SERVICE_NOT_RUNNING, f"no {ARM_FRAME} <- {CAMERA_FRAME} transform: {error}", {})
+        if arm["following"] is not True:     # stopped by its guard or told to hold: start is the way to re-arm it
+            reply_line = arm_command("follow")
+            print(f"start: the arm service was not following ({arm['line']}): {reply_line}", flush=True)
+            if not (reply_line.startswith("follow started") or "follow is running" in reply_line):
+                return reply(response, ResultCode.SERVICE_NOT_RUNNING, f"the arm service did not start following: {reply_line}", {})
+            arm["following"] = None
         with lock:
             was = follow["on"] and follow["hand"] == hand
             if not was:
@@ -545,29 +591,56 @@ def main():
           f"/perception/hand_follow/{{start,stop,status}}; {'FOLLOWING' if follow['on'] else 'stopped until start'}", flush=True)
 
     dt = 1.0 / args.rate
-    active, cmd, filt, rot, sent = False, None, None, None, None
+    active, cmd, rot, sent, info = False, None, None, None, None
+    pf = vf = None                               # the target's second-order filter: position and velocity
     anchor_palm = anchor_cmd = goal = None
-    t0, last_print, last_err, last_err_at = time.monotonic(), 0.0, "", 0.0
+    t0, last_print, last_err, last_err_at, next_dummy = time.monotonic(), 0.0, "", 0.0, 0.0
+    cached = (None, None, None, None)            # (palm receipt time, T, info, error): the transform once per palm
+    resume_at, backoff, following_since, state = 0.0, 2.0, None, "stopped"
+    w = 1.0 / args.smooth_s
     try:
         while True:
             now = time.monotonic()
-            if args.dummy:
+            if args.dummy and now >= next_dummy:
+                # a palm on a circle; at --dummy-hz it comes as steps with --dummy-noise, as the tracker's do
                 a = 2 * math.pi * (now - t0) / args.dummy_period
-                palm.put((args.dummy_r * math.cos(a), args.dummy_r * math.sin(a), args.dummy_z), None)
+                noise = np.random.normal(0.0, args.dummy_noise, 3) if args.dummy_noise else np.zeros(3)
+                palm.put(np.array((args.dummy_r * math.cos(a), args.dummy_r * math.sin(a), args.dummy_z)) + noise, None)
+                next_dummy = now + (1.0 / args.dummy_hz if args.dummy_hz else 0.0)
             got = palm.get()
             err = None
             t = None
-            if not follow["on"]:
+            arm_on = arm["following"]
+            if follow["on"] and arm_on is False:
+                # The arm service is not following right/target (its guard stopped it, or it was told to hold): say so,
+                # and in the simulation start its follow again, backing off if it keeps stopping.
+                state = f"arm service not following ({arm['line']})"
+                active, following_since = False, None
+                if args.auto_resume and now >= resume_at:
+                    print(f"resuming the arm service's follow after: {arm['line']}", flush=True)
+                    print(f"  arm service: {arm_command('follow')}", flush=True)
+                    resume_at, backoff = now + backoff, min(backoff * 2, 30.0)
+                    cmd = sent = None            # its controller starts where the arm is now: so does this
+                    arm["following"] = None      # until the next status says
+            elif not follow["on"]:
                 active, state = False, "stopped: holding the last pose"
             elif got is None or now - got[2] > args.stale_s:
                 active, state = False, "no palm: holding the last pose"
             else:
-                try:
-                    t, info = frames.camera_in_arm(got[1])
-                except LookupError as error:
-                    t, err = None, str(error)
+                if cached[0] != got[2]:          # a new palm: its transform (TF and the IMU), once
+                    try:
+                        T, inf = frames.camera_in_arm(got[1])
+                        cached = (got[2], T, inf, None)
+                    except LookupError as error:
+                        cached = (got[2], None, None, str(error))
+                t, err = cached[1], cached[3]
+                info = cached[2] if cached[2] is not None else info
                 if t is None:
                     active, state = False, "no transform: holding the last pose"
+            if arm_on and follow["on"] and state == "following":
+                following_since = following_since or now
+                if now - following_since > 30.0:
+                    backoff = 2.0
             if t is None and sent is not None:
                 # HOLD: the last pose sent, sent again. Stopped, or the hand lost (occluded, out of view, a rough palm),
                 # the arm is still given a target every tick, so nothing depends on how the arm's controller treats a
@@ -584,19 +657,31 @@ def main():
                     # after a hold too: from the held pose, smoothed, and in relative mode the hand's motion counts from
                     # here, so a palm that comes back somewhere else does not jump the arm
                     anchor_palm, anchor_cmd = p_arm.copy(), cmd.copy()
-                    filt, active = cmd.copy(), True
+                    pf, vf, active = cmd.copy(), np.zeros(3), True
                 if args.mode == "relative":
                     goal = anchor_cmd + args.gain * (MAPPINGS[args.mapping] @ (p_arm - anchor_palm))
                 else:
                     goal = shape_target(p_arm, args.standoff, args.min_reach, args.max_reach, box)
                 goal = np.array([min(max(goal[i], box[i][0]), box[i][1]) for i in range(3)])
-                filt = filt + (dt / (args.smooth_s + dt)) * (goal - filt)
-                step = filt - cmd
-                n = float(np.linalg.norm(step))
-                if n > args.max_speed * dt:
-                    step *= args.max_speed * dt / n
-                pos, rot, _ = ik.solve(cmd + step)
-                cmd = pos                        # what the arm can reach: pushing past the reach does not wind up
+                # SMOOTH: a critically damped second-order filter toward the goal, its acceleration and speed limited.
+                # The tracker's palms are steps (12-15 a second, with noise); stepped targets jerk the arm's pose
+                # controller, and the service's vibration guard stopped the follow on them.
+                acc = w * w * (goal - pf) - 2.0 * w * vf
+                na = float(np.linalg.norm(acc))
+                if na > args.max_accel:
+                    acc *= args.max_accel / na
+                vf = vf + acc * dt
+                nv = float(np.linalg.norm(vf))
+                if nv > args.max_speed:
+                    vf *= args.max_speed / nv
+                pf = pf + vf * dt
+                pos, rot_ik, _ = ik.solve(pf)
+                if np.linalg.norm(pos - pf) > 0.005:
+                    pf, vf = pos.copy(), vf * 0.5    # at the reach: the filter stays on what the arm can reach (no windup)
+                # the wrist turns at most --max-turn: the IK's orientation is free, and a small move near a singular
+                # posture can swing it
+                rot = rot_ik if rot is None else turn_toward(rot, rot_ik, args.max_turn * dt)
+                cmd = pos
                 sent = (pos, rot)
                 sim.send(pos, rot)
                 state = "following"

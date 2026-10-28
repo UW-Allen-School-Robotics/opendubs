@@ -223,7 +223,8 @@ def track_palm(hand_pts, pose_lm, side, depth_m, K, w, h, min_vis, occl_tol, arm
 class PalmTracker:
     """MediaPipe's pose and hand landmarkers in VIDEO mode, and the logic above. `track` takes one frame."""
 
-    def __init__(self, models_dir, max_angle_deg=35.0, min_vis=0.1, occl_tol=0.05, arm_tol=0.45, delegate="gpu"):
+    def __init__(self, models_dir, max_angle_deg=35.0, min_vis=0.1, occl_tol=0.05, arm_tol=0.45, delegate="gpu",
+                 pose_every=1, hand_confidence=0.5):
         import mediapipe as mp
         self.mp = mp
         vision = mp.tasks.vision
@@ -239,8 +240,10 @@ class PalmTracker:
             running_mode=vision.RunningMode.VIDEO, num_poses=4))
         self.hands = vision.HandLandmarker.create_from_options(vision.HandLandmarkerOptions(
             base_options=base(model_asset_path=os.path.join(models_dir, "hand_landmarker.task")),
-            running_mode=vision.RunningMode.VIDEO, num_hands=6))
+            running_mode=vision.RunningMode.VIDEO, num_hands=6, min_hand_detection_confidence=hand_confidence,
+            min_hand_presence_confidence=hand_confidence, min_tracking_confidence=hand_confidence))
         self.max_angle, self.min_vis, self.occl_tol, self.arm_tol = max_angle_deg, min_vis, occl_tol, arm_tol
+        self.pose_every, self._frame, self._pose_res = max(1, pose_every), 0, None
         self._last_ms = -1
 
     def track(self, rgb, depth_m, K, stamp_s):
@@ -253,7 +256,12 @@ class PalmTracker:
         ms = max(int(stamp_s * 1000), self._last_ms + 1)      # VIDEO mode needs increasing timestamps
         self._last_ms = ms
         img = self.mp.Image(image_format=self.mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
-        pose_res = self.pose.detect_for_video(img, ms)
+        # The pose only says who the person is and gives the fallbacks: a few frames old is good enough, and skipping it
+        # leaves the frame to the hand landmarker
+        if self._pose_res is None or self._frame % self.pose_every == 0:
+            self._pose_res = self.pose.detect_for_video(img, ms)
+        self._frame += 1
+        pose_res = self._pose_res
         hand_res = self.hands.detect_for_video(img, ms)
 
         idx, person_z = nearest_person(pose_res.pose_landmarks, depth_m, K, w, h, self.max_angle, self.min_vis)
