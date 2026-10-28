@@ -1,0 +1,10 @@
+name: hand3d
+channels: [conda-forge]
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - mediapipe==1.1.1
+      - pyorbbecsdk2==2.1.2
+      - opencv-python==4.11.0.86
+      - numpy==1.26.4

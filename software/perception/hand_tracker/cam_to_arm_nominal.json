@@ -1,0 +1,31 @@
+{
+ "from": "camera_color_optical_frame",
+ "to": "arm model frame (+x forward, +y left, +z up)",
+ "side": "right",
+ "R": [
+  [
+   0.0,
+   -0.104529,
+   0.994522
+  ],
+  [
+   -1.0,
+   0.0,
+   0.0
+  ],
+  [
+   -0.0,
+   -0.994522,
+   -0.104529
+  ]
+ ],
+ "t": [
+  0.08965,
+  0.002,
+  0.96709
+ ],
+ "rms_mm": null,
+ "samples": 0,
+ "source": "nominal: daphne/halloween camera_frames.py + opendubs.urdf (arm_mount), head pan 0 tilt 0",
+ "valid_for": "neck centred, head tracking off"
+}
