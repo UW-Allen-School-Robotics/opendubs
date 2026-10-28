@@ -192,7 +192,10 @@ a clearance check and a pick plan all see the same object. By default its candy 
 coverage study puts the best seen-and-reachable spot for the right gripper (0.40 m forward, 0.20 m
 right, 0.90 m above the floor); `--candy-bucket X,Y,H` moves it. The mesh in `props/` is the user's
 Fusion model, flipped right way up and in metres; it is drawn only, and the bucket collides as a
-base, wall panels and a handle, so its inside stays free for a hand. Details in `props.py`.
+base, wall panels and a handle, so its inside stays free for a hand. The bucket is a free body
+(2.2 kg, half a load of candy) resting on its stand by contact, with its target site as a child, so
+it can be moved, knocked or picked up; `scene.py --check --candy-bucket` drops it 5 mm onto the
+stand and fails unless it settles seated and upright. Details in `props.py`.
 
 ```bash
 python3 scene.py --candy-bucket --render /tmp/bucket.png --az 200 --el -15 --dist 2.2

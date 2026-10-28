@@ -396,6 +396,9 @@ def main():
 
     print(f"{model.nbody} bodies, {model.njnt} joints, {model.ngeom} geoms")
     problems = check_invariants(model, a.head)
+    if a.candy_bucket:
+        import props
+        problems += props.settle_check(model)
     for msg in problems:
         print(f"FAIL: {msg}", file=sys.stderr)
     if not problems:
