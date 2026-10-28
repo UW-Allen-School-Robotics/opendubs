@@ -375,7 +375,14 @@ Raised at the robot, with the project team present. Each points at the item that
 - **Termination, measured by hand:** each arm's harness reads 116 Ω, pin 7 to pin 2, unplugged from the adapter. That one terminator is a jumper at the host end, and nothing sits past the gripper. That is wrong on both arms, and it is to be corrected as the next single change (one 120 Ω at each end). It cannot explain the left alone, since the right is built the same way.
 - **What the pattern rules out:** J4–J8 on the same left bus reply cleanly through the same adapter channel, trunk and shoulder connectors. So the adapter, the trunk and the bus line through J1 and J2 are fine, and a cable swap at the adapter would tell us nothing. The right arm's DM8009s are clean, so the model is not the cause.
 - **What is left:** the left J1 and J2 nodes themselves (their CAN transceivers, or the CAN pair or supply in their XT30(2+2) power-and-CAN connectors) or their firmware.
-- **No motor-side terminator exists to check:** the Damiao register map (openarm_can's `RID`) has no termination register, and the DM-J4310 manual describes none. The register map does carry `hw_ver`, `sw_ver` and `sub_ver`, which are read-only to compare left J1/J2 against right. | open | 0.26 |
+- **No motor-side terminator exists to check:** the Damiao register map (openarm_can's `RID`) has no termination register, and the DM-J4310 manual describes none. The register map does carry `hw_ver`, `sw_ver` and `sub_ver`, which are read-only to compare left J1/J2 against right.
+
+**Later on 2026-10-27, the fault follows the two left DM8009 motors:**
+- **Moving left J2 to another position on the shoulder distribution PCB** (the board carrying J1–J3 on a common bus, power and CAN to each motor's lead) changed nothing: J1 lost 40%, J2 35%.
+- **Swapping the J1 and J3 positions** left the loss with the J1 motor: 42% lost and 63% ESI in J3's old socket, while J3 lost 1.0% in J1's.
+- **A read-only register read** (0x7FF, 0x33) of J1 and J2 on both arms found all four identical: `hw_ver` "V003", `sw_ver` "6417", `sub_ver` "4" (OpenArm's tested `APP_DM8009(V3)_V6417_04`), `can_br` 9 (5M) and `TIMEOUT` 0.
+
+So it is not the board, the firmware or the bit-rate setting. It is the left J1 and J2 units, or each one's own lead. **Next:** one capture with J3's lead on the J1 motor separates lead from motor. Then replace the two units (ask Enactic/Damiao, with these captures). | open | 0.26 |
 
 ## Stub register
 
