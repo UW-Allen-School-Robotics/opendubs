@@ -276,9 +276,13 @@ def test_trajectory_and_follow(side):
         times = np.linspace(0, 2, 11)
         s = times / 2
         path = np.array([q0 + move * x for x in s**3 * (10 - 15 * s + 6 * s**2)])
+        began = time.time()
         result = service.follow(times, path)
+        took = time.time() - began
         assert result.code == 0, result.message
         assert np.abs(position() - path[-1]).max() < 0.05
+        # T4, T5: a runner's goal starts at acceptance and returns once the arm is at the path's end, not 0.3 s late at the start and a second late at the end
+        assert took < times[-1] + 0.25, f"the goal took {took:.2f} s for a {times[-1]:g} s path"
 
         away = path + np.array([0.3, 0, 0, 0, 0, 0, 0])
         assert service.follow(times, away).code == trajectory_refusal(), "a path that starts away from the arm must be refused"

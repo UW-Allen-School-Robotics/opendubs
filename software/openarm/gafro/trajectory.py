@@ -43,6 +43,8 @@ class Limits:
     offset_gain: float | None = None
     max_command_speed: float | None = None
     lead_in: float = 0.2              # s between publishing the path and its first knot: the show is this much later than its clock says
+    hold_seconds: float = 0.1         # s holding where the arm is, with the controller up, before the path is published. A runner's goal sets both of these to 0 (arm_service.follow):
+                                      # its show is timed to the music, and the two together made the arms trail it by 0.3 s
 
 
 @dataclasses.dataclass
@@ -125,7 +127,8 @@ def follow(robot, side: str, times, positions, velocities, keeper, cancel: threa
             return Result(INVALID_GOAL, str(refused))
         posture, rate_source = position_play.start(robot, system, side, start_all, task.compute_ee_motor(start), limits.gain, limits.max_lead, limits.max_command_speed,
                                                    True, limits.leash, limits.offset_gain)
-        time.sleep(0.1)                          # holding where it is before the path starts
+        if limits.hold_seconds > 0:
+            time.sleep(limits.hold_seconds)      # holding where it is before the path starts
         begin_clock, began = control.monotonic_now() + limits.lead_in, time.time() + limits.lead_in
         threading.Thread(target=sample, daemon=True).start()
         position_play.publish(posture, rate_source, begin_clock, PERIOD, full, rates)
@@ -136,6 +139,8 @@ def follow(robot, side: str, times, positions, velocities, keeper, cancel: threa
             if elapsed <= 0 or not samples:
                 continue
             _, q, tau, _ = samples[-1]
+            if elapsed >= grid[-1] and float(np.abs(q - joints[-1]).max()) <= limits.goal_tolerance:
+                break                            # the path has ended and the arm is at its end: return now, not a second later (the runner schedules its next goal on this)
             error = play_show.tracking_error(grid, joints, elapsed, q)
             worst = max(worst, error)
             if vibrating["joints"]:

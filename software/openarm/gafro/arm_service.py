@@ -32,6 +32,7 @@ after it ends: the e-stop power cycle releases them), and starting the service a
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import socket
@@ -327,7 +328,9 @@ class ArmService:
             self.running = "trajectory"
             self.cancel.clear()
         try:
-            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, log=self._log,
+            # A runner's goal starts at acceptance by default: its show is timed to the music, and the 0.1 s hold and 0.2 s lead-in the service's own moves have made the arm trail by 0.3 s.
+            limits = dataclasses.replace(trajectory.Limits(), hold_seconds=getattr(self.args, "goal_hold_seconds", 0.0), lead_in=getattr(self.args, "goal_lead_in", 0.0))
+            result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, limits=limits, log=self._log,
                                        record=self._recording("trajectory"))
         except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
             result = trajectory.Result(trajectory.INVALID_GOAL, f"{type(error).__name__}: {error}")
@@ -455,6 +458,9 @@ def main() -> int:
         p.add_argument("--listen-seconds", type=float, default=guards.LISTEN_SECONDS, help="how long to listen for another sender")
         p.add_argument("--socket", default=None, help="default: the side's, in $OPENDUBS_ARM_SOCKET_DIR (one service per arm)")
         p.add_argument("--socket-mode", default="600", help="the socket's permissions, octal: 660 lets the dashboard's user (the directory's group) send commands")
+        p.add_argument("--goal-hold-seconds", type=float, default=0.0, help="a runner's trajectory goal: seconds holding before the path is published (0: start at acceptance; trajectory.Limits' own is 0.1)")
+        p.add_argument("--goal-lead-in", type=float, default=0.0, help="a runner's trajectory goal: seconds between publishing the path and its first knot (0: start at acceptance; trajectory.Limits' own is 0.2). "
+                       "If the start is not clean on the arm, 0.1 and 0.2 give back the old 0.3 s")
         p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 5 s from stow to ready; under about 3.4 s the arm cannot follow and the move is refused)")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--reach-clearance", type=float, default=reach.CLEARANCE, help="m: the least gap between any two balls of the collision cover for a target to count as reachable (default %(default)s: the cover "
