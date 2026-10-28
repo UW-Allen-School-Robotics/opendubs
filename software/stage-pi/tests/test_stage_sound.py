@@ -28,11 +28,12 @@ def test_a_screen_says_whether_it_has_a_speaker():
     assert not ss.edid_has_audio(bytes(128))              # no extension at all (a DVI monitor)
 
 
-def test_auto_skips_a_silent_screen_and_a_missing_choice_falls_back():
+def test_auto_skips_a_silent_screen_and_a_missing_named_output_is_none():
     assert ss.choose("auto", {"hdmi", "usb", "bt"}, hdmi_audio=False) == ("usb", None)
     assert ss.choose("auto", {"hdmi", "usb"}, hdmi_audio=True) == ("hdmi", None)
     assert ss.choose("auto", {"bt", "jack"}, hdmi_audio=False) == ("bt", None)
-    assert ss.choose("bt", {"usb"}, hdmi_audio=False) == ("usb", "bt is not available")
+    # the speaker off: NOT the jack with nothing plugged in, which would play a show silently (#591)
+    assert ss.choose("bt", {"usb", "jack"}, hdmi_audio=False) == (None, ss.MISSING["bt"])
     assert ss.choose("hdmi", {"hdmi"}, hdmi_audio=False) == ("hdmi", None)   # forced: played as asked
     assert ss.choose("auto", set(), hdmi_audio=False) == (None, "no sound output found")
 
