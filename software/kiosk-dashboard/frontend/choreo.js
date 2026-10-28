@@ -45,7 +45,13 @@
   function rowHTML(name, sub, body, ctl = "") {
     return `<div class="shows-k"><b>${name}</b>${sub}</div><div class="shows-v">${body}</div>${ctl}`;
   }
-  const owned = (id) => !!el(id).dataset.owner;
+  // A row the Tablet lane's projector.js has filled (its .pj-main, or a data-owner): this file's plain
+  // row, if it drew one first, goes, and is not drawn again.
+  const owned = (id) => {
+    const row = el(id), theirs = !!(row.dataset.owner || row.querySelector(".pj-main"));
+    if (theirs) row.querySelectorAll(":scope > .shows-fb").forEach((n) => n.remove());
+    return theirs;
+  };
   const sentence = (t) => (/[.!?]$/.test(t) ? t : t + ".");
   function renderFallbackRows() {
     if (!owned("showsVideoRow") && video) {
@@ -72,9 +78,12 @@
     }
   }
   function paintRow(id, name, sub, opts, cur, line, kind, extra = "") {
-    const row = el(id), sel = row.querySelector("select");
+    const row = el(id);
+    let fb = row.querySelector(":scope > .shows-fb");
+    if (!fb) { fb = document.createElement("div"); fb.className = "shows-fb"; row.appendChild(fb); }
+    const sel = fb.querySelector("select");
     if (sel && document.activeElement === sel) return;           // never redraw under a finger
-    row.innerHTML = rowHTML(name, sub, line,
+    fb.innerHTML = rowHTML(name, sub, line,
       `<select data-kind="${kind}" aria-label="${name}">${opts.map(([v, t]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${t}</option>`).join("")}</select>${extra}`);
   }
   el("view-shows").addEventListener("change", async (e) => {

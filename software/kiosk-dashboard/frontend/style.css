@@ -709,6 +709,8 @@ body.op-faulted .op-clearfault{ display:inline-flex; }
 .shows-outrow { display: grid; grid-template-columns: 150px 1fr auto auto; gap: 12px; align-items: center;
                 padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .shows-outrow:empty { display: none; }
+.shows-outrow .shows-fb { display: contents; }
+.shows-outrow:has(.pj-main) { display: block; }   /* the Tablet lane's row lays itself out */
 .shows-outrow .sdot { display: inline-block; width: 11px; height: 11px; vertical-align: -1px; margin-right: 6px; }
 .shows-k { color: var(--dim); font-size: 13px; } .shows-k b { display: block; color: var(--txt); font-size: 15px; }
 .shows-outrow select { font: inherit; padding: 8px 10px; background: var(--panel-2); color: var(--txt);
