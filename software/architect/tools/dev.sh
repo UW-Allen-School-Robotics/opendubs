@@ -29,7 +29,8 @@
 #                                  this checkout (REPO), DATA, SHOW and you; enabled and started now. TEST UNITS, like
 #                                  archit-perception's: no deploy or provisioner installs or touches them. The
 #                                  coordinator starts PAUSED (curl -X POST 127.0.0.1:8096/api/resume on the day)
-#                                  PROGRAM: the program SHOW was recorded from, for the tab (default examples/bucket_offer.py)
+#                                  PROGRAM: the program SHOW was recorded from, for the tab (default examples/bucket_offer.py).
+#                                  The listener's unit plays shows' music on the Jabra (SHOW_AUDIO=1, show_music.py)
 #   dev.sh uninstall               stop and remove them;   dev.sh status: whether they run
 #   dev.sh camera                  the Orbbec's colour image as a small JPEG on 127.0.0.1:8097/frame.jpg, for the
 #                                  dashboard's ARCHITECT tab (archit-architect-camera; read-only, subscribed only
@@ -215,7 +216,8 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
   local gid tts=() show="" ; gid=$(getent group audio | cut -d: -f3)
   [ -n "${SHOW:-}" ] && show="--show ${SHOW} --start ${START:-deadman}"
   [ "${LOG_HEARD:-0}" = 1 ] && show="${show} --log-heard"
-  [ "${DAY:-0}" = 1 ] && show="${show} --day http://127.0.0.1:8096"   # the demo day's coordinator (dev.sh day)     # tuning: what Parakeet wrote for a refused hit
+  [ "${DAY:-0}" = 1 ] && show="${show} --day http://127.0.0.1:8096"   # the demo day's coordinator (dev.sh day)
+  [ "${SHOW_AUDIO:-0}" = 1 ] && show="${show} --show-audio"         # shows' music on the Jabra (show_music.py)     # tuning: what Parakeet wrote for a refused hit
   [ -n "${SHOW:-}" ] && [ -n "${PROGRAM:-}" ] && show="${show} --program /work/${PROGRAM}"   # the tab shows its code
   [ -f "${DATA}/models/kws-gigaspeech-3.3m/tokens.txt" ] || { echo "dev.sh: no spotter model; run 'dev.sh kws' first" >&2; exit 1; }
   if ${DOCKER} inspect "${LISTENER}" >/dev/null 2>&1; then
@@ -333,6 +335,6 @@ case "${1:-}" in
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}" 2>/dev/null || true
     ;;
   *)
-    sed -n '2,70p' "$0"; exit 1
+    sed -n '2,71p' "$0"; exit 1
     ;;
 esac

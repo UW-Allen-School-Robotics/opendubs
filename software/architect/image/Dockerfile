@@ -56,6 +56,10 @@ RUN bash -c "source /opt/ros/jazzy/setup.bash && cd /opt/architect_ws && colcon 
  && rm -rf /opt/architect_ws/build /opt/architect_ws/log
 # The code is not in the image: dev.sh mounts this repository at /work and ssa at /ssa, read-only.
 COPY image/entrypoint.sh /opt/architect/entrypoint.sh
+
+# Show music on the Jabra (opendubs_architect/show_music.py): miniaudio (MIT; its MP3 decoder is dr_mp3,
+# public domain / MIT-0). Not ffmpeg, whose distro build carries GPL parts. No aarch64 wheel: built here.
+RUN pip install --no-deps miniaudio==1.71
 WORKDIR /work
 ENTRYPOINT ["/opt/architect/entrypoint.sh"]
 CMD ["bash"]

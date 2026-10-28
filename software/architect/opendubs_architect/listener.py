@@ -646,11 +646,15 @@ def main(argv=None) -> int:
     ap.add_argument("--no-light", action="store_true", help="do not flash the base strip purple when the phrase is heard")
     ap.add_argument("--log-heard", action="store_true", help="tuning: log what Parakeet wrote when it does not "
                     "confirm a spotter hit (about 2 s of speech, only after a hit; off by default)")
+    ap.add_argument("--show-audio", action="store_true", help="show mode: hold the dashboard's show-audio role, "
+                    "so shows' music plays on the Jabra (show_music.py), mixed with the robot's speech")
     ap.add_argument("--day", metavar="URL", help="show mode: the demo day's coordinator (demo_day.py, e.g. "
                     "http://127.0.0.1:8096), asked before the candy show and given spoken show requests")
     a = ap.parse_args(argv)
     if a.day and not a.show:
         ap.error("--day needs --show (the candy show)")
+    if a.show_audio and not a.show:
+        ap.error("--show-audio needs --show")
     os.environ["OPENDUBS_VOICE_MODELS"] = a.models      # speech.py and vad.py read it
 
     from opendubs_architect import alsa, chat
@@ -688,8 +692,14 @@ def main(argv=None) -> int:
                         log_heard=a.log_heard, light=None if a.no_light else Light(a.dashboard), feed=feed,
                         day=Day(a.day) if a.day else None)
 
-    async def play(out, text):              # whole, then louder: Kokoro synthesises a sentence at once anyway
-        out.write(loud(b"".join([chunk async for chunk in tts.speak(text)])))
+    async def synth(text):                  # whole, then louder: Kokoro synthesises a sentence at once anyway
+        return loud(b"".join([chunk async for chunk in tts.speak(text)]))
+
+    mixer = None
+    if a.show_audio:                        # one output for the Jabra: the shows' music and the speech over it
+        from opendubs_architect import show_music
+        mixer = show_music.Mixer(a.card, log=log).start()
+        show_music.ShowAudio(mixer, a.dashboard, log=log).start()
 
     def speaker():
         out = None
@@ -697,9 +707,13 @@ def main(argv=None) -> int:
             text = lines.get()
             listener.speaking = True
             try:
-                out = out or alsa.Playback(alsa.find_card(a.card))
-                asyncio.run(play(out, text))
-                out.drain()
+                if mixer is not None:
+                    pcm = asyncio.run(synth(text))
+                    mixer.say(pcm).wait(timeout=len(pcm) / 2 / alsa.PLAY_RATE + 5.0)
+                else:
+                    out = out or alsa.Playback(alsa.find_card(a.card))
+                    out.write(asyncio.run(synth(text)))
+                    out.drain()
                 log({"t": round(time.time(), 3), "event": "said", "text": text})
             except Exception as e:  # noqa: BLE001  a lost device is opened again on the next line
                 log({"t": round(time.time(), 3), "event": "say_failed", "error": str(e)})
