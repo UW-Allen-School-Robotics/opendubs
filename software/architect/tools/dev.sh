@@ -18,6 +18,13 @@
 #                                  SHOW=<routine>: "trick or treat" plays that show-palette routine through
 #                                  the dashboard instead (the Shows page's gates; START=deadman, the default,
 #                                  makes the supervisor's fresh deadman press the go; or countdown)
+#   dev.sh day                     the demo day's coordinator (archit-architect-day, demo_day.py) on 127.0.0.1:8096:
+#                                  patrol, approach a visitor, candy, and the preprogrammed shows, one at a time.
+#                                  SHOW=<the candy routine>, CHOREO="monster_mash ghostbusters them_bones" (3-5),
+#                                  EVERY="240 480" (a random pick after this many seconds of patrolling); the nav
+#                                  is a stub (moves nothing) until the nav stack is here; who is near comes from
+#                                  the perception services. FAKE=1: no palette and nobody seen, for a desk.
+#                                  Start the listener with DAY=1 so "trick or treat" asks it first
 #   dev.sh camera                  the Orbbec's colour image as a small JPEG on 127.0.0.1:8097/frame.jpg, for the
 #                                  dashboard's ARCHITECT tab (archit-architect-camera; read-only, subscribed only
 #                                  while asked; joins archit-perception-camera's IPC, as the perception server does)
@@ -69,6 +76,7 @@ MODELS="${MODELS:-/var/lib/opendubs/models}"
 LISTENER=archit-architect-listener
 ARMS_NAME=archit-architect-arms
 CAMERA_NAME=archit-architect-camera
+DAY_NAME=archit-architect-day
 PERCEPTION_CAMERA=archit-perception-camera
 
 # The arm stack's joint_limits.yaml, the file the show runner validates against: its drop-in binds the
@@ -176,10 +184,27 @@ camera() {  # the colour image for the dashboard tab, from the perception stack'
   echo "started ${CAMERA_NAME}: http://127.0.0.1:8097/frame.jpg"
 }
 
+day() {  # the coordinator: reads the palette and the perception services, drives nothing until the nav is real
+  [ -n "${SHOW:-}" ] || { echo "dev.sh: SHOW=<the candy routine> is needed (the listener's)" >&2; exit 1; }
+  if ${DOCKER} inspect "${DAY_NAME}" >/dev/null 2>&1; then
+    echo "dev.sh: ${DAY_NAME} is already running; 'dev.sh down' first" >&2; exit 1
+  fi
+  local args="--candy ${SHOW}"
+  [ -n "${CHOREO:-}" ] && args="${args} --choreo ${CHOREO}"
+  [ -n "${EVERY:-}" ] && args="${args} --every ${EVERY}"
+  [ "${FAKE:-0}" = 1 ] && args="${args} --people fake --palette fake"
+  ${DOCKER} run -d --rm --name "${DAY_NAME}" --network host \
+    -e ROS_DOMAIN_ID=0 -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 -e PYTHONPATH=/work/software/architect \
+    -e OPENDUBS_ARCHITECT_ARMS=/data/architect-arms.yaml -v "${DATA}:/data" -v "${REPO}:/work:ro" \
+    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_day ${args} 2>&1 | tee /data/demo_day.log"
+  echo "started ${DAY_NAME}: http://127.0.0.1:8096/api/state (start the listener with DAY=1 SHOW=${SHOW})"
+}
+
 listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner on 127.0.0.1:${PORT}
   local gid tts=() show="" ; gid=$(getent group audio | cut -d: -f3)
   [ -n "${SHOW:-}" ] && show="--show ${SHOW} --start ${START:-deadman}"
-  [ "${LOG_HEARD:-0}" = 1 ] && show="${show} --log-heard"     # tuning: what Parakeet wrote for a refused hit
+  [ "${LOG_HEARD:-0}" = 1 ] && show="${show} --log-heard"
+  [ "${DAY:-0}" = 1 ] && show="${show} --day http://127.0.0.1:8096"   # the demo day's coordinator (dev.sh day)     # tuning: what Parakeet wrote for a refused hit
   [ -n "${SHOW:-}" ] && [ -n "${PROGRAM:-}" ] && show="${show} --program /work/${PROGRAM}"   # the tab shows its code
   [ -f "${DATA}/models/kws-gigaspeech-3.3m/tokens.txt" ] || { echo "dev.sh: no spotter model; run 'dev.sh kws' first" >&2; exit 1; }
   if ${DOCKER} inspect "${LISTENER}" >/dev/null 2>&1; then
@@ -232,6 +257,9 @@ case "${1:-}" in
   camera)
     camera
     ;;
+  day)
+    day
+    ;;
   live)
     [ -n "${PROGRAM:-}" ] || echo "dev.sh: PROGRAM not set; the fixed program is examples/arms_wave.py" >&2
     run live --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
@@ -255,9 +283,10 @@ case "${1:-}" in
     ${DOCKER} stop -t 5 "${ARMS_NAME}" >/dev/null 2>&1 && echo "stopped ${ARMS_NAME}"
     ${DOCKER} stop -t 5 "${LISTENER}" >/dev/null 2>&1 && echo "stopped ${LISTENER}"
     ${DOCKER} stop -t 5 "${CAMERA_NAME}" >/dev/null 2>&1 && echo "stopped ${CAMERA_NAME}"
+    ${DOCKER} stop -t 5 "${DAY_NAME}" >/dev/null 2>&1 && echo "stopped ${DAY_NAME}"
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}" 2>/dev/null || true
     ;;
   *)
-    sed -n '2,45p' "$0"; exit 1
+    sed -n '2,64p' "$0"; exit 1
     ;;
 esac

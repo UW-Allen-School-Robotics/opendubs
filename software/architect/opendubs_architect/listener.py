@@ -33,8 +33,14 @@ WHAT IT SAYS ITSELF (chat.py, the robot's local language model; never posted to 
     "trick or treat" that     any but    "Hold on, I'm thinking!" and its variations: a run is under
      starts no run            AWAITING_YES  way, or the runner refused it (the deadman not held)
     "OpenDubs, <words>"       ARMED      a short reply, unless the words hold "stop" (posted as above)
+    "OpenDubs, dance" and     ARMED,     with --day (demo_day.py, the demo day's coordinator): asked
+     other show requests      --day      of the coordinator, which picks and arms the show
 
 Outside those states, and while the runner cannot be read, only the wake phrase is listened for.
+
+WITH --day, "trick or treat" asks the coordinator first (POST /api/request {"want": "candy"}): it is
+granted only once the base has stopped, and refused while another show runs or the demo is paused.
+A refusal is a HOLD_ON line, as a refused run is. Without the coordinator answering, nothing starts.
 
 WHILE THE ROBOT SPEAKS nothing is listened to, and for TAIL_S after: its own "trick or treat" in a
 summary must not trigger it. The spotter starts clean afterwards.
@@ -157,6 +163,14 @@ def is_trick_or_treat(text: str) -> bool:
     return False
 
 
+_SHOW_ASK = re.compile(r"\b(dance|dancing|show|song|music|perform|monster|ghostbusters|ghost busters|bones)\b", re.I)
+
+
+def wants_show(text: str) -> bool:
+    """"OpenDubs, dance", "... play the monster mash": a request for one of the demo day's shows."""
+    return bool(_SHOW_ASK.search(text or "")) and not _STOP.search(text or "")
+
+
 def _not_armed(state) -> str:
     return "trick or treat while a run is under way" if state == "RUNNING" else \
         f"trick or treat while nothing is armed ({state})"
@@ -185,13 +199,15 @@ class Listener:
     runner's new state) reach the models and the runner."""
 
     def __init__(self, spotter, transcribe, post, make_vad=vad.make_vad, clock=time.monotonic,
-                 log=None, background=True, chat=None, say=None, log_heard=False, light=None, feed=None):
+                 log=None, background=True, chat=None, say=None, log_heard=False, light=None, feed=None,
+                 day=None):
         """`chat` (chat.Chat) and `say(text)`, when given, let the robot greet each visitor and answer
         questions while armed; without them it only listens for the runner."""
         self.spotter, self.transcribe, self.post = spotter, transcribe, post
         self.chat, self.say = chat, say
         self.light = light                      # Light: the base strip shows that it heard
         self.feed = feed                        # Feed: the page's events, transcripts included
+        self.day = day                          # Day: the demo day's coordinator, for spoken show requests
         self.level_db = -120.0                  # the microphone's recent peak, for the page
         self._hit_at = None                     # when the spotter last fired (self.clock), for the timings
         self.log_heard = log_heard              # tuning only: what Parakeet wrote for a refused hit
@@ -344,6 +360,11 @@ class Listener:
                 else:
                     self._log("dropped", state=self.state, why=_not_armed(self.state))
                     self._hold_on()
+            elif self.day is not None and self.state == "ARMED" and wants_show(rest):
+                ok, why = self.day.request("choreo", rest)
+                self._log("show_asked", text=rest, ok=ok, why=why)
+                if not ok:
+                    self._hold_on()
             elif self.state == "ARMED" and self.chat and self.say and not _STOP.search(rest):
                 answer = self.chat.reply(rest)      # a question while armed: the runner ignores it anyway
                 self.say(answer)
@@ -465,6 +486,24 @@ class Light:
         return self.call({"rgb": self.rgb, "br": self.br, "lease_ms": int(LIGHT_S * 1000)})
 
 
+class Day:
+    """The demo day's coordinator (demo_day.py) on 127.0.0.1:8096. request(want, text) -> (ok, why);
+    a coordinator that does not answer refuses: nothing starts without it."""
+
+    def __init__(self, url: str):
+        self.url = url.rstrip("/")
+
+    def request(self, want: str, text: str = ""):
+        req = urllib.request.Request(self.url + "/api/request", data=json.dumps({"want": want, "text": text}).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=6.0) as r:
+                got = json.load(r)
+            return bool(got.get("ok")), got.get("why")
+        except (OSError, ValueError) as e:
+            return False, f"the demo day's coordinator does not answer ({e})"
+
+
 class Shows:
     """The show runner instead of ARCHITECT's: "trick or treat" plays ONE routine from the dashboard's
     show palette, through the same call the Shows page's button makes (POST /api/choreo/run/<id>, in
@@ -481,8 +520,10 @@ class Shows:
     ARMED, with the runner's own words in the log. "Stop" stops the show; nothing else is posted.
     `call(method, path, body) -> (status, json)` is a seam for the tests."""
 
-    def __init__(self, dashboard: str, routine: str, start: str = "deadman", countdown_s=None, log=None, call=None):
+    def __init__(self, dashboard: str, routine: str, start: str = "deadman", countdown_s=None, log=None, call=None,
+                 day=None):
         self.url, self.routine, self.start, self.countdown_s = dashboard.rstrip("/"), routine, start, countdown_s
+        self.day = day                                  # Day: asked before the run, when given
         self._log_fn, self.call = log, call or self._call
 
     def _call(self, method: str, path: str, body=None):
@@ -523,6 +564,11 @@ class Shows:
         return "RUNNING" if st.get("running") else "ARMED"
 
     def post(self, kind: str, text: str) -> str | None:
+        if kind == "trigger" and self.day is not None:
+            ok, why = self.day.request("candy")
+            if not ok:
+                self._log("show_refused", routine=self.routine, status=None, why=f"demo day: {why}")
+                return "ARMED"
         if kind == "trigger":
             body = {"start": self.start, **({"countdown_s": self.countdown_s} if self.countdown_s is not None else {})}
             code, got = self.call("POST", f"/api/choreo/run/{self.routine}", body)
@@ -563,7 +609,11 @@ def main(argv=None) -> int:
     ap.add_argument("--no-light", action="store_true", help="do not flash the base strip purple when the phrase is heard")
     ap.add_argument("--log-heard", action="store_true", help="tuning: log what Parakeet wrote when it does not "
                     "confirm a spotter hit (about 2 s of speech, only after a hit; off by default)")
+    ap.add_argument("--day", metavar="URL", help="show mode: the demo day's coordinator (demo_day.py, e.g. "
+                    "http://127.0.0.1:8096), asked before the candy show and given spoken show requests")
     a = ap.parse_args(argv)
+    if a.day and not a.show:
+        ap.error("--day needs --show (the candy show)")
     os.environ["OPENDUBS_VOICE_MODELS"] = a.models      # speech.py and vad.py read it
 
     from opendubs_architect import alsa, chat
@@ -590,7 +640,7 @@ def main(argv=None) -> int:
     else:
         tts = speech.make_tts(a.tts)
     if a.show:
-        runner = Shows(a.dashboard, a.show, a.start, a.countdown_s, log=log)
+        runner = Shows(a.dashboard, a.show, a.start, a.countdown_s, log=log, day=Day(a.day) if a.day else None)
         runner.check()
     else:
         runner = Runner(a.runner)
@@ -598,7 +648,8 @@ def main(argv=None) -> int:
     listener = Listener(kws.Spotter(a.kws_models or a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,
                         chat=None if a.no_chat else chat.Chat(), say=lambda t: lines.put(t[:500]),
-                        log_heard=a.log_heard, light=None if a.no_light else Light(a.dashboard), feed=feed)
+                        log_heard=a.log_heard, light=None if a.no_light else Light(a.dashboard), feed=feed,
+                        day=Day(a.day) if a.day else None)
 
     async def play(out, text):              # whole, then louder: Kokoro synthesises a sentence at once anyway
         out.write(loud(b"".join([chunk async for chunk in tts.speak(text)])))

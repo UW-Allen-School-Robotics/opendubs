@@ -26,6 +26,7 @@ handout triggered by "trick or treat".
 | `opendubs_architect/routing.py` | For a recorded show: a move the straight-line planner refuses as too close is routed around the body by the arm motion planner (CBiRRT, `sim/planner` on `feat/arm-motion-planner-ui`); every leg is checked as a straight move is |
 | `opendubs_architect/robot_node.py` | The ROS 2 node serving the arm primitives under `/robot/` over `live_arms` |
 | `opendubs_architect/demo_runner.py` | The Halloween runner: instruction, spoken yes, frozen program, "trick or treat" runs; a browser page shows the code |
+| `opendubs_architect/demo_day.py` | The demo day's coordinator: patrol, approach a visitor, candy, and the preprogrammed shows, one at a time, so the base and the arms never move at once |
 | `opendubs_architect/listener.py` | The runner's ears and voice on the Jabra speakerphone: "OpenDubs", "trick or treat", yes and stop, each checked by Parakeet before it is posted |
 | `opendubs_architect/chat.py` | What the robot says to visitors, from its own local model (the voice service's Qwen on vLLM): a varied greeting as each run starts, short answers while armed; words only, never posted to the runner |
 | `opendubs_architect/camera_feed.py` | The Orbbec's colour image as a small JPEG on 127.0.0.1:8097 for the dashboard's ARCHITECT tab; subscribed only while asked (`dev.sh camera`) |
@@ -40,6 +41,7 @@ handout triggered by "trick or treat".
 | `examples/arms_wave.py` | An arms-only program for the first runs: no model needed |
 | `tests/test_api.py` | The spec, the client, the dry-run robot and the show backend offer the same functions with the same signatures |
 | `tests/test_demo_runner.py` | The runner: nothing runs without a yes and a held deadman, nothing said while armed reaches the model, the approved text is what runs |
+| `tests/test_demo_day.py` | The coordinator: no show or candy until the base is still, anything unknown stops the base, a show that never starts is disarmed, an e-stop stays a pause until the operator resumes |
 | `tests/test_listener.py` | The listener: a hit alone posts nothing, "trick or treat" only while armed and confirmed, a bystander's sentence is no approval, the robot never hears itself |
 | `tests/test_perception.py` | Camera answers land in the chassis frame; the robot description's camera chain matches the twin's |
 | `tests/test_live_arms.py` | The arm service's gates: the deadman, unknown state, the workspace, the twin's clearance check; a recorded program is a valid show |
@@ -285,6 +287,45 @@ and lets go. 17.4 s, swept at 38.9 mm. What it took, learned at the robot:
   (to be made a tool if obstacles become routine).
 - **Every move in it is straight.** CBiRRT routes a move the straight-line planner refuses (below); the
   hand-off needed a hand-designed route instead.
+
+## The demo day: one coordinator, one thing at a time
+
+On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh day`, on
+127.0.0.1:8096; `GET /api/state`):
+
+| State | What the robot does | Leaves when |
+|---|---|---|
+| `IDLE_NAV` (default) | patrols the sectioned-off area | a person within 3 m for 1 s; a random show is due (every 4–8 min); a spoken request |
+| `APPROACH` | goes slowly toward them, stopping 1.2 m short | it is there (`ENGAGED`); nobody seen for 10 s (`IDLE_NAV`) |
+| `ENGAGED` | stopped in front of them, waiting | "trick or treat" (`CANDY`); nobody for 20 s (`IDLE_NAV`) |
+| `CANDY` | the candy show (the listener's `--show`) | it ends (`ENGAGED`) |
+| `CHOREO` | one of 3–5 palette shows (arms, music, the face) | it ends (`IDLE_NAV`) |
+| `PAUSED` | nothing: the operator's `POST /api/pause`, or the e-stop | the operator's `POST /api/resume` only |
+
+**What is real and what is a stub (2026-10-27):**
+- **The nav is a stub** (`StubNav`): it logs what it would do and moves nothing, until the Thor stack
+  lane's nav stack is here. The real one goes behind the same four calls (`patrol`, `approach`,
+  `stop`, `still`), claims the base lease (`docs/interfaces/navigation.md`) and releases it on `stop`.
+- **Who is near** comes from the perception services (`/perception/locate "person"`, in the chassis
+  frame) until the skeleton feed has a message type.
+- **The shows** are the real palette, started as the Shows page starts them, with `start: deadman`.
+
+**The rules it keeps.** The base moves only in `IDLE_NAV` and `APPROACH`, and only while the palette
+can be read and runs nothing; a show started from the Shows page stops it too. No show starts and no
+candy is granted until the base is stopped and still. A show that never appears on the palette is
+disarmed before the base drives again, so a later deadman press cannot start it. Anything unknown
+(the palette, the e-stop state) stops the base. The listener with `DAY=1` asks before every candy
+show and passes on "OpenDubs, dance" (or a show's name) as a request.
+
+**The supervisor's deadman is held all day.** The robot moves its base for software only in CH5 AUTO
+with the deadman held, and every show's go is a fresh press of it: a random pick arms a show, and
+the supervisor starts it. Nothing moves on a child's word or a timer alone.
+
+```sh
+SHOW=architect-ce957446f66e tools/dev.sh day                       # the coordinator
+DAY=1 SHOW=architect-ce957446f66e tools/dev.sh listen              # the listener, asking it first
+FAKE=1 SHOW=architect-ce957446f66e tools/dev.sh day                # a desk: no palette, nobody seen
+```
 
 ## Routing around the body (the show path)
 
