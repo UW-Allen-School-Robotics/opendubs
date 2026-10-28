@@ -8,6 +8,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=-/etc/opendubs/ros-dds.env
 ExecStart=/opt/opendubs/ros/tablet-camera-demand.sh
 Restart=always
 RestartSec=5

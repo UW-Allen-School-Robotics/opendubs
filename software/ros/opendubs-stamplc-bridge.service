@@ -8,6 +8,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=-/etc/opendubs/ros-dds.env
 Environment=OPENDUBS_DASH_URL=http://127.0.0.1:8080
 ExecStart=/opt/opendubs/ros/stamplc-bridge.sh
 Restart=always

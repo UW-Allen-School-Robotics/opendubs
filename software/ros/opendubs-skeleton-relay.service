@@ -10,6 +10,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=-/etc/opendubs/ros-dds.env
 # UDP DDS only: a long-lived subscriber on shared memory can go deaf (workplan L.10), and the tracker
 # may run as another user or in a container.
 Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml

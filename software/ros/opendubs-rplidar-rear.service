@@ -11,6 +11,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=-/etc/opendubs/ros-dds.env
 # Device/topic/frame come from the drop-in (device.conf): REAR = USB port 4.2.4,
 # topic /scan_rear, frame laser_rear.
 ExecStartPre=/bin/sleep 15
