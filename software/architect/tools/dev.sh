@@ -29,6 +29,7 @@
 #                                  this checkout (REPO), DATA, SHOW and you; enabled and started now. TEST UNITS, like
 #                                  archit-perception's: no deploy or provisioner installs or touches them. The
 #                                  coordinator starts PAUSED (curl -X POST 127.0.0.1:8096/api/resume on the day)
+#                                  PROGRAM: the program SHOW was recorded from, for the tab (default examples/bucket_offer.py)
 #   dev.sh uninstall               stop and remove them;   dev.sh status: whether they run
 #   dev.sh camera                  the Orbbec's colour image as a small JPEG on 127.0.0.1:8097/frame.jpg, for the
 #                                  dashboard's ARCHITECT tab (archit-architect-camera; read-only, subscribed only
@@ -250,6 +251,7 @@ install_units() {  # the boot units: deploy/*.service with this checkout, DATA, 
   local u
   for u in "${UNITS[@]}"; do
     sed -e "s|@REPO@|${REPO}|g" -e "s|@DATA@|${DATA}|g" -e "s|@SHOW@|${SHOW}|g" -e "s|@USER@|$(id -un)|g" \
+      -e "s|@PROGRAM@|${PROGRAM:-software/architect/examples/bucket_offer.py}|g" \
       "${REPO}/software/architect/deploy/${u}.service" | sudo -n tee "/etc/systemd/system/${u}.service" >/dev/null
   done
   sudo -n systemctl daemon-reload
@@ -331,6 +333,6 @@ case "${1:-}" in
     sudo -n chown -R "$(id -u):$(id -g)" "${DATA}" 2>/dev/null || true
     ;;
   *)
-    sed -n '2,69p' "$0"; exit 1
+    sed -n '2,70p' "$0"; exit 1
     ;;
 esac

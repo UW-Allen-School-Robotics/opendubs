@@ -12,7 +12,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=@USER@
 Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1
-Environment=SHOW=@SHOW@ DAY=1
+Environment=SHOW=@SHOW@ DAY=1 PROGRAM=@PROGRAM@
 ExecStartPre=-/usr/bin/sudo -n /usr/bin/docker rm -f archit-architect-listener
 ExecStart=@REPO@/software/architect/tools/dev.sh listen
 ExecStop=/usr/bin/sudo -n /usr/bin/docker stop -t 5 archit-architect-listener
