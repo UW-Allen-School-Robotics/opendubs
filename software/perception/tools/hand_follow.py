@@ -431,7 +431,7 @@ class HeadTilt:
     def __init__(self, host, shoulders, args, arms_ok):
         self.host, self.shoulders, self.a, self.arms_ok = host, shoulders, args, arms_ok
         self.lock = threading.Lock()
-        self.on, self.mode, self.why, self.settled = False, "off", "not started", False
+        self.on, self.mode, self.why, self.settled, self.acquired = False, "off", "not started", False, False
         self.tilt = self.pan = None
         self.count, self.sweep_dir, self.moved_at, self.seen_at = 0, 1.0, 0.0, 0.0
         self.moving = True              # at the start: centre the person first
@@ -439,7 +439,7 @@ class HeadTilt:
 
     def start(self):
         with self.lock:
-            self.on, self.moving, self.count, self.settled = True, True, 0, False
+            self.on, self.moving, self.count, self.settled, self.acquired = True, True, 0, False, False
             self.seen_at = time.monotonic()
 
     def stop(self):
@@ -499,13 +499,13 @@ class HeadTilt:
             now = time.monotonic()
             with self.lock:
                 if not self.on:
-                    self.mode, self.settled = "off", False
+                    self.mode, self.settled, self.acquired = "off", False, False
                     continue
             if now - last_check >= 1.0 or block:
                 block, last_check = self.blocked(), now
             if block:
                 with self.lock:
-                    self.mode, self.why, self.settled = "blocked", block, False
+                    self.mode, self.why, self.settled, self.acquired = "blocked", block, False, False
                 continue
             mid = self.shoulders.get_mid(0.5)
             a = self.a
@@ -528,7 +528,8 @@ class HeadTilt:
                     self.count += 1
                     with self.lock:
                         if self.count >= a.head_settle:
-                            self.mode, self.settled = "settled", True
+                            # ACQUIRED: settled on this person once; small re-centring moves after it keep it
+                            self.mode, self.settled, self.acquired = "settled", True, True
                         self.why = f"shoulders {err:+.1f} deg from the axis, tilt {self.tilt:.1f}"
             elif mid is None and now - self.seen_at > a.head_search_s:
                 # SEARCH: nobody: sweep slowly between the limits
@@ -539,7 +540,8 @@ class HeadTilt:
                     target = max(a.head_tilt_min, min(a.head_tilt_max, target))
                 self.gaze(target)
                 with self.lock:
-                    self.mode, self.settled, self.why = "search", False, f"nobody seen: sweeping, tilt {self.tilt:.1f}"
+                    self.mode, self.settled, self.acquired = "search", False, False
+                    self.why = f"nobody seen: sweeping, tilt {self.tilt:.1f}"
 
     def gaze(self, tilt):
         r = self.ask(f"GAZE {self.pan:.1f} {tilt:.1f} {self.a.head_lease_ms}")
@@ -553,7 +555,7 @@ class HeadTilt:
 
     def status(self):
         with self.lock:
-            return {"mode": self.mode, "settled": self.settled, "why": self.why,
+            return {"mode": self.mode, "settled": self.settled, "acquired": self.acquired, "why": self.why,
                     "tilt": None if self.tilt is None else round(self.tilt, 1)}
 
     def get(self, side, max_age):
@@ -628,9 +630,12 @@ def main():
     ap.add_argument("--head-tilt-max", type=float, default=108.0, help="deg: 90 + the neck's 18 deg envelope for tracking")
     ap.add_argument("--head-start-deg", type=float, default=5.0, help="a still head moves when the shoulders are this far off")
     ap.add_argument("--head-stop-deg", type=float, default=2.0, help="a moving head stops when they are within this")
-    ap.add_argument("--head-gain", type=float, default=0.5, help="of the offset, per step")
+    ap.add_argument("--head-gain", type=float, default=0.35,
+                    help="of the offset, per step (0.5 hunted: the servos move ~1.67 deg per commanded one, neck_follow.py)")
     ap.add_argument("--head-dps", type=float, default=25.0, help="deg/s at most (the dashboard's quiet neck: 25)")
-    ap.add_argument("--head-wait-s", type=float, default=0.25, help="s after a move before a frame counts")
+    ap.add_argument("--head-wait-s", type=float, default=0.6,
+                    help="s after a move before a frame counts (the shoulders reach the follower up to ~0.25 s late: the "
+                         "pose model runs every 3rd frame; 0.25 hunted +-10 deg for 11 s before settling)")
     ap.add_argument("--head-settle", type=int, default=5, help="centred frames before the head is settled")
     ap.add_argument("--head-search-s", type=float, default=1.5, help="s with nobody seen before the head sweeps")
     ap.add_argument("--head-search-dps", type=float, default=8.0, help="deg/s of the sweep")
@@ -927,7 +932,7 @@ def main():
             elif not follow["on"]:
                 active, state = False, "stopped: holding the last pose"
             elif got is None or now - got[2] > args.stale_s:
-                active, state = False, "no palm: holding the last pose"
+                state = "no palm: holding the last pose"
             else:
                 if cached[0] != got[2]:          # a new palm: its transform (TF and the IMU) and is it offered, once
                     try:
@@ -944,19 +949,25 @@ def main():
                 t, err = cached[1], cached[3]
                 info = cached[2] if cached[2] is not None else info
                 if t is None:
-                    active, state = False, "no transform: holding the last pose"
-            # OFFERED: a palm offered for --offer-s -> following; not offered for --away-s -> neutral (the arm down);
-            # no palm at all -> hold, whatever the mode (above). Between the two, the arm holds where it is.
+                    state = "no transform: holding the last pose"
+            # OFFERED (V2.1): a palm offered for --offer-s -> following. Not offered for --away-s -> neutral (the arm
+            # down), and "not offered" includes the hand gone while the person is still seen: a dropped hand is mostly
+            # lost by the hand landmarker, and V2 held the arm up until it happened to see the lowered palm. Nobody
+            # seen at all -> hold where it is. While following, the arm keeps following the palm through frames that
+            # are not offered until --away-s has passed: a flicker does not freeze it.
             motion = "hold"
             hs = head.status() if head is not None and follow["on"] else None
-            if hs is not None and not hs["settled"]:
-                # V2: the arm waits for the head. Searching, centring the shoulders or blocked, it holds where it is, and
-                # no follow or neutral clock runs: the base the offered check measures from is not steady yet
+            live = follow["on"] and arm_on is not False
+            if live and hs is not None and not hs["acquired"]:
+                # the arm waits until the head has settled on the person once (then small re-centring moves do not
+                # stop it); searching or blocked, it holds and no clock runs
                 offered_since = away_since = None
+                state = f"head {hs['mode']}: holding ({hs['why']})"
+            elif live and (t is not None or shoulders.get_mid(0.5) is not None):
                 if t is not None:
-                    active, state = False, f"head {hs['mode']}: holding ({hs['why']})"
-            elif t is not None:
-                ok, why = cached[4], cached[5]
+                    ok, why = cached[4], cached[5]
+                else:
+                    ok, why = False, "the person is seen, their hand is not (withdrawn)"
                 offered_since = (offered_since or now) if ok else None
                 away_since = None if ok else (away_since or now)
                 mode = follow["mode"] if args.offer else "following"
@@ -967,16 +978,20 @@ def main():
                     mode = "neutral"
                     print(f"neutral: not offered ({why})", flush=True)
                 follow["mode"], follow["offer"] = mode, why
-                if mode == "following" and ok:
-                    motion, state = "follow", "following"
+                if mode == "following" and t is not None:
+                    motion, state = "follow", "following" if ok else f"following (not offered for now: {why})"
                 elif mode == "neutral":
                     motion, state = "neutral", f"neutral ({why})"
                 else:
-                    active, state = False, f"{mode}: holding ({why})"
+                    state = f"{mode}: holding ({why})"
+            elif live:
+                offered_since = away_since = None   # nobody seen: hold, and no clock runs
             if arm_on and follow["on"] and state == "following":
                 following_since = following_since or now
                 if now - following_since > 30.0:
                     backoff = 2.0
+            if motion == "hold":
+                active = False
             if motion == "hold" and sent is not None:
                 # HOLD: the last pose sent, sent again. Stopped, or the hand lost (occluded, out of view, a rough palm),
                 # the arm is still given a target every tick, so nothing depends on how the arm's controller treats a
@@ -984,7 +999,7 @@ def main():
                 # latched, never the measured hand: re-reading a sagging arm would walk its own target down.
                 sim.send(*sent)
             if motion != "hold":
-                p_arm = t[:3, :3] @ got[0] + t[:3, 3]
+                p_arm = t[:3, :3] @ got[0] + t[:3, 3] if motion == "follow" else None
                 if not active:
                     if cmd is None:              # the first palm: from where the arm is, its posture the IK's start
                         with sim.lock:
@@ -993,7 +1008,7 @@ def main():
                         cmd = sim.hand()[0].copy()
                     # after a hold too: from the held pose, smoothed, and in relative mode the hand's motion counts from
                     # here, so a palm that comes back somewhere else does not jump the arm
-                    anchor_palm, anchor_cmd = p_arm.copy(), cmd.copy()
+                    anchor_palm, anchor_cmd = (None if p_arm is None else p_arm.copy()), cmd.copy()
                     pf, vf, active = cmd.copy(), np.zeros(3), True
                 if motion == "neutral":          # NEUTRAL: the arm down, by the same IK, filter and limits
                     ik.posture, goal = q_neutral, neutral_pos.copy()
@@ -1026,12 +1041,13 @@ def main():
                 sent = (pos, rot)
                 sim.send(pos, rot)
                 stamp = node.get_clock().now().to_msg()
-                pm = PointStamped()
-                pm.header.stamp, pm.header.frame_id = stamp, ARM_FRAME
-                pm.point.x, pm.point.y, pm.point.z = (float(v) for v in p_arm)
-                pub_palm.publish(pm)
+                if p_arm is not None:
+                    pm = PointStamped()
+                    pm.header.stamp, pm.header.frame_id = stamp, ARM_FRAME
+                    pm.point.x, pm.point.y, pm.point.z = (float(v) for v in p_arm)
+                    pub_palm.publish(pm)
                 tm = PoseStamped()
-                tm.header = pm.header
+                tm.header.stamp, tm.header.frame_id = stamp, ARM_FRAME
                 tm.pose.position.x, tm.pose.position.y, tm.pose.position.z = (float(v) for v in cmd)
                 q = g2s.mat_to_quat(rot)
                 tm.pose.orientation.x, tm.pose.orientation.y, tm.pose.orientation.z, tm.pose.orientation.w = (float(v) for v in q)
@@ -1047,10 +1063,12 @@ def main():
                 last_print = now
                 hand_p, _ = sim.hand()
                 line = f"[{state}] hand {fmt(hand_p)}"
-                if active:
+                if active and motion == "follow":
                     line += (f"  palm cam {fmt(got[0])} -> {ARM_FRAME} {fmt(p_arm)}  target {fmt(cmd)} "
                              f"(goal {fmt(goal)}, hand {np.linalg.norm(hand_p - cmd) * 1000:.0f} mm off)  "
                              f"pitch imu {info['pitch_imu_deg']:.1f} reported {info['pitch_reported_deg']:.1f}")
+                elif active:
+                    line += f"  target {fmt(cmd)} (goal {fmt(goal)}, hand {np.linalg.norm(hand_p - cmd) * 1000:.0f} mm off)"
                 print(line, flush=True)
             time.sleep(dt)
     except KeyboardInterrupt:
