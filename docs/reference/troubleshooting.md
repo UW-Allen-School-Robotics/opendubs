@@ -413,17 +413,18 @@ Check in this order:
 4. [The dashboard is not allowed to run the arm commands](#arm-sudo-denied)
 5. [The arms' CAN links are not ready](#arm-can-not-ready)
 6. [One arm's CAN link is in error, so its motors can't be reached](#arm-link-error)
-7. [The arm stack did not start](#arm-stack-start-failed)
-8. [Some arm motors do not answer](#arm-motors-silent)
-9. [An arm motor reports a fault](#arm-motor-fault)
-10. [The arm's motors answer but are disabled](#arm-motors-disabled)
-11. [The arm could not be reset after a power loss](#arm-reset-failed)
-12. [Only some of an arm's motors enabled](#arm-partial-enable)
-13. [An arm's controller would not start](#arm-controller-inactive)
-14. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
-15. [The arm stack is dead](#arm-stack-dead)
-16. [An arm came up active by itself](#arm-came-up-active)
-17. [An arm action timed out](#arm-op-timeout)
+7. [Another arm controller is running on that arm](#arm-other-controller)
+8. [The arm stack did not start](#arm-stack-start-failed)
+9. [Some arm motors do not answer](#arm-motors-silent)
+10. [An arm motor reports a fault](#arm-motor-fault)
+11. [The arm's motors answer but are disabled](#arm-motors-disabled)
+12. [The arm could not be reset after a power loss](#arm-reset-failed)
+13. [Only some of an arm's motors enabled](#arm-partial-enable)
+14. [An arm's controller would not start](#arm-controller-inactive)
+15. [An arm's gripper controller would not start](#arm-gripper-controller-inactive)
+16. [The arm stack is dead](#arm-stack-dead)
+17. [An arm came up active by itself](#arm-came-up-active)
+18. [An arm action timed out](#arm-op-timeout)
 
 ### ACTIVATE recovered the arm after a power loss {#arm-power-restored}
 
@@ -488,6 +489,19 @@ The CAN link the tablet names (left or right) is in error (ERROR-PASSIVE or BUS-
 3. If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged or its driver isn't loaded. Check its USB cable at the robot's computer.
 
 **See also:** [OpenArm setup](../openarm-setup.md#troubleshooting)
+
+### Another arm controller is running on that arm {#arm-other-controller}
+
+`ARM_OTHER_CONTROLLER` · Fault · seen on the dashboard
+
+Something other than this arm stack is commanding the arm: the gafro arm service (`opendubs-arm@left` or `@right`), or another program sending motor commands on that arm's CAN bus. Two controllers on one arm fight, so ACTIVATE starts nothing until there is only one. This message moves nothing.
+
+**What to do**
+
+1. To hand the arm from the gafro service to this stack, run `openarm-up takeover left`, `right` or `both` on the robot's computer, with a person at the e-stop holding the deadman. It parks the arm under gafro, stops the service, and activates the arm here.
+2. If no gafro service is named, run `openarm-motors senders arm_left` (or `arm_right`). It listens and sends nothing, and says what is commanding the arm. Stop that program first.
+
+**See also:** [OpenArm setup](../openarm-setup.md#one-controller-per-arm)
 
 ### The arm stack did not start {#arm-stack-start-failed}
 

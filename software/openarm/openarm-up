@@ -3,9 +3,14 @@
 #
 #   openarm-up                  launch the stack with both arms INACTIVE (motors off, limp)
 #   openarm-up activate ARM     power one arm and start its controllers: left | right | both
-#                               (the arm then moves itself to its zero pose over ~2 s).
+#                               (the arm holds the pose it is measured at).
 #                               Starts the stack first if it is not running.
 #                               Starts the arm's GRIPPER controller too — teleop needs it.
+#                               Refused while the gafro arm service, or anything else, commands
+#                               that arm: one controller per arm.
+#   openarm-up takeover ARM     hand an arm from the gafro arm service to this stack: left | right
+#                               | both. Parks it under gafro, stops the service, checks the bus is
+#                               quiet, lets the arm rest at stow, then activates it here.
 #   openarm-up park ARM         move to the stow pose so going limp is harmless: left | right | both
 #   openarm-up hold ARM         stop where it is: drives the arm to its CURRENT pose, which
 #                               preempts any running trajectory without moving anything
@@ -210,6 +215,8 @@ cmd_start() {
     die "a DEAD stack is still holding the launch process — the controller_manager does not answer.
   Clear it first:  openarm-up down"
   fi
+  # The launch opens both arms' buses: neither may have another controller on it.
+  echo "== other controllers"; require_bus_ours left; require_bus_ours right; echo "  none"
   ensure_fastdds_profile
   echo "== motors before launch: $($MOTORS summary)"
   local log="$LOGDIR/launch-$(date +%Y%m%d-%H%M%S).log"
@@ -405,6 +412,8 @@ activate_one() {
 cmd_activate() {
   local which=$1 arms
   case "$which" in left|right) arms=$which ;; both) arms="left right" ;; *) die "usage: openarm-up activate left|right|both" ;; esac
+  # Before anything else, link restarts included: one controller per arm.
+  local a; for a in $arms; do require_bus_ours "$a"; done
   # From the tablet there is no "start the stack" step: DE-ENERGIZE runs `down`, which stops the
   # whole stack, and ACTIVATE is the next button anyone presses. So bring the stack up first when it
   # is not running -- exactly `openarm-up`, arms INACTIVE, with all its checks -- then activate.
@@ -662,6 +671,122 @@ cmd_relink() {
   $MOTORS status | awk -v b="$i" '/^arm_/{cur=$1; next} cur==b'
 }
 
+# ---- one controller per arm --------------------------------------------------------------------
+# The gafro arm service (software/openarm/gafro) runs as opendubs-arm@<side>, outside this stack. It
+# refuses to start while ros2_control_node runs; this is the other half (notes/design/
+# arm-stack-contract.md, section 1). Two controllers on one arm's motors fight, and neither knows:
+# on 2026-10-27 a gafro unit was commanding the right arm while the tablet's ACTIVATE would still
+# have started this stack on it.
+ARM_SERVICE_SOCKET_DIR=${OPENDUBS_ARM_SOCKET_DIR:-/run/opendubs-arm}
+gafro_active() { systemctl is-active --quiet "opendubs-arm@$1.service"; }
+
+# Refuse to energize ARM (or to open its bus at all, for `start`) while anything else commands it.
+require_bus_ours() {
+  local arm=$1 A seen; A=$(arm_word "$arm")
+  if gafro_active "$arm"; then
+    # @fault ARM_OTHER_CONTROLLER
+    die "$A arm: the gafro arm service (opendubs-arm@$arm) is running and controls this arm.
+  Two controllers on one arm fight, so nothing was started here.
+  To hand the arm to this stack: openarm-up takeover $arm (it parks the arm under gafro, stops
+  the service, and activates the arm here)."
+  fi
+  # This stack commands an arm's bus only while that arm's hardware is active here.
+  if running && cm_reachable && [ "$(hw_state "$arm")" = active ]; then return 0; fi
+  seen=$($MOTORS senders "arm_$arm" 0.5) && return 0
+  # @fault ARM_OTHER_CONTROLLER
+  die "$A arm: something else is commanding this arm's motors (${seen:-could not listen}), so nothing
+  was started here: two controllers on one arm fight.
+  To fix: stop the other controller first (openarm-motors senders arm_$arm shows what is on the
+  bus; it sends nothing)."
+}
+
+# gafro_ctl SIDE COMMAND -> the service's reply. Its socket is root's or the service user's, hence sudo.
+gafro_ctl() {
+  sudo python3 -I - "$ARM_SERVICE_SOCKET_DIR/opendubs-arm-service-$1.sock" "$2" <<'PY'
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(10)
+try:
+    s.connect(sys.argv[1])
+    s.sendall((json.dumps({"command": sys.argv[2]}) + "\n").encode())
+    s.shutdown(socket.SHUT_WR)
+    print(s.makefile().read().rstrip("\n"))
+except OSError as e:
+    print(f"no answer ({e})")
+    sys.exit(1)
+PY
+}
+
+GAFRO_PARK_WAIT=${OPENARM_GAFRO_PARK_WAIT:-30}
+
+# Park one arm under gafro and wait for it. Returns 0 at stow; otherwise asks gafro to HOLD, says
+# why, and returns 1. The arm stays energized under gafro either way.
+gafro_park() {
+  local arm=$1 reply status first t
+  reply=$(gafro_ctl "$arm" park) || { echo "  gafro did not answer the park: $reply"; return 1; }
+  echo "  gafro: $reply"
+  case "$reply" in *started*) ;; *) gafro_ctl "$arm" hold >/dev/null; return 1 ;; esac
+  for t in $(seq 1 "$GAFRO_PARK_WAIT"); do
+    sleep 1
+    status=$(gafro_ctl "$arm" status) || { echo "  gafro stopped answering mid-park: $status"; return 1; }
+    first=$(head -1 <<<"$status")
+    case "$first" in *running*) continue ;; esac
+    case "$first" in *"last: park done"*) return 0 ;; esac
+    echo "  gafro: $first"; return 1
+  done
+  echo "  the park did not finish in ${GAFRO_PARK_WAIT} s; asking gafro to hold"
+  gafro_ctl "$arm" hold >/dev/null
+  return 1
+}
+
+# Hand arms from the gafro arm service to this stack. In order, each step leaving the arm held:
+#   1. park under gafro (its own gates apply: CH5, the e-stop, the deadman held, supervised) -- the
+#      arm moves to its stow pose. If gafro refuses or the park fails, gafro holds the arm and this
+#      stops: nothing is taken over from an arm that is not at stow.
+#   2. stop opendubs-arm@ARM -- the motors stay enabled and keep their last command (the DAMIAO
+#      motors have no command timeout), so the arm holds at stow.
+#   3. listen on its bus: nothing may still be commanding it.
+#   4. disable that arm's motors -- it goes limp AT STOW, where resting is what stow is for. This is
+#      the same state `down` leaves an arm in, and activation below is the tested path from it.
+#   5. start this stack if it is not running, and activate the arm: it holds where it rests.
+cmd_takeover() {
+  local which=${1:-} arms a A others=""
+  case "$which" in left|right) arms=$which ;; both) arms="left right" ;;
+    *) die "usage: openarm-up takeover left|right|both" ;; esac
+  for a in left right; do
+    case " $arms " in *" $a "*) ;; *) gafro_active "$a" && others="$others $a" ;; esac
+  done
+  # Starting the stack opens both arms' buses, so it cannot start beside a gafro unit on the other arm.
+  local any=""; for a in $arms; do gafro_active "$a" && any=1; done
+  [ -n "$any" ] || die "no gafro arm service runs on the $which arm -- nothing to take over (to activate: openarm-up activate $which)"
+  if ! running && [ -n "$others" ]; then
+    die "the gafro arm service also runs on the${others} arm, and starting this stack opens both arms'
+  buses. Take over both (openarm-up takeover both), or stop that service first."
+  fi
+  for a in $arms; do
+    A=$(arm_word "$a")
+    if ! gafro_active "$a"; then echo "== $a: no gafro arm service on this arm -- nothing to take over"; continue; fi
+    echo "== $a: 1/5 parking under gafro -- the arm MOVES to its stow pose. KEEP CLEAR, hold the deadman"
+    gafro_park "$a" || die "$A arm: not taken over. gafro did not park it (above); it was asked to hold the arm
+  where it is, and its service still runs. Nothing was stopped or started here.
+  To fix: hold the deadman (CH6) with CH5 at MANUAL or AUTO and the e-stop clear, check the service
+  is supervised (a person at the e-stop), then run openarm-up takeover $a again."
+    at_stow "$a" || die "$A arm: gafro reports the park done, but the arm does not read as at its stow pose
+  ($STOW_CONF). Not taken over; gafro still holds it."
+    echo "== $a: 2/5 stopping opendubs-arm@$a -- the arm holds at stow on the motors' last command"
+    sudo systemctl stop "opendubs-arm@$a.service" || die "$A arm: could not stop opendubs-arm@$a."
+    gafro_active "$a" && die "$A arm: opendubs-arm@$a is still running after the stop."
+    echo "== $a: 3/5 listening on arm_$a: nothing else may be commanding it"
+    local seen; seen=$($MOTORS senders "arm_$a" 0.5) || die "$A arm: the gafro service is stopped, but something still commands this arm (${seen:-could not listen}).
+  The arm holds at stow. Not activating."
+    echo "  quiet"
+    echo "== $a: 4/5 disabling arm_$a -- the arm goes limp AT STOW and rests there"
+    $MOTORS disable "arm_$a" | sed 's/^/  /' || die "$A arm: its motors did not all disable. Check openarm-motors status."
+  done
+  echo "== 5/5 activating here: each arm holds where it rests"
+  cmd_activate "$which"
+}
+
 case "${1:-start}" in
   start|up) cmd_start ;;
   relink) cmd_relink "${2:-}" ;;
@@ -671,6 +796,7 @@ case "${1:-start}" in
   down|stop) shift; [ "${1:-}" = --drop ] && DROP=1; cmd_down ;;
   status) cmd_status ;;
   logs) sudo docker exec -it "$CONTAINER" tail -n 200 -F "$LOGDIR/latest.log" ;;
-  -h|--help|help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
+  takeover) cmd_takeover "${2:-}" ;;
+  -h|--help|help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$1' (openarm-up help)" ;;
 esac

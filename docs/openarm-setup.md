@@ -288,6 +288,35 @@ number of angles does not match the number of joints. Travel time defaults to 4 
 To work inside the container: `sudo docker exec -it openarm bash`, then
 `source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash`.
 
+## One controller per arm
+
+A second arm controller can be installed beside this stack: the gafro arm service
+(`software/openarm/gafro/`), one `opendubs-arm@<side>` systemd unit per arm. Two controllers on one
+arm's motors fight, and neither knows, so only one may run on an arm at a time:
+
+- **The gafro service refuses to start** while this stack's `ros2_control_node` runs, or while
+  anything else commands the arm's bus.
+- **`openarm-up` refuses to start or activate** while an `opendubs-arm@<side>` unit is active, or
+  while anything else commands that arm's bus. It checks by listening for half a second, and sends
+  nothing (`openarm-motors senders arm_left`). The tablet's ACTIVATE shows the same refusal.
+
+To hand an arm from the gafro service to this stack, run `openarm-up takeover left|right|both`, with
+a person at the e-stop holding the deadman. It works in five steps, and says each as it goes:
+
+1. **Park.** The gafro service parks the arm, so the arm moves to its stow pose. If gafro refuses
+   or the park fails, gafro is asked to hold the arm where it is, and nothing else happens.
+2. **Stop the service.** The motors keep their last command, so the arm holds at stow.
+3. **Check the bus.** Nothing may still be commanding the arm.
+4. **Disable that arm's motors.** The arm goes limp at stow, which is what the stow pose is for.
+5. **Activate the arm here.** The stack starts first if it isn't running, and the arm holds where it
+   rests.
+
+Starting the stack opens both arms' buses, so with the stack down, `takeover` of one arm is refused
+while the gafro service still runs on the other one.
+
+Going the other way, from this stack to gafro: park and run `openarm-up down`, then start the
+unit.
+
 ## Troubleshooting
 
 - **`arm_left` / `arm_right` missing.** Check `lsusb -d 0c72:0011` (is the adapter plugged in and

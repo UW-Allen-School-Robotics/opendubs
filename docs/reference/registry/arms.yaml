@@ -90,6 +90,27 @@ entries:
         or its driver isn't loaded. Check its USB cable at the robot's computer.
     see: [openarm-setup.md#troubleshooting]
 
+  - code: ARM_OTHER_CONTROLLER
+    title: Another arm controller is running on that arm
+    symptom: arms-wont-activate
+    rank: 22
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      Something other than this arm stack is commanding the arm: the gafro arm service
+      (`opendubs-arm@left` or `@right`), or another program sending motor commands on that arm's CAN
+      bus. Two controllers on one arm fight, so ACTIVATE starts nothing until there is only one.
+      This message moves nothing.
+    do:
+      - >
+        To hand the arm from the gafro service to this stack, run `openarm-up takeover left`, `right`
+        or `both` on the robot's computer, with a person at the e-stop holding the deadman. It parks
+        the arm under gafro, stops the service, and activates the arm here.
+      - >
+        If no gafro service is named, run `openarm-motors senders arm_left` (or `arm_right`). It
+        listens and sends nothing, and says what is commanding the arm. Stop that program first.
+    see: [openarm-setup.md#one-controller-per-arm]
+
   - code: ARM_STACK_START_FAILED
     title: The arm stack did not start
     symptom: arms-wont-activate
