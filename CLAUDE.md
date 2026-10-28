@@ -80,6 +80,10 @@ those sessions don't collide in git and so each area's expertise stays in one pl
    the orchestrator as a short question with your recommended answer, carry on with whatever does
    not depend on it, or end the turn with the question in plain text. Something that needs the
    user's own word, or a hardware step that needs someone present, is asked in plain text.
+   The same goes for any step that raises an approval dialog in your session (a site in the
+   browser pane, a tool permission): it stalls you silently, with your queue unread. To check the
+   robot, read its API over `ssh` (`curl localhost:8080/api/...`) rather than opening the dashboard
+   in a browser. When a dialog can't be avoided, tell the orchestrator first, then raise it.
 8. **One PR per problem, not one per attempt.** While a problem is being worked out, especially
    at the robot, keep pushing commits to the same branch and PR instead of opening a new one for
    each fix. The Thor stack lane may deploy that branch for testing (rule 5 still applies: merge it
