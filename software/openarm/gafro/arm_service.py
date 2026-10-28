@@ -150,19 +150,43 @@ class ArmService:
     def __init__(self, robot, args):
         self.robot, self.args = robot, args
         self.groups = permit_groups(args.side) if args.backend == "hardware" else ()
-        self.real = False
+        self.real, self.interfaces = False, []
+        self.fault = None              # why the service has stopped moving the arm (the old stack started, the link is off), or None; set by `watch`
         if args.backend == "hardware":
-            _, self.real = guards.buses_of(args.hardware_config, self.groups)
+            self.interfaces, self.real = guards.buses_of(args.hardware_config, self.groups)
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
         self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
         self.behaviour = ""            # what `follow` is doing about its target now ("following", "holding: ..."), while it runs
         self.running = None            # the name of the command in progress (a gripper command does not count: it runs beside the others)
-        self.permit = SharedPermit(self.groups, guards.motion_gate(args.dashboard) if self.real else None)
+        self._authority = guards.motion_gate(args.dashboard) if self.real else None
+        self.permit = SharedPermit(self.groups, self._permitted if self.real else None)
         self.last = ""                 # how the last command ended
         self.cancel = threading.Event()   # ends a trajectory in progress
         self.grip_cancel = threading.Event()   # ends a gripper command in progress
         self.quit = threading.Event()
         self.lock = threading.Lock()
+
+    def _permitted(self):
+        """The permit's gate: the authority layer says yes and nothing has faulted since the service started."""
+        return self.fault is None and self._authority()
+
+    def check_faults(self):
+        """Look for what the start checks cannot see later: the old stack starting, or the arm's link going off. On one, whatever runs is held and nothing moves until the
+        service is restarted (it is not cleared when the cause is: the arm was stopped mid-command, and a person decides). Called by `watch` once a second."""
+        if self.fault or not self.real:
+            return
+        why = guards.conflict(self.interfaces)
+        if why:
+            self.fault = why
+            print(f"fault: {why}: holding the arm", flush=True)
+            self.hold()
+
+    def watch(self, period=1.0):
+        """Run `check_faults` every `period` seconds until the service quits."""
+        def loop():
+            while not self.quit.wait(period):
+                self.check_faults()
+        threading.Thread(target=loop, daemon=True).start()
 
     # -- what a command may start from ---------------------------------------------------------------------------------------------------
 
@@ -178,6 +202,8 @@ class ArmService:
         `own_move` False is a runner's goal (trajectory, gripper): the head clause of the supervision statement is for the service's own moves."""
         if not self.real:
             return None, None, None
+        if self.fault:
+            raise guards.Refused(self.fault)
         guards.require_motion_permitted(self.args.supervised, self.args.dashboard, deadman=True, own_move=own_move)
         stow = self._stow()
         if stow is None:
@@ -350,13 +376,15 @@ class ArmService:
         return "down"
 
     def state(self):
-        """What the arm service is doing, for the topic and the viewer: {state: held | <the running command>, supervised: yes | no, last: how the last command ended}."""
+        """What the arm service is doing, for the topic and the viewer: {state: held | down (with a reason) | <the running command>, supervised: yes | no, last: how the last command ended}."""
+        if self.fault:
+            return {"state": "down", "reason": self.fault, "supervised": "no", "last": self.last or "none", "behaviour": ""}
         return {"state": self.running or "held", "supervised": "yes" if self.args.supervised else "no", "last": self.last or "none",
                 "behaviour": self.behaviour if self.running == "follow" else ""}
 
     def status(self):
         q = self._position()
-        return (f"{self.args.side} arm, {self.args.backend}: " + (f"{self.running} running" if self.running else "held") + f"; last: {self.last or 'none'}\n"
+        return (f"{self.args.side} arm, {self.args.backend}: " + (f"DOWN, {self.fault}" if self.fault else f"{self.running} running" if self.running else "held") + f"; last: {self.last or 'none'}\n"
                 + "joints (deg) " + " ".join(f"{np.degrees(v):+.1f}" for v in q) + f"\nsupervised: {'yes' if self.args.supervised else 'no'}")
 
     def handle(self, request):
@@ -448,6 +476,7 @@ def main() -> int:
 
     robot, _, _ = bringup.connect(args)
     service = ArmService(robot, args)
+    service.watch()
     service.reach = reach.build(robot.get_system(), args.side, service._log, args.reach_clearance)
     server = listen(service, args.socket, int(args.socket_mode, 8))
     try:

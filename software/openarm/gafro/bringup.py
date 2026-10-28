@@ -56,8 +56,12 @@ def gate(args, motion: bool) -> int:
     if args.backend != "hardware":
         return 0
     try:
+        guards.require_own_arm(args.hardware_config, args.side)    # before `real`: a config whose only real bus is the other arm's reads as not real here
         interfaces, real = guards.buses_of(args.hardware_config, permit_groups(args.side))
         if real:
+            for interface in interfaces:
+                if why := guards.link_problem(interface):
+                    raise guards.Refused(why)
             guards.require_exclusive(interfaces, args.listen_seconds)
             if motion:
                 guards.require_motion_permitted(args.supervised, args.dashboard)

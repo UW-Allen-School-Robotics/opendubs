@@ -33,6 +33,11 @@ def check(name, got, want):
     print(("ok   " if ok else "FAIL ") + name + ("" if ok else f": got {got!r}, want {want!r}"))
 
 
+def refuses_text(message, *words):
+    """Whether a message (not None) names all of words."""
+    return message is not None and all(w in message for w in words)
+
+
 def refuses(fn, *words):
     """The message of the Refused that fn raises, or None if it did not refuse; with words, whether the message names them all."""
     try:
@@ -173,6 +178,39 @@ with tempfile.TemporaryDirectory() as directory:
     check("a group the config lacks refuses", refuses(lambda: guards.buses_of(config("left_arm: {bus: fake}\n"), ["right_arm"]), "right_arm"), True)
     check("a can bus with no interface refuses", refuses(lambda: guards.buses_of(config("left_arm: {bus: can}\n"), ["left_arm"]), "can_interface"), True)
     check("a missing file refuses", refuses(lambda: guards.buses_of(os.path.join(directory, "nope.yaml"), ["left_arm"]), "cannot read"), True)
+
+    # -- one arm's config: the instance, --side and the real bus name the same arm (T11) ---------------------------------------------------
+    both = "left_arm: {driver: openarm, bus: can, can_interface: arm_left}\nright_arm: {driver: openarm, bus: can, can_interface: arm_right}\n"
+    right_only = "left_arm: {driver: openarm, bus: fake}\nright_arm: {driver: openarm, bus: can, can_interface: arm_right}\n"
+    check("right service, right-only config: allowed", guards.require_own_arm(config(right_only), "right"), None)
+    check("left service, right-only config refuses (the T11 case)", refuses(lambda: guards.require_own_arm(config(right_only), "left"), "left", "right_arm"), True)
+    check("a config with both arms real refuses either service", refuses(lambda: guards.require_own_arm(config(both), "left"), "right_arm"), True)
+    check("the arm's group on another arm's interface refuses",
+          refuses(lambda: guards.require_own_arm(config("left_arm: {driver: openarm, can_interface: arm_right}\n"), "left"), "arm_left"), True)
+    check("no real bus (the simulator) passes", guards.require_own_arm(config("left_arm: {driver: openarm, bus: fake}\n"), "left"), None)
+    check("an unreadable config refuses", refuses(lambda: guards.require_own_arm(os.path.join(directory, "nope.yaml"), "left"), "cannot read"), True)
+
+
+# -- the link, and the old stack starting after us (A3, A1) ----------------------------------------------------------------------------
+def ip(flags, state="ERROR-ACTIVE", broken=False):
+    def run(command, **kwargs):
+        if broken:
+            raise FileNotFoundError("ip")
+        link = [{"ifname": command[-1], "flags": flags, "linkinfo": {"info_kind": "can", "info_data": {"state": state}}}]
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(link), stderr="")
+    return run
+
+
+UP = ["NOARP", "UP", "LOWER_UP", "ECHO"]
+check("an up link is fine", guards.link_problem("arm_left", ip(UP)), None)
+check("ERROR-PASSIVE is fine (the left shoulders)", guards.link_problem("arm_left", ip(UP, "ERROR-PASSIVE")), None)
+check("BUS-OFF is a link off", refuses_text(guards.link_problem("arm_left", ip(["NOARP", "UP", "NO-CARRIER"], "BUS-OFF")), "BUS-OFF"), True)
+check("a down link is a link off", refuses_text(guards.link_problem("arm_left", ip(["NOARP"], "STOPPED")), "down"), True)
+check("no carrier is a link off", refuses_text(guards.link_problem("arm_left", ip(["UP", "NO-CARRIER"])), "no carrier"), True)
+check("an unreadable link is a link off", refuses_text(guards.link_problem("arm_left", ip(UP, broken=True)), "cannot be read"), True)
+check("no conflict", guards.conflict(["arm_left"], stack=lambda: [], link=lambda i: None), None)
+check("the old stack starting is a conflict", refuses_text(guards.conflict(["arm_left"], stack=lambda: ["12 ros2_control_node"], link=lambda i: None), "ros2_control_node"), True)
+check("a link off is a conflict", guards.conflict(["arm_left"], stack=lambda: [], link=lambda i: "link off: arm_left is BUS-OFF"), "link off: arm_left is BUS-OFF")
 
 # The permit is renewed only while CH5 and the e-stop still allow motion: a sequence in progress is cut short, not finished.
 import time  # noqa: E402
