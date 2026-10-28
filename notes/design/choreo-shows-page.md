@@ -47,17 +47,38 @@ role: dialogue}`, or a whole narration track `music: {…, role: dialogue}` besi
 names where its dialogue goes with `dialogue: {output: face | tablet | stage}`. Music and dialogue are
 then two separate choices, each with its own operator override on the page (*Dialogue plays on*).
 
-**Playing it.** The face page joins the show-audio hub as a third output, `face`. It uses the hub's
-existing commands (load the files, start at a Thor time, stop, cut), which already keep a device on
-the show's clock, and drives the mouth from the sound it is playing. The hub carries one load per
-output, so a run can load music on one device and dialogue on another.
+**Playing it, on the head and not the hub** (Face & HRI's advice, 2026-10-28). The show-audio hub has
+one holder per output, and any browser pressing "Play show audio here" takes the tablet output, so
+dialogue must not depend on it. The runner sends the HEAD a new message, through the head protocol
+like FACE and GAZE:
+- `LINE load <id> <url>`, sent while armed; the face page fetches and decodes it, then answers `LINE
+  ready <id>`;
+- `LINE play <id> <t0_mono>` on the show's clock;
+- `LINE stop`, on every end, cut on an e-stop.
 
-**Refusal.** A chosen dialogue output that is not connected at preflight refuses the run
-(SHOW_AUDIO_OUTPUT_MISSING), as for music.
+The face plays it on voice.js's existing speech path, which already has its own audio context, a
+0.12 s jitter buffer, lip-sync from the sound actually playing, no gesture needed in the kiosk, and
+the head's VOLUME. The stage box is not on the hub, so music on the box and dialogue on the head
+never contend; the stage-pi README already says the robot's dialogue plays on its head tablet.
+`dialogue: {output: stage | tablet}` stays possible for a show without a face; their timing is the
+existing paths'.
+
+**Skins.** Audio sits outside the skin layer: a SKIN cue never cuts a line, and no skin owns dialogue.
+A skin that draws no mouth (the ghost) plays the line with no lip-sync, and the page says so on that
+show.
+
+**Wake word and Talk** (open, with the Voice lane). Proposed: while a show is running, its dialogue
+suppresses the wake word, and a Talk press does not cut a line.
+
+**Refusal.** A chosen dialogue output that is not ready at preflight refuses the run
+(SHOW_AUDIO_OUTPUT_MISSING), as for music. For `face`, that means the head not up, or no `LINE ready`
+by GO.
 
 **Who does what.**
-- The `face` client on the hub is a head message, so it is agreed with the Tablet lane, which owns the
-  head protocol.
-- Face & HRI builds the face page's side.
-- Choreography builds the format, the runner, the hub's per-output loads and the page.
+- The `LINE` message is a new head message: agreed with the Tablet lane, which owns the head
+  protocol.
+- The player in voice.js is agreed by Tablet and Voice.
+- Face & HRI builds the mouth and the speaking look.
+- Choreography builds the format, the runner's routing and readiness, and the page's *Dialogue plays
+  on* row.
 - ENCORE exports the narration as its own track instead of mixing it into the song.
