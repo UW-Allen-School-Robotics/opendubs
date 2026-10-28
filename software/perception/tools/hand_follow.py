@@ -1,0 +1,443 @@
+"""Follow a person's palm with the simulated right arm: the hand tracker's palm, through the robot's frames, onto right/target.
+
+  hand_follow.sh sim                  terminal 1: the arm service on MuJoCo (follow_pose) and its viewer, its own ROS domain
+  hand_follow.sh run                  terminal 2: this, DISABLED until enabled
+  hand_follow.sh enable | disable     the switch (/hand_follow/enable, std_srvs/SetBool, on the robot's domain)
+  hand_follow.sh frames [--save F]    the camera -> arm transform now, printed (and written as JSON), nothing followed
+
+THE FRAMES, end to end:
+
+  palm      camera_color_optical_frame   x right, y down, z forward, metres: the hand tracker's PointStamped, stamped with
+                                         its image (hand_tracker/node.py)
+  camera -> arm_mount                    T_arm_cam, a 4x4, from one of --transform:
+              joints (default)           the head's two joints made here: head_pan (lift_platform -> head_pan_link) and
+                                         head_tilt (head_pan_link -> head_tilt_link), each origin * rotation(axis, angle)
+                                         with the origin and axis of the robot's own /robot_description and the angle of
+                                         /head/joint_states (the neck's report); every fixed link (arm_mount on
+                                         lift_platform, femto_mount_link, camera_link, and the driver's camera_link ->
+                                         camera_color_optical_frame) from /tf_static. Needs no robot_state_publisher for
+                                         the head and no head_joint_relay. The lift cancels: arm_mount and head_pan both
+                                         ride lift_platform.
+              tf                         the robot's TF as it is (needs the head's frames on /tf)
+              calib FILE                 a fixed transform (cam_to_arm JSON: R, t; `frames --save` writes one; the
+                                         nominal one, hand_tracker/cam_to_arm_nominal.json, holds with the neck centred)
+            --head-tilt-from imu (default): the neck has no encoder and reports the tilt it was COMMANDED to, which its
+            stop can keep it short of (the case of a head tilted fully down). The camera's accelerometer measures the real
+            tilt; the transform is turned about head_tilt_link's axis until the camera's pitch is the measured one
+            (grasp_to_sim.retilt). Then TF's up and the IMU's must agree within --max-tilt-disagree-deg, or nothing is
+            followed: a robot that is not level, or a transform that is wrong.
+  arm_mount                              the robot description's frame at the arm model's root (openarm_body_link0):
+                                         x forward, y left, z up. right/target is a PoseStamped of the TCP
+                                         (openarm_right_hand_tcp) in this frame.
+
+THE TARGET: the palm in arm_mount, moved --standoff back toward the right shoulder (the hand stops short of the person's
+hand, it does not touch it), kept between --min-reach and --max-reach of the shoulder and inside --box, low-passed
+(--smooth-s) and speed-limited (--max-speed). The orientation is the hand's own when following starts: only the position
+follows. A palm older than --stale-s (lost, rough, or the tracker stopped) sends nothing: the arm service's reference goes
+stale and HOLDS where it is. When it comes back, following starts again from where the hand is, not from the old target.
+
+Nothing here reaches a real arm: targets go only to --sim-domain, which must differ from the robot's. The real arm service
+reads the same right/target, so what is tuned here is what it would follow.
+
+--dummy: no tracker; a palm drawn on a circle in front of the camera (--dummy-z metres out), through the same frames.
+"""
+
+import argparse
+import json
+import math
+import os
+import sys
+import threading
+import time
+import xml.etree.ElementTree as ET
+
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import grasp_to_sim as g2s  # noqa: E402  (TfReader, SimArm, HandModel, retilt, camera_tilt, the rotations)
+
+ARM_FRAME = g2s.ARM_FRAME                 # arm_mount
+CAMERA_FRAME = g2s.CAMERA_FRAME           # camera_color_optical_frame
+SHOULDER = g2s.SHOULDER                   # openarm_right_link0 in the arm model's frame
+HEAD_JOINTS = ("head_pan", "head_tilt")
+IMU_FRAME = "camera_accel_gyro_optical_frame"
+
+
+def rpy_to_mat(r, p, y):
+    cr, sr, cp, sp, cy, sy = math.cos(r), math.sin(r), math.cos(p), math.sin(p), math.cos(y), math.sin(y)
+    return np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+                     [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+                     [-sp, cp * sr, cp * cr]])
+
+
+def axis_angle(axis, q):
+    a = np.asarray(axis, float) / np.linalg.norm(axis)
+    k = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
+    return np.eye(3) + math.sin(q) * k + (1 - math.cos(q)) * (k @ k)
+
+
+def urdf_joints(urdf_xml, names):
+    """{name: (parent, child, origin 4x4, axis)} of the named joints of a URDF string."""
+    out = {}
+    for j in ET.fromstring(urdf_xml).findall("joint"):
+        if j.get("name") not in names:
+            continue
+        o = j.find("origin")
+        xyz = [float(v) for v in (o.get("xyz", "0 0 0") if o is not None else "0 0 0").split()]
+        rpy = [float(v) for v in (o.get("rpy", "0 0 0") if o is not None else "0 0 0").split()]
+        a = j.find("axis")
+        origin = np.eye(4)
+        origin[:3, :3], origin[:3, 3] = rpy_to_mat(*rpy), xyz
+        out[j.get("name")] = (j.find("parent").get("link"), j.find("child").get("link"), origin,
+                              [float(v) for v in (a.get("xyz") if a is not None else "1 0 0").split()])
+    missing = set(names) - set(out)
+    if missing:
+        raise ValueError(f"the robot description has no joint {', '.join(sorted(missing))}")
+    return out
+
+
+def joint_transform(origin, axis, q):
+    t = np.eye(4)
+    t[:3, :3] = axis_angle(axis, q)
+    return origin @ t
+
+
+class Frames:
+    """T_arm_cam, the camera's pose in arm_mount, by --transform; and the IMU's up for the tilt and the check."""
+
+    def __init__(self, rclpy, node, mode, calib=None, tf_topics=(), head_tilt_from="imu", max_disagree_deg=3.0,
+                 head_stale_s=2.0):
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+        from sensor_msgs.msg import Imu, JointState
+        from std_msgs.msg import String
+        self.rclpy, self.mode, self.head_tilt_from, self.max_disagree = rclpy, mode, head_tilt_from, max_disagree_deg
+        self.head_stale_s = head_stale_s
+        self.tf = g2s.TfReader(rclpy, node, tf_topics)
+        self.calib = None
+        if mode == "calib":
+            cal = json.load(open(calib))
+            self.calib = np.eye(4)
+            self.calib[:3, :3], self.calib[:3, 3] = np.asarray(cal["R"]), np.asarray(cal["t"])
+            self.calib_source = f"{calib}: {cal.get('source', '')} (valid for: {cal.get('valid_for', '?')})"
+        self.joints, self.head, self.head_at = None, {}, None
+        self.accel, self.lock = None, threading.Lock()
+        if mode == "joints":
+            latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL, reliability=ReliabilityPolicy.RELIABLE)
+            node.create_subscription(String, "/robot_description", self._on_description, latched)
+            node.create_subscription(JointState, "/head/joint_states", self._on_head, 10)
+        node.create_subscription(Imu, "/camera/gyro_accel/sample", self._on_imu, 50)
+
+    def _on_description(self, msg):
+        try:
+            self.joints = urdf_joints(msg.data, HEAD_JOINTS)
+        except (ET.ParseError, ValueError) as error:
+            print(f"/robot_description: {error}", file=sys.stderr)
+
+    def _on_head(self, msg):
+        """The head's two joints into the TF buffer, overriding the robot's own publisher of them (if any)."""
+        from geometry_msgs.msg import TransformStamped
+        if self.joints is None:
+            return
+        got = dict(zip(msg.name, msg.position))
+        stamp = msg.header.stamp if (msg.header.stamp.sec or msg.header.stamp.nanosec) else self.node_now()
+        for name in HEAD_JOINTS:
+            if name not in got:
+                continue
+            parent, child, origin, axis = self.joints[name]
+            m = joint_transform(origin, axis, got[name])
+            t = TransformStamped()
+            t.header.stamp, t.header.frame_id, t.child_frame_id = stamp, parent, child
+            t.transform.translation.x, t.transform.translation.y, t.transform.translation.z = (float(v) for v in m[:3, 3])
+            q = g2s.mat_to_quat(m[:3, :3])
+            t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w = (float(v) for v in q)
+            self.tf.overridden.add(child)
+            self.tf.buf.set_transform(t, "hand_follow")
+        with self.lock:
+            self.head = {n: got[n] for n in HEAD_JOINTS if n in got}
+            self.head_at = time.monotonic()
+
+    def node_now(self):
+        return self.rclpy.clock.Clock().now().to_msg()
+
+    def _on_imu(self, msg):
+        a = np.array([msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z])
+        with self.lock:
+            self.accel = a if self.accel is None else self.accel + 0.05 * (a - self.accel)   # ~20 samples
+
+    def up_cam(self):
+        """The world's up in the colour camera's frame from the accelerometer, or None."""
+        with self.lock:
+            accel = None if self.accel is None else self.accel.copy()
+        if accel is None:
+            return None
+        try:
+            imu = self.tf.lookup(CAMERA_FRAME, IMU_FRAME, timeout=0.2)
+        except LookupError:
+            return None
+        up = imu[:3, :3] @ accel
+        return up / np.linalg.norm(up)
+
+    def _lookup(self, target, source, stamp_s):
+        """At the image's stamp if the buffer has it, else the latest (the head is held still while following)."""
+        if stamp_s is not None:
+            try:
+                return self.tf.lookup(target, source, stamp_s, timeout=0.02)
+            except LookupError:
+                pass
+        return self.tf.lookup(target, source, None, timeout=0.5)
+
+    def camera_in_arm(self, stamp_s=None):
+        """(T_arm_cam, a description of how it was made). Raises LookupError saying why not."""
+        info = {}
+        if self.mode == "calib":
+            t, info["source"] = self.calib.copy(), self.calib_source
+        else:
+            if self.mode == "joints":
+                if self.joints is None:
+                    raise LookupError("no /robot_description yet (the head's joint origins come from it)")
+                with self.lock:
+                    head, at = dict(self.head), self.head_at
+                if at is None or time.monotonic() - at > self.head_stale_s:
+                    raise LookupError("the neck is silent: no /head/joint_states for "
+                                      f"{'ever' if at is None else f'{time.monotonic() - at:.1f} s'}")
+                info["head_deg"] = {n: round(math.degrees(v), 2) for n, v in head.items()}
+            t = self._lookup(ARM_FRAME, CAMERA_FRAME, stamp_s)
+            info["source"] = f"TF {ARM_FRAME} <- {CAMERA_FRAME}" + (", head joints from /head/joint_states" if self.mode == "joints" else "")
+        up = self.up_cam()
+        tf_pitch = g2s.camera_tilt(t[:3, :3].T @ np.array([0.0, 0.0, 1.0]))[0]
+        info["pitch_reported_deg"] = round(tf_pitch, 2)
+        if up is None:
+            raise LookupError("no IMU up yet (/camera/gyro_accel/sample and the colour->IMU transform): "
+                              "the transform cannot be checked")
+        imu_pitch = g2s.camera_tilt(up)[0]
+        info["pitch_imu_deg"] = round(imu_pitch, 2)
+        if self.head_tilt_from == "imu" and self.mode != "calib":
+            tilt = self._lookup(ARM_FRAME, "head_tilt_link", stamp_s)
+            t, delta = g2s.retilt(t, tilt, imu_pitch)
+            info["retilt_deg"] = round(delta, 2)
+        tf_up = t[:3, :3].T @ np.array([0.0, 0.0, 1.0])
+        disagree = math.degrees(math.acos(max(-1.0, min(1.0, float(tf_up @ up)))))
+        info["disagree_deg"] = round(disagree, 2)
+        if disagree > self.max_disagree:
+            raise LookupError(f"the transform's up and the camera IMU's differ by {disagree:.1f} deg (limit "
+                              f"{self.max_disagree}): the robot is not level, or the transform is wrong")
+        return t, info
+
+
+def shape_target(p_arm, standoff, min_reach, max_reach, box):
+    """The TCP position for a palm at p_arm (arm_mount): `standoff` short of it toward the shoulder, its distance from
+    the shoulder kept in [min_reach, max_reach], then inside the box ((x0, x1), (y0, y1), (z0, z1))."""
+    d = np.asarray(p_arm, float) - SHOULDER
+    n = float(np.linalg.norm(d))
+    u = d / n if n > 1e-6 else np.array([1.0, 0.0, 0.0])
+    r = min(max(n - standoff, min_reach), max_reach)
+    target = SHOULDER + r * u
+    return np.array([min(max(target[i], box[i][0]), box[i][1]) for i in range(3)])
+
+
+class Palm:
+    """The newest palm: (xyz in its frame, image stamp in s, monotonic receipt)."""
+
+    def __init__(self):
+        self.lock, self.value = threading.Lock(), None
+
+    def put(self, xyz, stamp_s):
+        with self.lock:
+            self.value = (np.asarray(xyz, float), stamp_s, time.monotonic())
+
+    def get(self):
+        with self.lock:
+            return self.value
+
+
+def fmt(v):
+    return g2s.fmt(v)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("command", nargs="?", default="run", choices=("run", "frames"))
+    ap.add_argument("--hand", default="right", choices=("left", "right"),
+                    help="which palm topic: the robot's side the hand is on (hand_tracker/palm.py)")
+    ap.add_argument("--palm-topic", default=None, help="default /perception/hand/<hand>/palm")
+    ap.add_argument("--transform", default="joints", choices=("joints", "tf", "calib"))
+    ap.add_argument("--calib", default=os.path.join(HERE, "..", "hand_tracker", "cam_to_arm_nominal.json"),
+                    help="the cam_to_arm JSON for --transform calib")
+    ap.add_argument("--tf-topics", default="", help="extra TF topics, comma-separated (a private robot_state_publisher's)")
+    ap.add_argument("--head-tilt-from", choices=("imu", "neck"), default="imu")
+    ap.add_argument("--max-tilt-disagree-deg", type=float, default=3.0)
+    ap.add_argument("--standoff", type=float, default=0.10, help="m the hand stops short of the palm, toward the shoulder")
+    ap.add_argument("--min-reach", type=float, default=0.25, help="m from the shoulder, at least")
+    ap.add_argument("--max-reach", type=float, default=0.55, help="m from the shoulder, at most")
+    ap.add_argument("--box", default="0.10,0.65,-0.65,0.20,0.25,1.20",
+                    help="x0,x1,y0,y1,z0,z1: the target is kept inside this box in arm_mount, metres")
+    ap.add_argument("--smooth-s", type=float, default=0.20, help="time constant of the target's low-pass")
+    ap.add_argument("--max-speed", type=float, default=0.30, help="m/s the target may move at")
+    ap.add_argument("--stale-s", type=float, default=0.40, help="a palm older than this is not followed")
+    ap.add_argument("--rate", type=float, default=50.0)
+    ap.add_argument("--enable", action="store_true", help="start enabled")
+    ap.add_argument("--dummy", action="store_true", help="no tracker: a palm on a circle in front of the camera")
+    ap.add_argument("--dummy-z", type=float, default=0.55)
+    ap.add_argument("--dummy-r", type=float, default=0.10)
+    ap.add_argument("--dummy-period", type=float, default=8.0)
+    ap.add_argument("--save", default=None, help="frames: write the transform as cam_to_arm JSON")
+    ap.add_argument("--palm", default=None, help="frames: x,y,z of a palm in the camera frame, to see where it lands")
+    ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
+    ap.add_argument("--sim-domain", type=int, default=78)
+    ap.add_argument("--reference", default="right")
+    ap.add_argument("--model", default=g2s.REPO_MODEL if os.path.exists(g2s.REPO_MODEL) else "openarm_assets:bimanual")
+    args = ap.parse_args()
+    if args.sim_domain == args.robot_domain:
+        raise SystemExit("--sim-domain must differ from the robot's domain: the simulation's joint_states would reach the robot")
+    b = [float(v) for v in args.box.split(",")]
+    box = ((b[0], b[1]), (b[2], b[3]), (b[4], b[5]))
+
+    os.environ.setdefault("FASTDDS_BUILTIN_TRANSPORTS", "UDPv4")
+    import rclpy
+    from geometry_msgs.msg import PointStamped, PoseStamped
+    from rclpy.context import Context
+    from rclpy.node import Node
+    from rclpy.qos import qos_profile_sensor_data
+    from std_srvs.srv import SetBool
+
+    robot_ctx = Context()
+    rclpy.init(context=robot_ctx, domain_id=args.robot_domain)
+    node = Node("hand_follow", context=robot_ctx)
+    frames = Frames(rclpy, node, args.transform, args.calib, [t for t in args.tf_topics.split(",") if t],
+                    args.head_tilt_from, args.max_tilt_disagree_deg)
+    g2s.spin_in_thread(rclpy, node, robot_ctx)
+
+    if args.command == "frames":
+        deadline, t, info = time.monotonic() + 10.0, None, None
+        while time.monotonic() < deadline:
+            try:
+                t, info = frames.camera_in_arm()
+                break
+            except LookupError as error:
+                why = str(error)
+                time.sleep(0.2)
+        if t is None:
+            raise SystemExit(f"no transform {ARM_FRAME} <- {CAMERA_FRAME}: {why}")
+        print(json.dumps(info, indent=1))
+        print(f"T_{ARM_FRAME}_{CAMERA_FRAME} (camera coordinates -> {ARM_FRAME}; x forward, y left, z up):")
+        print(np.array2string(t, precision=4, suppress_small=True))
+        print(f"camera at {fmt(t[:3, 3])} m; optical axis {fmt(t[:3, 2])} in {ARM_FRAME}")
+        if args.palm:
+            p = np.array([float(v) for v in args.palm.split(",")])
+            pa = t[:3, :3] @ p + t[:3, 3]
+            print(f"palm {fmt(p)} (camera) -> {fmt(pa)} ({ARM_FRAME}) -> target "
+                  f"{fmt(shape_target(pa, args.standoff, args.min_reach, args.max_reach, box))}")
+        if args.save:
+            with open(args.save, "w") as f:
+                json.dump({"from": CAMERA_FRAME, "to": f"{ARM_FRAME} (the arm model frame: +x forward, +y left, +z up)",
+                           "side": args.reference, "R": t[:3, :3].round(6).tolist(), "t": t[:3, 3].round(5).tolist(),
+                           "source": f"hand_follow.py frames, --transform {args.transform}: {info['source']}",
+                           "head_deg": info.get("head_deg"), "pitch_imu_deg": info.get("pitch_imu_deg"),
+                           "valid_for": f"the head where it was: {info.get('head_deg')}, written {time.strftime('%Y-%m-%d %H:%M')}"},
+                          f, indent=1)
+            print(f"saved {args.save}")
+        g2s.shutdown_all(rclpy)
+        return 0
+
+    # -- run ----------------------------------------------------------------------------------------------------------
+    palm = Palm()
+    topic = args.palm_topic or f"/perception/hand/{args.hand}/palm"
+    if not args.dummy:
+        node.create_subscription(PointStamped, topic, lambda m: palm.put(
+            (m.point.x, m.point.y, m.point.z), m.header.stamp.sec + m.header.stamp.nanosec * 1e-9), qos_profile_sensor_data)
+    pub_palm = node.create_publisher(PointStamped, "/hand_follow/palm", 10)      # for watching: the palm in arm_mount
+    pub_target = node.create_publisher(PoseStamped, "/hand_follow/target", 10)   # and the target sent
+    enabled = threading.Event()
+    if args.enable:
+        enabled.set()
+
+    def on_enable(req, res):
+        (enabled.set if req.data else enabled.clear)()
+        res.success, res.message = True, "following" if req.data else "disabled: the arm holds"
+        print(f"/hand_follow/enable {req.data}: {res.message}", flush=True)
+        return res
+
+    node.create_service(SetBool, "/hand_follow/enable", on_enable)
+
+    hand_model = g2s.HandModel(args.model)
+    sim_ctx = Context()
+    rclpy.init(context=sim_ctx, domain_id=args.sim_domain)
+    sim = g2s.SimArm(rclpy, sim_ctx, args.reference, hand_model)
+    g2s.spin_in_thread(rclpy, sim.node, sim_ctx)
+    if not sim.wait_for_state():
+        raise SystemExit(f"no joint_states on domain {args.sim_domain}: start the simulation first (hand_follow.sh sim)")
+    print(f"hand_follow: {'dummy circle' if args.dummy else topic} -> {ARM_FRAME} ({args.transform}, tilt from "
+          f"{args.head_tilt_from}) -> {args.reference}/target on domain {args.sim_domain}; "
+          f"{'ENABLED' if enabled.is_set() else 'disabled until /hand_follow/enable true'}", flush=True)
+
+    dt = 1.0 / args.rate
+    active, cmd, filt, rot = False, None, None, None
+    t0, last_print, last_err, last_err_at = time.monotonic(), 0.0, "", 0.0
+    state = "disabled"
+    try:
+        while True:
+            now = time.monotonic()
+            if args.dummy:
+                a = 2 * math.pi * (now - t0) / args.dummy_period
+                palm.put((args.dummy_r * math.cos(a), args.dummy_r * math.sin(a), args.dummy_z), None)
+            got = palm.get()
+            err = None
+            if not enabled.is_set():
+                active, state = False, "disabled"
+            elif got is None or now - got[2] > args.stale_s:
+                active, state = False, "no palm: holding"
+            else:
+                try:
+                    t, info = frames.camera_in_arm(got[1])
+                except LookupError as error:
+                    t, err = None, str(error)
+                if t is None:
+                    active, state = False, "no transform: holding"
+                else:
+                    p_arm = t[:3, :3] @ got[0] + t[:3, 3]
+                    goal = shape_target(p_arm, args.standoff, args.min_reach, args.max_reach, box)
+                    if not active:
+                        hand_p, rot = sim.hand()     # (re)start from where the hand is, holding its orientation
+                        cmd, filt, active = hand_p.copy(), goal.copy(), True
+                    filt = filt + (dt / (args.smooth_s + dt)) * (goal - filt)
+                    step = filt - cmd
+                    n = float(np.linalg.norm(step))
+                    if n > args.max_speed * dt:
+                        step *= args.max_speed * dt / n
+                    cmd = cmd + step
+                    sim.send(cmd, rot)
+                    state = "following"
+                    stamp = node.get_clock().now().to_msg()
+                    pm = PointStamped()
+                    pm.header.stamp, pm.header.frame_id = stamp, ARM_FRAME
+                    pm.point.x, pm.point.y, pm.point.z = (float(v) for v in p_arm)
+                    pub_palm.publish(pm)
+                    tm = PoseStamped()
+                    tm.header = pm.header
+                    tm.pose.position.x, tm.pose.position.y, tm.pose.position.z = (float(v) for v in cmd)
+                    q = g2s.mat_to_quat(rot)
+                    tm.pose.orientation.x, tm.pose.orientation.y, tm.pose.orientation.z, tm.pose.orientation.w = (float(v) for v in q)
+                    pub_target.publish(tm)
+            if err and (err != last_err or now - last_err_at > 5.0):
+                print(f"not following: {err}", file=sys.stderr, flush=True)
+                last_err, last_err_at = err, now
+            if now - last_print >= 1.0:
+                last_print = now
+                hand_p, _ = sim.hand()
+                line = f"[{state}] hand {fmt(hand_p)}"
+                if active:
+                    line += (f"  palm cam {fmt(got[0])} -> {ARM_FRAME} {fmt(p_arm)}  target {fmt(cmd)} "
+                             f"(goal {fmt(goal)}, hand {np.linalg.norm(hand_p - cmd) * 1000:.0f} mm off)  "
+                             f"pitch imu {info['pitch_imu_deg']:.1f} reported {info['pitch_reported_deg']:.1f}")
+                print(line, flush=True)
+            time.sleep(dt)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        g2s.shutdown_all(rclpy)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
