@@ -1,12 +1,13 @@
 """The ROS side of arm_service.py's slices 3 and 4: the actions the show runner sends each arm's routine and gripper cues to,
 `/<side>_controller/follow_joint_trajectory` and `/<side>_gripper_controller/gripper_cmd`, and this arm's joints and the gripper's finger joints on `/joint_states`.
 
-Only the adapters: the trajectory one checks the goal's joint names, turns the points into arrays and calls `ArmService.follow` (trajectory.py), which gates and plays it, a cancel
+Also the one command action of commands.py (`serve_command`). Only the adapters: the trajectory one checks the goal's joint names, turns the points into arrays and calls `ArmService.follow` (trajectory.py), which gates and plays it, a cancel
 being `ArmService.hold`; the gripper one calls `ArmService.grip` (gripper.py): a close that stops on something aborts as stalled, the signal the runner reads as "something is in there".
 Written against rclpy and control_msgs. It has run on the Thor (2026-10-26: `settle()` cites the error seen there, 2d53026); what that run covered beyond the trajectory goal is not recorded here.
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -120,6 +121,7 @@ def serve_trajectory(service):
 
     group = ReentrantCallbackGroup()
     serve_gripper(service, node)                 # one node, one executor: the gripper cues come while the routine plays
+    serve_command(service, node)
     serve_state(service, node, service.args.state_rate)
     ActionServer(node, FollowJointTrajectory, f"/{side}_controller/follow_joint_trajectory", execute, goal_callback=on_goal, cancel_callback=on_cancel,
                  callback_group=group)
@@ -192,6 +194,45 @@ def serve_gripper(service, node=None, finger_rate: float = 20.0):
 
     node.create_timer(1.0 / finger_rate, publish)
     return node
+
+
+def serve_command(service, node):
+    """The arm's one command action, `ArmCommand` on `/<side>_arm/command` (commands.py: reach_pose, ready, candy_grasp). A goal is REJECTED while another
+    command, a trajectory or any other move is running, or when its name or params are not valid; a cancel holds the arm where it is. The stage it is in goes out as feedback. Skipped, with
+    a line in the log, where opendubs_arm_interfaces is not importable (build software/openarm/interfaces into the workspace)."""
+    try:
+        from opendubs_arm_interfaces.action import ArmCommand
+    except ImportError as error:
+        node.get_logger().warn(f"no arm command action: opendubs_arm_interfaces is not importable ({error}); build software/openarm/interfaces and source it")
+        return
+    from rclpy.action import ActionServer, CancelResponse, GoalResponse
+    from rclpy.callback_groups import ReentrantCallbackGroup
+
+    import commands
+
+    def on_goal(goal):
+        why = commands.check(service, goal.name, goal.params)
+        if why:
+            node.get_logger().warn(f"rejected {goal.name}: {why}")
+            return GoalResponse.REJECT
+        return GoalResponse.ACCEPT
+
+    def on_cancel(_):
+        service.hold()
+        return CancelResponse.ACCEPT
+
+    def execute(handle):
+        def progress(stage):
+            handle.publish_feedback(ArmCommand.Feedback(stage=stage))
+
+        request = handle.request
+        outcome = commands.run(service, request.name, request.params, progress)
+        result = ArmCommand.Result(result_code=int(outcome.code), message=outcome.message, data=json.dumps(outcome.data))
+        node.get_logger().info(f"{request.name}: {outcome.message}")
+        settle(handle, outcome.cancelled, outcome.ok)
+        return result
+
+    ActionServer(node, ArmCommand, f"/{service.args.side}_arm/command", execute, goal_callback=on_goal, cancel_callback=on_cancel, callback_group=ReentrantCallbackGroup())
 
 
 def arm_joint_names(robot, side: str) -> list:
