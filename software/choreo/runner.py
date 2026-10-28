@@ -1098,8 +1098,9 @@ class Runner:
         """The projector dropped out mid-show: the hub's device plays its held music from here, in step.
         Music on the stage box has no copy elsewhere: it stops, and the log says so."""
         if not (self.audio_live and self._held):
-            self.music_on, self.music_why = None, f"{why} — no other device plays the music"
-            self._log("audio_warning", note=f"music lost: {why} — no other device plays it")
+            # 2026-10-28: muting here silenced the Boom for a whole show after a stall 0.2 s before the start
+            self.music_on, self.music_why = self.music_on, f"{why} — the stage keeps the music, catching up"
+            self._log("audio_warning", note=f"{why} — the stage pages keep the music (no other device holds it)")
             return
         self.music_on, self.music_why = self._hub_out, f"{why} — the {self._hub_out} took the music over"
         self._audio({"op": "unhold", "id": self._load_id})
@@ -1203,6 +1204,9 @@ class Runner:
             self._log("audio_warning", note=why)
         items = self._route_music(tl, items)
         self._held = any(it.get("held") for it in items)
+        for sv in self.videos + self.music:      # no copy elsewhere: a stalled stage page keeps its sound
+            if hasattr(sv, "mute_on_stall"):
+                sv.mute_on_stall = self._held
         items = [{k: v for k, v in it.items() if k not in ("path", "lib", "sha256")}   # the device fetches by URL
                  for it in items]
         if items:
