@@ -264,6 +264,36 @@ def test_the_limits_urdf_is_what_the_runner_reads_ranges_from():
     assert "g1" not in urdf, "only the arms' joints"
 
 
+def test_the_vibration_stop_follows_the_path_speed_limit():
+    assert trajectory.Limits().max_speed == 3.5 and trajectory.Limits().max_joint_speed == 4.5
+    slow = trajectory.Limits(max_speed=1.0)
+    assert slow.max_joint_speed == 1.0 + trajectory.VIBRATION_MARGIN, "the stop is above the path limit, whatever it is"
+    assert trajectory.Limits(max_speed=1.0, max_joint_speed=2.5).max_joint_speed == 2.5, "a named value is kept"
+    import inspect
+    assert inspect.signature(pose_follow.follow).parameters["limits"].default.max_joint_speed == 2.5, "pose following keeps its own vibration stop"
+
+
+def test_the_service_takes_its_path_speed_limit_from_the_drivers_max_velocity():
+    import tempfile
+    from types import SimpleNamespace as NS
+
+    def limit(text, backend="hardware", side="left"):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "hw.yaml")
+            with open(path, "w") as handle:
+                handle.write(text)
+            args = NS(side=side, backend=backend, hardware_config=path, dashboard="x")
+            return arm_service.ArmService(None, args).limits
+
+    named = limit("left_arm: {driver: openarm, bus: can, can_interface: arm_left, max_velocity: 2.0}\n")
+    assert (named.max_speed, named.max_joint_speed) == (2.0, 2.0 + trajectory.VIBRATION_MARGIN), named
+    unnamed = limit("left_arm: {driver: openarm, bus: can, can_interface: arm_left}\n")
+    assert unnamed.max_speed == 1.0, "no max_velocity: the driver's own default, so a fast show is refused up front"
+    fake = limit("left_arm: {driver: openarm, bus: fake}\n")
+    assert fake.max_speed == trajectory.Limits().max_speed, "no real bus, no driver: the simulator's default"
+    assert limit("left_arm: {driver: openarm, bus: can, can_interface: arm_left, max_velocity: 2.0}\n", backend="mujoco").max_speed == trajectory.Limits().max_speed
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:

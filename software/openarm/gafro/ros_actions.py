@@ -44,16 +44,16 @@ def settle(handle, cancelled: bool, succeeded: bool) -> None:
         handle.abort()
 
 
-def limits_urdf(robot, sides=("left", "right")) -> str:
+def limits_urdf(robot, limits=None, sides=("left", "right")) -> str:
     """A limits-only description of the arms' joints for the runner: `<joint name=... ><limit lower upper effort velocity/></joint>` for every joint of `sides`, in the order of the
     model's own names, the limits the model holds (the ones `trajectory.follow` checks a path against, so there is one source). Not a full URDF (no links, no parents): the runner
-    (`arm_output.urdf_ranges`) reads only the `<limit>`s. `velocity` and `effort` are the service's own `Limits`, so they follow it when it is raised."""
+    (`arm_output.urdf_ranges`) reads only the `<limit>`s. `velocity` and `effort` are the service's own `Limits` (`limits`; the defaults if none is given), so they follow the driver's max_velocity."""
     from xml.sax.saxutils import quoteattr
 
     system = robot.get_system()
     lower = np.asarray(system.get_joint_limits_min().coefficients())
     upper = np.asarray(system.get_joint_limits_max().coefficients())
-    limits = trajectory.Limits()
+    limits = limits or trajectory.Limits()
     joints = []
     for side in sides:
         indices = np.asarray(system.get_task_space(side).get_joint_indices())
@@ -75,7 +75,7 @@ def _serve_ranges(service, node_names):
     nodes = [node]
     if "robot_state_publisher" not in node_names():
         description = rclpy.create_node("robot_state_publisher")
-        description.declare_parameter("robot_description", limits_urdf(service.robot))
+        description.declare_parameter("robot_description", limits_urdf(service.robot, service.limits))
         nodes.append(description)
     else:
         node.get_logger().info("a /robot_state_publisher is already on the graph: its robot_description is left alone")

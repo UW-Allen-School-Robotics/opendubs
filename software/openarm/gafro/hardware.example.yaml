@@ -43,8 +43,9 @@ left_arm:
   # gripper_grasp_margin: 0.05
   realtime_priority: 0             # 1 to 99 asks for SCHED_FIFO (CAP_SYS_NICE); diagnostics say if it was not granted
 
-  # The speed the driver follows a path at, rad/s (its default is 1.0; it ramps the held target and clamps dq_ref). Must be at least trajectory.Limits.max_speed (3.5), or a path
-  # the service accepts is one the arm lags and the tracking stop ends. The motors' ranges are 5.4-20.9 rad/s and the driver trips at 6 (4.9 on joints 3 and 4).
+  # THE one speed setting: the speed the driver follows a path at, rad/s (its default is 1.0; it ramps the held target and clamps dq_ref). The arm service reads it at start and
+  # takes its path speed limit, and the vibration stop above it, from here, so there is nothing else to keep in step. The motors' ranges are 5.4-20.9 rad/s and the driver
+  # trips at 6 (4.9 on joints 3 and 4): keep it under 3.9, where the vibration stop (this plus 1) reaches the trip.
   max_velocity: 3.5
 
 right_arm:

@@ -189,10 +189,11 @@ with tempfile.TemporaryDirectory() as directory:
           refuses(lambda: guards.require_own_arm(config("left_arm: {driver: openarm, can_interface: arm_right}\n"), "left"), "arm_left"), True)
     check("no real bus (the simulator) passes", guards.require_own_arm(config("left_arm: {driver: openarm, bus: fake}\n"), "left"), None)
     hw = "left_arm: {driver: openarm, bus: can, can_interface: arm_left, max_velocity: 3.5}\nright_arm: {driver: openarm, bus: can, can_interface: arm_right}\n"
-    check("a driver at the service's speed: no warning", guards.driver_speed_warnings(config(hw), ["left_arm"], 3.5), [])
-    check("a driver with no max_velocity is at its default 1.0: warns", [("not set" in w) for w in guards.driver_speed_warnings(config(hw), ["right_arm"], 3.5)], [True])
-    check("a driver below the service's speed warns", len(guards.driver_speed_warnings(config(hw.replace("3.5}", "2.0}")), ["left_arm"], 3.5)), 1)
-    check("a fake bus is not warned about", guards.driver_speed_warnings(config("left_arm: {driver: openarm, bus: fake}\n"), ["left_arm"], 3.5), [])
+    check("the driver's speed is the config's max_velocity", guards.driver_max_velocity(config(hw), ["left_arm"]), 3.5)
+    check("a driver with no max_velocity is at its default 1.0", guards.driver_max_velocity(config(hw), ["right_arm"]), 1.0)
+    check("several groups: the smallest", guards.driver_max_velocity(config(hw), ["left_arm", "right_arm"]), 1.0)
+    check("a fake bus has no driver", guards.driver_max_velocity(config("left_arm: {driver: openarm, bus: fake}\n"), ["left_arm"]), None)
+    check("an unreadable config has none", guards.driver_max_velocity(os.path.join(directory, "nope.yaml"), ["left_arm"]), None)
     check("an unreadable config refuses", refuses(lambda: guards.require_own_arm(os.path.join(directory, "nope.yaml"), "left"), "cannot read"), True)
 
 

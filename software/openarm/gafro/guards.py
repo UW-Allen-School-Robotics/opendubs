@@ -211,26 +211,19 @@ def conflict(interfaces, stack=stack_running, link=link_problem) -> str | None:
 DRIVER_DEFAULT_SPEED = 1.0                      # the openarm driver's `max_velocity` when the config does not name one
 
 
-def driver_speed_warnings(config_path: str, groups, wanted: float) -> list[str]:
-    """What to say at start about the driver's speed: each real group of `groups` whose `max_velocity` (default 1.0) is below `wanted`, the speed the service accepts a path at. A
-    path faster than the driver follows is one the arm lags and the tracking stop ends, so this is a warning in the log, not a refusal: the arm stops safely, the show does not play."""
+def driver_max_velocity(config_path: str, groups) -> float | None:
+    """The speed the driver will follow a path at on `groups`' real buses, rad/s: the smallest `max_velocity` among them (the driver's default, 1.0, where the config names none), or
+    None when there is no real bus (the simulator, which has no driver). The arm service takes its path speed limit from this, so the service and the driver cannot disagree."""
     import yaml
 
     try:
         with open(config_path) as handle:
             config = yaml.safe_load(handle) or {}
     except OSError:
-        return []
-    out = []
-    for group in groups:
-        entry = config.get(group)
-        if isinstance(entry, dict) and entry.get("bus", "can") == "can":
-            speed = float(entry.get("max_velocity", DRIVER_DEFAULT_SPEED))
-            if speed < wanted:
-                out.append(f"{group}: the driver's max_velocity is {speed:g} rad/s"
-                           f"{'' if 'max_velocity' in entry else ' (not set: its default)'}, below the {wanted:g} rad/s the service accepts a path at: "
-                           "a fast show will lag and stop on the tracking error")
-    return out
+        return None
+    speeds = [float(entry.get("max_velocity", DRIVER_DEFAULT_SPEED)) for group in groups
+              if isinstance(entry := config.get(group), dict) and entry.get("bus", "can") == "can"]
+    return min(speeds) if speeds else None
 
 
 # -- the authority layer's state -----------------------------------------------------------------------------------------------------

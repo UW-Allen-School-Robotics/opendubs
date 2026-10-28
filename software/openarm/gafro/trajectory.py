@@ -26,21 +26,23 @@ SUCCESSFUL, INVALID_GOAL, PATH_TOLERANCE_VIOLATED, GOAL_TOLERANCE_VIOLATED = 0, 
 
 PERIOD = 0.02          # s between the knots handed to the controller (what the choreography runner samples at)
 VIBRATION_SAMPLES = 6
+VIBRATION_MARGIN = 1.0       # rad/s above the path speed limit before a joint is vibrating (and under the driver's trip at 4.9 on J3 and J4, for a limit up to 3.9)
 
 
 @dataclasses.dataclass
 class Limits:
     """STARTING VALUES, the ones play_show.py has (none has been run on an arm for a show)."""
-    max_speed: float = 3.5            # rad/s: a faster path is refused. Raised from 1.0 (2026-10-28, #474): 1.0 was the bring-up value, the driver's `max_velocity` default, and a 1.15 rad/s path
-                                      # lagged 79 mrad on the arm (2026-10-26) because of its ramp. 3.5 clears the show caps' smoothed peaks (the dances peak at 3.25). The motors' ranges are
-                                      # 5.4-20.9 rad/s and the driver trips at 6 (4.9 on J3, J4). The driver must be given the same: `max_velocity` in the robot's hardware config
-                                      # (hardware.example.yaml; guards.driver_speed_warnings says at start if it is not). NOT run on an arm at this speed: check with a person present.
+    max_speed: float = 3.5            # rad/s: a faster path is refused. THE DRIVER'S `max_velocity` is the one setting: on a real bus the service builds its Limits from it
+                                      # (`ArmService`, from the robot's hardware config; the driver's own default 1.0 if the config names none), so the two cannot disagree. This
+                                      # default is for the simulator and tools, which have no driver: 3.5 clears the show caps' smoothed peaks (the dances peak at 3.25). It was 1.0,
+                                      # the bring-up value (a 1.15 rad/s path lagged 79 mrad on the arm, 2026-10-26, because of the driver's ramp). The motors' ranges are 5.4-20.9 rad/s
+                                      # and the driver trips at 6 (4.9 on J3, J4). NOT run on an arm at 3.5: check with a person present.
     start_tolerance_deg: float = 3.0  # the arm must start this near the path's first point
     max_error: float = 0.2            # rad from the path: stop
     goal_tolerance: float = 0.05      # rad from the path's end at the end (the simulator ends 0.034 short: position mode has no integral action)
     max_torque: float = 12.0          # N m
-    max_joint_speed: float = 4.5      # rad/s for ~12 ms: vibration, stop, for a path (pose_follow keeps 2.5). Was 2.5 under the 1.0 rad/s path limit; at 2.5 a 3.2 rad/s path stopped itself in the simulator (VIBRATION on joint 4).
-                                      # It must sit above max_speed plus the tracking lag, and under the driver's own trip (6 rad/s, 4.9 on J3 and J4)
+    max_joint_speed: float | None = None   # rad/s for ~12 ms: vibration, stop. None: max_speed + VIBRATION_MARGIN, above the path limit plus the tracking lag (a joint at the limit with
+                                      # a little lag is tracking, not vibrating: at 2.5 a 3.2 rad/s path stopped itself in the simulator). pose_follow names its own 2.5.
     gain: float | None = None         # the position controller's (`follow_path` of controllers.yaml) unless named: these five
     max_lead: float | None = None
     leash: float | None = None
@@ -49,6 +51,11 @@ class Limits:
     lead_in: float = 0.2              # s between publishing the path and its first knot: the show is this much later than its clock says
     hold_seconds: float = 0.1         # s holding where the arm is, with the controller up, before the path is published. A runner's goal sets both of these to 0 (arm_service.follow):
                                       # its show is timed to the music, and the two together made the arms trail it by 0.3 s
+
+
+    def __post_init__(self):
+        if self.max_joint_speed is None:
+            self.max_joint_speed = self.max_speed + VIBRATION_MARGIN
 
 
 @dataclasses.dataclass

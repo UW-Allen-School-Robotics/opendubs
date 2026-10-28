@@ -61,7 +61,7 @@ from engage import DEFAULT_MODEL, EngageRefused, PermitKeeper, permit_groups  # 
 # How long `activate` and `park` take, seconds, whatever the distance. Stow to ready (joint 4 travels 1.8 rad, the most) peaks at 1.875 * 1.8 / 5 = 0.68 rad/s. Measured on the
 # arm (2026-10-26, with the driver's max_velocity at its default 1.0): 11.2 s and 7 s track within 10 mrad, 5 s within 11 mrad, and 3 s does not: the path asks 1.15 rad/s, so the arm
 # lags by up to 79 mrad. trajectory.Limits refuses a path over its max_speed, so a time the arm cannot follow is refused, not played: 1.0 then (stow to ready under about 3.4 s),
-# 3.5 now that the driver is given the same (stow to ready under about 1 s). The 5 s here is the measured one, and is not changed by the raise.
+# the driver's max_velocity now (3.5 in the example config: stow to ready under about 1 s). The 5 s here is the measured one, and is not changed by the raise.
 MOVE_SECONDS = 5.0
 COMMANDS = ("status", "activate", "park", "follow", "hold", "down", "supervise", "unsupervise")
 
@@ -152,10 +152,14 @@ class ArmService:
     def __init__(self, robot, args):
         self.robot, self.args = robot, args
         self.groups = permit_groups(args.side) if args.backend == "hardware" else ()
+        self.limits = trajectory.Limits()    # on a real bus: the path speed limit is the driver's max_velocity (guards.driver_max_velocity), the one setting
         self.real, self.interfaces = False, []
         self.fault = None              # why the service has stopped moving the arm (the old stack started, the link is off), or None; set by `watch`
         if args.backend == "hardware":
             self.interfaces, self.real = guards.buses_of(args.hardware_config, self.groups)
+            speed = guards.driver_max_velocity(args.hardware_config, self.groups)
+            if speed is not None:
+                self.limits = trajectory.Limits(max_speed=speed)
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
         self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
         self.behaviour = ""            # what `follow` is doing about its target now ("following", "holding: ..."), while it runs
@@ -312,7 +316,7 @@ class ArmService:
         shape = fraction**3 * (10.0 - 15.0 * fraction + 6.0 * fraction**2)
         slope = 30.0 * fraction**2 * (1.0 - fraction) ** 2 / duration
         result = trajectory.follow(robot, side, times, start + np.outer(shape, target - start), np.outer(slope, target - start), self.permit.lease(), self.cancel,
-                                   log=self._log, record=self._recording(name))
+                                   limits=self.limits, log=self._log, record=self._recording(name))
         if result.code != trajectory.SUCCESSFUL or result.cancelled:
             raise EngageRefused(result.message)
 
@@ -330,7 +334,7 @@ class ArmService:
             self.cancel.clear()
         try:
             # A runner's goal starts at acceptance by default: its show is timed to the music, and the 0.1 s hold and 0.2 s lead-in the service's own moves have made the arm trail by 0.3 s.
-            limits = dataclasses.replace(trajectory.Limits(), hold_seconds=getattr(self.args, "goal_hold_seconds", 0.0), lead_in=getattr(self.args, "goal_lead_in", 0.0))
+            limits = dataclasses.replace(self.limits, hold_seconds=getattr(self.args, "goal_hold_seconds", 0.0), lead_in=getattr(self.args, "goal_lead_in", 0.0))
             result = trajectory.follow(self.robot, self.args.side, times, positions, velocities, self.permit.lease(), self.cancel, limits=limits, log=self._log,
                                        record=self._recording("trajectory"))
         except Exception as error:  # noqa: BLE001 -- the arm holds; the goal fails and the service stays up
@@ -481,11 +485,11 @@ def main() -> int:
     if bringup.gate(args, motion=False):    # the bus must be to ourselves; nothing moves until a command, which is gated again
         return 1
 
-    if args.backend == "hardware":
-        for warning in guards.driver_speed_warnings(args.hardware_config, permit_groups(args.side), trajectory.Limits().max_speed):
-            print(f"warning: {warning}", flush=True)
     robot, _, _ = bringup.connect(args)
     service = ArmService(robot, args)
+    if service.real:
+        print(f"path speed limit {service.limits.max_speed:g} rad/s: the driver's max_velocity in {args.hardware_config}"
+              f"{'' if service.limits.max_speed != guards.DRIVER_DEFAULT_SPEED else ' (1.0 is its default; set max_velocity there to play faster paths)'}", flush=True)
     service.watch()
     service.reach = reach.build(robot.get_system(), args.side, service._log, args.reach_clearance)
     server = listen(service, args.socket, int(args.socket_mode, 8))
