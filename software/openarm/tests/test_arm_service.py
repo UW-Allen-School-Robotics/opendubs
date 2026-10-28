@@ -241,6 +241,29 @@ def test_the_twist_of_a_moving_target_is_estimated_in_the_tool_frame():
     assert np.linalg.norm(estimate[3:]) <= pose_follow.TWIST_LIMIT[1] + 1e-9, estimate
 
 
+def test_the_limits_urdf_is_what_the_runner_reads_ranges_from():
+    """ros_actions.limits_urdf is served as /robot_state_publisher's robot_description; the runner's urdf_ranges must read the model's own limits back out of it."""
+    import math
+    from types import SimpleNamespace as NS
+
+    sys.path.insert(0, os.path.join(HERE, "..", "..", "choreo"))
+    import arm_output
+    import ros_actions
+
+    lower = np.array([-1.0 - 0.1 * i for i in range(16)])           # 2 arms x 7 joints, and two more (grippers) that are not in any task space
+    upper = -lower * 0.5
+    names = [f"openarm_{side}_joint{j}" for side in ("left", "right") for j in range(1, 8)] + ["g1", "g2"]
+    order = {"left": list(range(7)), "right": list(range(7, 14))}
+    system = NS(get_actuators=lambda: [NS(joint_name=n) for n in names], get_task_space=lambda side: NS(get_joint_indices=lambda: order[side]),
+                get_joint_limits_min=lambda: NS(coefficients=lambda: lower), get_joint_limits_max=lambda: NS(coefficients=lambda: upper))
+    urdf = ros_actions.limits_urdf(NS(get_system=lambda: system))
+    ranges = arm_output.urdf_ranges(urdf, {"left": 0.0, "right": 0.0})
+    for slot, indices in (("ARM_L", order["left"]), ("ARM_R", order["right"])):
+        want = [(math.degrees(lower[i]), math.degrees(upper[i])) for i in indices]
+        assert len(ranges[slot]) == 7 and all(abs(a - c) < 1e-6 and abs(b - d) < 1e-6 for (a, b), (c, d) in zip(ranges[slot], want)), (slot, ranges[slot], want)
+    assert "g1" not in urdf, "only the arms' joints"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:

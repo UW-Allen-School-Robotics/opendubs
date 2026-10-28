@@ -8,8 +8,11 @@ Written against rclpy and control_msgs. It has run on the Thor (2026-10-26: `set
 from __future__ import annotations
 
 import threading
+import time
 
 import numpy as np
+
+import trajectory
 
 
 def joint_names(side: str) -> list:
@@ -39,6 +42,44 @@ def settle(handle, cancelled: bool, succeeded: bool) -> None:
         handle.succeed()
     else:
         handle.abort()
+
+
+def limits_urdf(robot, sides=("left", "right")) -> str:
+    """A limits-only description of the arms' joints for the runner: `<joint name=... ><limit lower upper effort velocity/></joint>` for every joint of `sides`, in the order of the
+    model's own names, the limits the model holds (the ones `trajectory.follow` checks a path against, so there is one source). Not a full URDF (no links, no parents): the runner
+    (`arm_output.urdf_ranges`) reads only the `<limit>`s. `velocity` and `effort` are the service's own `Limits`, so they follow it when it is raised."""
+    from xml.sax.saxutils import quoteattr
+
+    system = robot.get_system()
+    lower = np.asarray(system.get_joint_limits_min().coefficients())
+    upper = np.asarray(system.get_joint_limits_max().coefficients())
+    limits = trajectory.Limits()
+    joints = []
+    for side in sides:
+        indices = np.asarray(system.get_task_space(side).get_joint_indices())
+        for name, index in zip(arm_joint_names(robot, side), indices):
+            joints.append(f'  <joint name={quoteattr(name)} type="revolute">'
+                          f'<limit lower="{lower[index]:.9f}" upper="{upper[index]:.9f}" effort="{limits.max_torque}" velocity="{limits.max_speed}"/></joint>')
+    return '<robot name="openarm_gafro_limits">\n' + "\n".join(joints) + "\n</robot>"
+
+
+def _serve_ranges(service, node_names):
+    """The two parameters the runner reads its clamp range from (`arm_output.controller_ranges`): `/<side>_controller` `joint_position_margin` (0.0: the limits are the model's, with
+    no margin) on this service's own node, and `robot_description` on `/robot_state_publisher` (both arms' limits, from the model). The second is served only if no node of that
+    name is on the graph: never shadow a real robot_state_publisher, and with two services (one per arm) the second finds the first's. Returns the nodes to spin."""
+    import rclpy
+
+    side = service.args.side
+    node = rclpy.create_node(f"{side}_controller")
+    node.declare_parameter("joint_position_margin", 0.0)
+    nodes = [node]
+    if "robot_state_publisher" not in node_names():
+        description = rclpy.create_node("robot_state_publisher")
+        description.declare_parameter("robot_description", limits_urdf(service.robot))
+        nodes.append(description)
+    else:
+        node.get_logger().info("a /robot_state_publisher is already on the graph: its robot_description is left alone")
+    return nodes
 
 
 def serve_trajectory(service):
@@ -84,6 +125,9 @@ def serve_trajectory(service):
                  callback_group=group)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
+    time.sleep(1.0)                              # let discovery see the graph before looking for a robot_state_publisher on it
+    for extra in _serve_ranges(service, lambda: [name for name, _ in node.get_node_names_and_namespaces()]):
+        executor.add_node(extra)
     threading.Thread(target=executor.spin, daemon=True).start()
     return node
 
