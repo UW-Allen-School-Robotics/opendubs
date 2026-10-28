@@ -138,6 +138,28 @@ def test_each_output_has_its_own_holder_and_a_load_plays_only_on_its_output():
         assert c.get("/api/choreo/audio").json()["ready"] is True
 
 
+def test_test_sound_plays_a_chime_on_the_chosen_output_only():
+    with _client() as c:                                   # one event loop: the chime runs as a background task
+        _test_sound(c)
+
+
+def _test_sound(c):
+    assert c.post("/api/choreo/audio/test", json={"output": "tablet"}).json()["code"] == "SHOW_AUDIO_OUTPUT_MISSING"
+    with c.websocket_connect("/ws/show-audio") as tab, c.websocket_connect("/ws/show-audio") as spk:
+        tab.receive_json(), spk.receive_json()
+        tab.send_json({"claim": True, "label": "tablet"})
+        tab.receive_json(), spk.receive_json()
+        spk.send_json({"claim": True, "label": "Jabra", "output": "speakerphone"})
+        spk.receive_json(), tab.receive_json()
+        assert c.post("/api/choreo/audio/test", json={"output": "speakerphone"}).json()["ok"] is True
+        m = spk.receive_json()
+        assert m["op"] == "load" and m["items"][0]["url"] == show_audio.TEST_URL
+        spk.send_json({"ready": m["id"]})
+        assert spk.receive_json()["op"] == "start"
+        assert spk.receive_json()["op"] == "stop"
+        assert c.get(show_audio.TEST_URL).headers["content-type"] == "audio/wav"
+
+
 def test_only_known_ops_are_accepted():
     c = _client()
     assert c.post("/api/choreo/audio", json={"op": "volume"}).status_code == 400

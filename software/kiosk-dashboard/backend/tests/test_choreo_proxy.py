@@ -70,7 +70,8 @@ def test_the_fake_robot_switches_are_not_forwarded():
     assert paths == {"/api/choreo/routines", "/api/choreo/palette", "/api/choreo/run/{rid}", "/api/choreo/stop",
                      "/api/choreo/robot", "/ws/show-audio", "/api/choreo/audio", "/api/choreo/media/{rel:path}",
                      "/api/choreo/ambient", "/api/choreo/video", "/api/choreo/video/output",
-                     "/api/choreo/video/settings", "/api/choreo/audio/output"}
+                     "/api/choreo/video/settings", "/api/choreo/audio/output", "/api/choreo/audio/test",
+                     "/api/choreo/audio/test.wav"}
 
 
 # ---- /api/choreo/robot: the runner's view of the robot (plan 4.4c) -----------------------------

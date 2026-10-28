@@ -12,6 +12,10 @@ origin (standing rule 12):
     outputs (OUTPUTS) each have their own holder; the runner's load names its output
     (notes/design/choreo-audio-output.md), and ambient music, files and AirPlay are the tablet's.
   * GET /api/choreo/audio — who holds it, and whether what was last loaded is ready.
+  * POST /api/choreo/audio/test {output} — TEST SOUND for a hub output (the Shows page): a short chime,
+    played as a tiny show (load, start, stop) so every device that plays shows plays it unchanged.
+    Refused while a show is loaded (SHOW_AUDIO_BUSY) or when nothing holds that output
+    (SHOW_AUDIO_OUTPUT_MISSING). GET /api/choreo/audio/test.wav is the chime.
   * GET /api/choreo/media/<path> — the show's audio files, from the shows directory's audio/ and
     sounds/ only; and `library/songs/<file>`, a song from the show library (plan 4.6).
 
@@ -49,11 +53,15 @@ tablet drop stops the music and nothing else).
 from __future__ import annotations
 
 import asyncio
+import io
 import itertools
 import json
+import math
 import mimetypes
 import os
+import struct
 import time
+import wave
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -307,6 +315,22 @@ class Hub:
                 self.file = None
                 await self._send_gate()
 
+    async def test_tone(self, output: str, wait_ready_s: float = 3.0, play_s: float = 1.8):
+        """TEST SOUND: the chime on one output, as a show of one item. Stops only its own load: a show
+        loaded meanwhile is never cut by it."""
+        tid = f"test@{time.time():.3f}"
+        await self.command({"op": "load", "id": tid, "output": output,
+                            "items": [{"url": TEST_URL, "at": 0.0, "kind": "music", "role": "music"}]})
+        t_end = time.monotonic() + wait_ready_s
+        while self.ready_id != tid and time.monotonic() < t_end and self.load_id == tid:
+            await asyncio.sleep(0.05)
+        if self.load_id != tid:
+            return
+        await self.command({"op": "start", "id": tid, "t0_mono": round(time.monotonic() + 0.3, 4)})
+        await asyncio.sleep(0.3 + play_s)
+        if self.load_id == tid:
+            await self.command({"op": "stop", "fade_s": 0.1})
+
     def ready(self, cid, load_id):
         if cid == self.holders.get(self.load_output):
             self.ready_id = load_id
@@ -327,6 +351,26 @@ class Hub:
         delivered = await self._send(to, msg) if to in self.clients else False
         await self._send_gate()                   # a show mutes AirPlay; its end lets it back
         return {**self.view(), "delivered": delivered}
+
+
+TEST_URL = "/api/choreo/audio/test.wav"
+
+
+def test_wav() -> bytes:
+    """A 1 s two-note chime (C5 then G5), 22.05 kHz mono, faded in and out: unmistakable, never loud."""
+    rate, out = 22050, io.BytesIO()
+    frames = bytearray()
+    for f0, secs in ((523.25, 0.4), (783.99, 0.6)):
+        n = int(rate * secs)
+        for i in range(n):
+            env = min(1.0, i / (0.02 * rate), (n - i) / (0.08 * rate))
+            frames += struct.pack("<h", int(0.35 * 32767 * env * math.sin(2 * math.pi * f0 * i / rate)))
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(bytes(frames))
+    return out.getvalue()
 
 
 def play_url_ok(url) -> bool:
@@ -412,6 +456,30 @@ async def show_audio_ws(ws: WebSocket):
 @router.get("/api/choreo/audio")
 async def audio_state():
     return JSONResponse(hub.view())
+
+
+@router.get("/api/choreo/audio/test.wav")
+async def audio_test_wav():
+    return Response(test_wav(), media_type="audio/wav")
+
+
+@router.post("/api/choreo/audio/test")
+async def audio_test(request: Request):
+    from refusals import refuse
+    try:
+        msg = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "not JSON"}, status_code=400)
+    output = msg.get("output") if isinstance(msg, dict) else None
+    if output not in OUTPUTS:
+        return JSONResponse({"error": f"output must be one of {', '.join(OUTPUTS)} (the stage box tests itself)"},
+                            status_code=400)
+    if hub.show_active:
+        return refuse("SHOW_AUDIO_BUSY", "a show is loaded or running: it has the speakers — test after it", 409)
+    if hub.holders.get(output) not in hub.clients:
+        return refuse("SHOW_AUDIO_OUTPUT_MISSING", f"no device is registered as the {output} show-audio output", 503)
+    asyncio.get_running_loop().create_task(hub.test_tone(output))
+    return JSONResponse({"ok": True, "output": output, "label": hub._label(output)})
 
 
 @router.get("/api/choreo/ambient")
