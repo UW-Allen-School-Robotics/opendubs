@@ -2,8 +2,9 @@
 
 park, hold, activate and down go to the ARM SERVICE (software/openarm/gafro/arm_service.py), one per arm, over its command socket (arm_client.py): the service owns the robot
 and its guards (CH5, the e-stop, CH6, a person at the e-stop, a start near stow or ready), so the dashboard asks and shows the answer, and does not reimplement any of it.
-There is NO fallback to the old stack's `openarm-up`: with no service for an arm, the operation says so and does nothing. `relink` (one arm's CAN link) still goes through
-`openarm-up`, which owns it. "both" means every arm that has a service running.
+Which stack answers is decided by what runs (`active_stack`): the arm service when an `opendubs-arm@<side>` unit is active or a service answers, the ROS stack (`openarm-up`, ROS_OPS)
+when `ros2_control_node` runs. With neither, or both, or no way to tell, every moving operation says so and does nothing: two senders on one bus is the failure this prevents, so there
+is no guessing and no fallback from one stack to the other. `relink` (one arm's CAN link) goes through `openarm-up`, which owns it. "both" means every arm that has a service running.
 
 Long operations run in a BACKGROUND THREAD and are polled, because they take seconds (a park is 5 s or more) and an HTTP request held open that long is a browser timeout
 waiting to happen. Only one at a time: two arm operations racing each other is a collision, not a queue.
@@ -66,6 +67,61 @@ OPS = {
     "relink":    (lambda arm: _sudo([OPENARM_UP, "relink", arm]), 30, "restarts one arm's CAN link"),
 }
 
+#: The ROS stack's half (what the dashboard did before the arm service): the same words, through `openarm-up`, which keeps the guards (switch_controllers is atomic, `down` refuses an
+#: arm not at stow, ...). Used only while `active_stack()` says "ros". `prepare` is `activate` here; follow, supervise and unsupervise are the arm service's alone.
+ROS_OPS = {
+    "park":     (lambda arm: _sudo([OPENARM_UP, "park", arm]), 180, "moves the arm to its stow pose"),
+    "activate": (lambda arm: _sudo([OPENARM_UP, "activate", arm]), 180, "ENERGIZES and drives the arm to zero"),
+    "down":     (lambda arm: _sudo([OPENARM_UP, "down"]), 180, "de-energizes both arms"),
+    "up":       (lambda arm: _sudo([OPENARM_UP]), 120, "starts the stack, arms stay limp"),
+    # HOLD drives the arm to where it already is: it preempts a running trajectory and leaves the arm commanded to its present pose.
+    "hold":     (lambda arm: _sudo([OPENARM_UP, "hold", arm]), 90, "stops the arm where it is"),
+}
+SERVICE_ONLY = ("follow", "supervise", "unsupervise")
+
+
+def _ros_running():
+    """Whether the old stack's `ros2_control_node` runs (its container's processes are visible to the host): True, False, or None when pgrep cannot tell."""
+    try:
+        r = _run(["pgrep", "-f", "ros2_control_node"], 3)
+    except Exception:                                # noqa: BLE001
+        return None
+    return True if r.returncode == 0 else False if r.returncode == 1 else None
+
+
+def _socket_alive(side):
+    """Whether something accepts a connection on the side's service socket (a socket a dead service left behind refuses it). Sends nothing."""
+    with socket.socket(socket.AF_UNIX) as probe:
+        probe.settimeout(0.5)
+        try:
+            probe.connect(arm_client.socket_for(side))
+        except OSError:
+            return False
+    return True
+
+
+def _service_active(side):
+    """Whether the arm service for `side` is up: its unit is active, or something accepts a connection on its socket (a service started by hand has no unit)."""
+    return _unit_state(side).get("ActiveState") == "active" or _socket_alive(side)
+
+
+def active_stack():
+    """(stack, why): "gafro" (an arm service is up), "ros" (`ros2_control_node` runs), "none", "both" or "unknown" (pgrep cannot tell), and in words what that means.
+    Only "gafro" and "ros" are answers a moving operation may act on."""
+    ros = _ros_running()
+    served = [side for side in arm_client.SIDES if _service_active(side)]
+    if ros is None:
+        return "unknown", "cannot tell whether the ROS arm stack runs (pgrep failed), so no arm operation is sent"
+    if ros and served:
+        return "both", (f"both arm stacks are running (the ROS stack's ros2_control_node and opendubs-arm@{', opendubs-arm@'.join(served)}): two senders on one bus. "
+                        "Stop one (`openarm-up down`, or `down` on the arm service) before anything moves")
+    if ros:
+        return "ros", "the ROS arm stack is running"
+    if served:
+        return "gafro", "the arm service is running for: " + ", ".join(served)
+    return "none", "no arm stack is running: START an arm service (opendubs-arm@<side>), or `openarm-up` for the ROS stack"
+
+
 #: what the arm service does, by the dashboard's word for it, and what it moves
 SERVICE_OPS = {
     "park":     "moves the arm to its stow pose",
@@ -95,8 +151,14 @@ def effector_status():
     """Each arm and gripper as the show runner's preflight reads them (choreo_proxy `effectors`): {part: {state, why, pose_deg?, excluded?}}.
 
     An arm is `ok` when its arm service answers AND a person has said they are at the e-stop (supervised): the service refuses every moving command without that, and the runner sends
-    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
+    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. Under the ROS stack this returns None (the runner reads that stack's motors itself); with no stack, both, or no way to tell, every part is `down` with the reason. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
     on and calibrated in its hardware config, and nothing here reports that yet. A part is never reported `ok` without an answer."""
+    stack, why = active_stack()
+    if stack == "ros":
+        return None                      # the runner's own fallback: the motor summary of the ROS stack (choreo_proxy._probe_now)
+    if stack != "gafro":
+        return {part: ({"state": "down", "why": why} if part.startswith("arm_") else {"state": "down", "excluded": True, "why": why})
+                for side in arm_client.SIDES for part in (f"arm_{side}", f"grip_{side}")}
     out = {}
     for side in arm_client.SIDES:
         status = _service_status(side)
@@ -332,11 +394,29 @@ def _show_running():
 def start_op(name, arm="both"):
     """Begin a long arm operation. Returns (accepted, detail)."""
     spec = OPS.get(name)
-    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS and name not in ("viewer", "viewer-stop", "prepare"):
+    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS and name not in ROS_OPS and name not in ("viewer", "viewer-stop", "prepare"):
         return False, f"unknown operation {name!r}"
     if arm not in ("left", "right", "both"):
         return False, f"arm must be left|right|both, got {arm!r}"
     sides = []
+    use_service = name in SERVICE_OPS or name in UNIT_OPS or name == "prepare"
+    if use_service or name in ROS_OPS:
+        stack, why = active_stack()
+        if name in UNIT_OPS and stack not in ("none", "gafro"):
+            return False, f"START is for the arm service, and {why}" if stack != "ros" else "the ROS arm stack is running: `openarm-up down` first (starting the arm service beside it is two senders on one bus)"
+        if name == "up" and stack not in ("none", "ros"):
+            return False, f"`openarm-up` starts the ROS stack, and {why}"
+        if name not in UNIT_OPS and name != "up" and stack not in ("gafro", "ros"):
+            return False, why
+        if stack == "ros" and name not in UNIT_OPS and name != "up":
+            if name in SERVICE_ONLY:
+                return False, f"{name} is the arm service's: the ROS arm stack is running, not an arm service"
+            ros_name = "activate" if name == "prepare" else name
+            spec, use_service = ROS_OPS[ros_name], False
+        elif name in ROS_OPS and name != "up" and stack == "gafro":
+            use_service = True
+        elif name == "up":
+            spec, use_service = ROS_OPS["up"], False
     if name == "prepare":
         show = _show_running()
         if show:
@@ -344,7 +424,7 @@ def start_op(name, arm="both"):
         sides = ["left", "right"] if arm == "both" else [arm]
     if name in UNIT_OPS and arm not in ("left", "right"):
         return False, "START is per arm: left or right (starting a service enables that arm's motors)"
-    if name in SERVICE_OPS:
+    if name in SERVICE_OPS and use_service:
         served = arm_client.sides_served()
         sides = served if arm == "both" else [arm]
         if not sides or any(side not in served for side in sides):
@@ -363,7 +443,7 @@ def start_op(name, arm="both"):
         if show:
             return False, f"a show is running ({show}): a link restart waits until it ends"
 
-    if name in INSTANT_OPS:
+    if name in INSTANT_OPS and use_service:
         out, error = _service_work(name, sides)
         return (False, error) if error else (True, out)
     with _lock:
@@ -375,7 +455,7 @@ def start_op(name, arm="both"):
                     "rc": None, "out": "", "error": None})
 
     def work():
-        if name in SERVICE_OPS or name in UNIT_OPS or name == "prepare":
+        if use_service:
             try:
                 out, error = (_prepare_work(sides) if name == "prepare" else _start_unit(arm) if name in UNIT_OPS else _service_work(name, sides))
             except Exception as e:                       # noqa: BLE001 - surfaced to the operator
@@ -645,6 +725,7 @@ def snapshot():
     return {
         "op": op_status(),
         "viewers": viewer_state(),
+        "stack": dict(zip(("name", "why"), active_stack())),   # which arm stack answers: gafro | ros | none | both | unknown
         "service": {side: _service_status(side) for side in arm_client.sides_served()},   # per arm: its status text, None if it does not answer
         "motors": counts or None,
         "links": link_status(),

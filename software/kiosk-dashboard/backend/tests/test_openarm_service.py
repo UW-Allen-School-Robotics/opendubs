@@ -26,7 +26,10 @@ class Fake:
 
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
-                request = json.loads(self.rfile.readline())
+                line = self.rfile.readline()
+                if not line.strip():                       # a probe that only connects
+                    return
+                request = json.loads(line)
                 self.wfile.write((fake.answer(request) + "\n").encode())
 
         self.server = socketserver.ThreadingUnixStreamServer(self.path, Handler)
@@ -60,6 +63,7 @@ class Fake:
 def arms(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENDUBS_ARM_SOCKET_DIR", str(tmp_path))
     monkeypatch.setattr(openarm, "_run", lambda *a, **k: (_ for _ in ()).throw(AssertionError(f"the old stack was called: {a}")))   # openarm-up must not run
+    monkeypatch.setattr(openarm, "_ros_running", lambda: False)          # the ROS stack is not up: the arm service is the stack
     made = []
 
     def make(side, **kwargs):
@@ -104,7 +108,7 @@ def test_no_service_is_a_refusal_and_not_a_fallback(arms):
 
 def test_nothing_served_at_all(arms):
     ok, detail = openarm.start_op("down", "both")
-    assert not ok and "Running: none" in detail
+    assert not ok and "no arm stack is running" in detail, detail
 
 
 def test_the_services_refusal_reaches_the_operator(arms):
@@ -123,12 +127,10 @@ def test_a_move_that_stops_is_an_error(arms):
 
 
 def test_a_dead_service_with_a_stale_socket(arms):
-    arms("right").stop()                      # the socket file stays, nothing answers
-    assert openarm.start_op("park", "right")[0]
-    op = wait()
-    assert op["rc"] == 1 and "does not answer" in op["error"], op
-    ok, detail = openarm.start_op("hold", "right")      # an instant one answers in the request itself
-    assert not ok and "does not answer" in detail, (ok, detail)
+    arms("right").stop()                      # the socket file stays, nothing answers: that is no arm stack, and nothing is sent
+    for word in ("park", "hold"):
+        ok, detail = openarm.start_op(word, "right")
+        assert not ok and "no arm stack is running" in detail, (word, ok, detail)
 
 
 def test_the_snapshot_shows_each_service(arms, monkeypatch):
@@ -151,7 +153,8 @@ class Unit:
     def __call__(self, argv, timeout):
         import subprocess
 
-        self.calls.append(list(argv))
+        if "show" not in argv:                      # what is asked of systemd to change; reading a unit's state is not a call worth counting
+            self.calls.append(list(argv))
         if "start" in argv:
             if self.rc == 0 and self.comes_up:
                 self.arms(self.side)
@@ -235,7 +238,7 @@ def test_hold_and_end_supervision_are_not_kept_waiting_by_a_running_move(arms):
 
 def test_a_hold_with_no_service_says_so_at_once(arms):
     ok, detail = openarm.start_op("hold", "right")
-    assert not ok and "no arm service" in detail
+    assert not ok and "no arm stack is running" in detail
 
 
 def test_effector_status_reports_each_arm_from_its_service(arms):
@@ -356,3 +359,96 @@ def test_prepare_waits_for_a_show_to_end(arms, monkeypatch):
     monkeypatch.setattr(openarm, "_show_running", lambda: "shrug")
     ok, detail = openarm.start_op("prepare", "right")
     assert not ok and "shrug" in detail and right.received == [], (ok, detail, right.received)
+
+
+# ---- which stack answers (T3) ----------------------------------------------------------------------------------------------------------------------
+
+@pytest.fixture
+def ros(arms, monkeypatch):
+    """The ROS stack is up and no arm service is: `_run` records what the dashboard would run."""
+    ran = []
+    monkeypatch.setattr(openarm, "_ros_running", lambda: True)
+
+    def run(argv, timeout):
+        if "show" in argv:                                   # systemctl show: no unit is active
+            return type("R", (), {"returncode": 0, "stdout": "ActiveState=inactive\n", "stderr": ""})()
+        ran.append(argv)
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    monkeypatch.setattr(openarm, "_run", run)
+    return ran
+
+
+def test_the_stack_is_named_by_what_runs(arms, monkeypatch):
+    assert openarm.active_stack()[0] == "none"
+    arms("right")
+    assert openarm.active_stack()[0] == "gafro"
+    monkeypatch.setattr(openarm, "_ros_running", lambda: True)
+    stack, why = openarm.active_stack()
+    assert stack == "both" and "two senders" in why, (stack, why)
+    monkeypatch.setattr(openarm, "_ros_running", lambda: None)
+    assert openarm.active_stack()[0] == "unknown"
+
+
+def test_under_the_ros_stack_the_arm_words_go_to_openarm_up(ros):
+    for word, argv in (("park", ["openarm-up", "park", "left"]), ("activate", ["openarm-up", "activate", "left"]), ("hold", ["openarm-up", "hold", "left"])):
+        ros.clear()
+        ok, detail = openarm.start_op(word, "left")
+        assert ok, detail
+        op = wait()
+        assert op["error"] is None and [a.rsplit("/", 1)[-1] for a in ros[0][2:]] == argv[0:1] + argv[1:], (word, ros)
+
+
+def test_prepare_under_the_ros_stack_is_activate(ros, monkeypatch):
+    monkeypatch.setattr(openarm, "_show_running", lambda: None)
+    assert openarm.start_op("prepare", "right")[0]
+    wait()
+    assert ros[0][-2:] == ["activate", "right"], ros
+
+
+def test_the_arm_services_own_words_are_refused_under_the_ros_stack(ros):
+    for word in ("follow", "supervise", "unsupervise"):
+        ok, detail = openarm.start_op(word, "right")
+        assert not ok and "arm service's" in detail, (word, detail)
+    assert not ros, "nothing was run"
+
+
+def test_under_the_ros_stack_the_runner_reads_the_motors_itself(ros):
+    assert openarm.effector_status() is None
+
+
+def test_start_is_refused_beside_the_ros_stack(ros):
+    ok, detail = openarm.start_op("start", "right")
+    assert not ok and "openarm-up down" in detail and not ros, (detail, ros)
+
+
+def test_up_is_refused_beside_an_arm_service(arms):
+    arms("right")
+    ok, detail = openarm.start_op("up", "right")
+    assert not ok and "ROS stack" in detail, detail
+
+
+def test_both_stacks_up_is_down_with_the_reason_and_nothing_moves(arms, monkeypatch):
+    arms("right").supervised = True
+    monkeypatch.setattr(openarm, "_ros_running", lambda: True)
+    eff = openarm.effector_status()
+    for part in ("arm_left", "arm_right", "grip_left", "grip_right"):
+        assert eff[part]["state"] == "down" and "two senders" in eff[part]["why"], (part, eff[part])
+    for word in ("park", "hold", "activate", "down", "prepare"):
+        ok, detail = openarm.start_op(word, "right")
+        assert not ok and "two senders" in detail, (word, detail)
+
+
+def test_no_stack_is_down_with_the_reason_but_start_is_allowed(arms, monkeypatch):
+    eff = openarm.effector_status()
+    assert all(v["state"] == "down" and "no arm stack is running" in v["why"] for v in eff.values()), eff
+    assert not openarm.start_op("park", "right")[0]
+    monkeypatch.setattr(openarm, "_start_unit", lambda side: (f"{side}: started", None))
+    assert openarm.start_op("start", "right")[0]
+    wait()
+
+
+def test_a_stack_that_cannot_be_told_moves_nothing(arms, monkeypatch):
+    arms("right")
+    monkeypatch.setattr(openarm, "_ros_running", lambda: None)
+    assert "cannot tell" in openarm.start_op("hold", "right")[1]
+    assert all(v["state"] == "down" for v in openarm.effector_status().values())
