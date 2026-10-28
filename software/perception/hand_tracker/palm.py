@@ -9,13 +9,17 @@ palms out. Coordinates are camera_color_optical_frame, metres: x right, y down, 
   3. Each hand's landmarks get ToF depth; the palm is the mean of the palm landmarks (wrist + finger MCPs) in the depth
      cluster that is the hand, and an occluded palm falls back to the nearest trackable landmark, then to the pose.
 
-A palm is FOLLOWABLE only when it comes from the hand landmarker with ToF depth on at least 3 landmarks (source
-`hand:...`, not `hand:PALM(size)` or one ending in `?`). Anything else is reported, so a follower can hold, but must
-never be steered by.
+FOLLOWABLE, by policy (followable()):
+  hand (default)  any point ON THE HAND with ToF depth: the palm, a single hand landmark (`hand:<NAME>`, `?` when fewer
+                  than 3 agree), the palm with a wider depth sample (`hand:PALM(wide)`), or the pose model's hand points
+                  (`pose:PALM(...)`, `pose:WRIST`, ...). Whatever part of the hand the camera sees, at any height of person.
+  palm            the prototype's: only the hand landmarker with ToF depth on at least 3 landmarks.
+Never followable: the distance from the hand's size alone (`hand:PALM(size)`: 0.3-0.8x the true distance) and the
+elbow (`pose:ELBOW`, not the hand). Those are reported, so a follower can hold, never steered by.
 
-Sides are MediaPipe's handedness labels, which assume a mirrored (selfie) image. On this front camera, unmirrored,
-"Right" is the person's LEFT hand: the one on the robot's right side, the hand the right arm mirrors. `right` here
-always means that: the robot's right side.
+Sides are the PERSON's own hands. MediaPipe's documentation says its handedness assumes a mirrored image, but on this
+camera it does not: measured on opendubs2 (2026-10-27), the hand labelled "Left" was on the image's right, the robot's
+right, which is the person's left hand when they face the robot. `right` is the person's right hand.
 """
 from __future__ import annotations
 
@@ -24,7 +28,8 @@ import os
 
 import numpy as np
 
-SIDES = ("left", "right")    # index 0, 1: the robot's side the hand is on (MediaPipe's label, see above)
+SIDES = ("left", "right")    # index 0, 1: the person's hand (MediaPipe's label, see above)
+POLICIES = ("hand", "palm")
 
 L_SHOULDER, R_SHOULDER, L_HIP, R_HIP = 11, 12, 23, 24
 L_WRIST, R_WRIST = 15, 16
@@ -43,8 +48,12 @@ PALM_POINTS = [0, 5, 9, 13, 17]          # wrist + finger MCPs outline the palm
 PALM_SEGMENTS = [(0, 5), (0, 9), (0, 17), (5, 17), (5, 9), (9, 17)]
 
 
-def followable(source: str | None) -> bool:
-    return bool(source and source.startswith("hand:") and not source.endswith(("(size)", "?")))
+def followable(source: str | None, policy: str = "hand") -> bool:
+    if not source or source.endswith("(size)") or source == "pose:ELBOW":
+        return False
+    if policy == "palm":
+        return source.startswith("hand:") and not source.endswith(("?", "(wide)"))
+    return source.startswith(("hand:", "pose:"))
 
 
 # -- geometry -----------------------------------------------------------------------------------------------------
@@ -121,14 +130,14 @@ def track_palm(hand_pts, pose_lm, side, depth_m, K, w, h, min_vis, occl_tol, arm
     """Best 3D estimate of one hand's palm, falling back to the nearest trackable landmark when the palm is occluded.
     Returns (source, (u, v), xyz) or None.
 
-    Order: palm centre from hand landmarks -> nearest unoccluded hand landmark -> pose hand points -> pose elbow.
+    Order: palm centre from hand landmarks -> nearest unoccluded hand landmark -> the palm with a wider depth patch ->
+    pose hand points -> the size distance (reported, never followed) -> pose elbow (likewise).
     Hand landmark depths are split into clusters wherever sorted depths jump by more than occl_tol. With world_lm, the
     hand is the largest cluster within the rough distance its size implies (hand_distance): an occluder sits in front of
-    it, the forearm or body behind it when the hand reaches toward the camera. If no cluster fits, the palm is placed at
-    the size distance: source `hand:PALM(size)`, too rough to follow. Without world_lm, the hand is the farthest cluster
-    within arm_tol of the elbow.
+    it, the forearm or body behind it when the hand reaches toward the camera. Without world_lm, the hand is the
+    farthest cluster within arm_tol of the elbow.
     """
-    elbow_z, e = None, None
+    elbow_z, e, size_only = None, None, None
     if pose_lm is not None:
         # Elbow depth bounds the hand: the forearm is short, so a much nearer depth is an occluder.
         e = pose_lm[POSE_ELBOW[side]]
@@ -157,11 +166,16 @@ def track_palm(hand_pts, pose_lm, side, depth_m, K, w, h, min_vis, occl_tol, arm
             if fits:
                 hand_c = max(fits, key=lambda c: (len(c), -np.median([z for z, _ in c])))
             else:
-                # No usable ToF depth on the hand (too close for the depth mode, or every pixel missed it): reported as
-                # `(size)`, never followable.
+                # No landmark's pixel has depth inside the window (on the robot: a hand at about 0.45 m, reaching toward
+                # the camera). A wider patch around the palm often still hits the hand: `(wide)`. Failing that, the pose's
+                # hand points below; the size distance only as the last report, never followed.
                 palm_uv = np.mean([hand_pts[j][1] for j in PALM_POINTS], axis=0)
-                return "hand:PALM(size)", tuple(palm_uv), deproject(palm_uv[0], palm_uv[1], z_est, K)
-        if hand_c is None and near_elbow:
+                z = sample_depth(depth_m, palm_uv[0], palm_uv[1], r=15)
+                if z and 0.8 * z_est <= z <= 2.5 * z_est:
+                    return "hand:PALM(wide)", tuple(palm_uv), deproject(palm_uv[0], palm_uv[1], z, K)
+                size_only = ("hand:PALM(size)", tuple(palm_uv), deproject(palm_uv[0], palm_uv[1], z_est, K))
+                clusters = []          # none of them is the hand: skip to the pose
+        if hand_c is None and near_elbow and clusters:
             hand_c = near_elbow[-1] if elbow_z is not None else max(clusters, key=len)
         if hand_c is not None:
             ok = [j for _, j in hand_c]
@@ -171,14 +185,14 @@ def track_palm(hand_pts, pose_lm, side, depth_m, K, w, h, min_vis, occl_tol, arm
                 xyz = tuple(np.mean([hand_pts[j][2] for j in palm_ok], axis=0))
                 return f"hand:PALM({len(palm_ok)}/5)", tuple(palm_uv), xyz
             if ok:
-                # Fewer than 3 landmarks agreeing is as likely a stray pixel on the arm or background as the hand:
-                # still reported, marked `?`, never followable.
+                # Fewer than 3 landmarks agreeing can be a stray pixel on the arm or background as well as the hand:
+                # marked `?`, followed only under the `hand` policy (the follower's low-pass and speed limit absorb one).
                 j = min(ok, key=lambda j: math.dist(hand_pts[j][1], palm_uv))
                 mark = "" if len(ok) >= 3 else "?"
                 return f"hand:{hand_pts[j][0]}{mark}", hand_pts[j][1], hand_pts[j][2]
 
     if pose_lm is None:
-        return None
+        return size_only
     pts = {}
     for name, j in POSE_HAND[side].items():
         p = pose_lm[j]
@@ -197,6 +211,8 @@ def track_palm(hand_pts, pose_lm, side, depth_m, K, w, h, min_vis, occl_tol, arm
         for n in ("INDEX", "PINKY", "WRIST", "THUMB"):
             if n in pts:
                 return f"pose:{n}", pts[n][0], pts[n][1]
+    if size_only:
+        return size_only
     if elbow_z:
         u, v = e.x * w, e.y * h
         return "pose:ELBOW", (u, v), deproject(u, v, elbow_z, K)

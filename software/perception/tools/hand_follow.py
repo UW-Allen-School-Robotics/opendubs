@@ -40,10 +40,16 @@ THE FRAMES, end to end:
                                          x forward, y left, z up. right/target is a PoseStamped of the TCP
                                          (openarm_right_hand_tcp) in this frame.
 
-THE TARGET: the palm in arm_mount, moved --standoff back toward the right shoulder (the hand stops short of the person's
-hand, it does not touch it), kept between --min-reach and --max-reach of the shoulder and inside --box, low-passed
-(--smooth-s) and speed-limited (--max-speed). The orientation is the hand's own when following starts: only the position
-follows.
+THE TARGET, by --mode:
+  relative (default)  the arm's hand moves as the person's hand moves, from where each was when tracking (re)started:
+                      goal = hand_then + --gain * M (palm_now - palm_then), both in arm_mount, M by --mapping:
+                      body (default) the person's own frame, facing the robot: their right is the arm's right, toward the
+                      robot is its forward, up is up; world: the same direction in the room. Where the person stands does
+                      not matter.
+  absolute            the palm itself, --standoff short of it toward the shoulder, between --min-reach and --max-reach.
+Then inside --box (a generous safety box: the workspace is the IK's), low-passed (--smooth-s) and speed-limited
+(--max-speed), and solved by PositionIk for the right arm alone: the pose of the solution is sent, its orientation the
+IK's.
 
 HOLDING, so the arm never drops: once a target has been sent, every tick sends one. Stopped, a palm older than --stale-s
 (occluded, out of view, a rough palm, the tracker stopped) or no transform: the LAST COMMANDED pose is sent again, latched
@@ -258,6 +264,66 @@ def shape_target(p_arm, standoff, min_reach, max_reach, box):
     return np.array([min(max(target[i], box[i][0]), box[i][1]) for i in range(3)])
 
 
+class PositionIk:
+    """Joint angles that put the TCP at a position, orientation left free: damped least squares on the TCP's position
+    Jacobian over one arm's 7 joints, inside the joint limits (less `margin`), the null space pulled toward the posture
+    the arm had when following started (so the elbow and wrist stay as they were rather than wander). Warm-started from
+    its own last solution, so the solution is continuous and never flips branch between ticks.
+
+    The pose of the solution is what is sent: always one the arm can reach, so the arm service's pose controller is never
+    asked for one it can only approach into a joint limit (it stalled 150-500 mm short of most of the workspace when the
+    orientation was held). An unreachable position is solved to the nearest reachable one."""
+
+    def __init__(self, model_spec, side="right", margin=0.05, damping=0.05, posture_gain=0.1):
+        import mujoco
+        from gafro_ri_ros2_bridge.models import resolve_model
+        self.mj = mujoco
+        self.m = mujoco.MjModel.from_xml_path(resolve_model(model_spec))
+        self.d = mujoco.MjData(self.m)
+        self.d.qpos[:] = self.m.key_qpos[self.m.key("ready").id]
+        self.tcp = self.m.body(f"openarm_{side}_hand_tcp").id
+        jids = [self.m.joint(f"openarm_{side}_joint{i}").id for i in range(1, 8)]
+        self.names = [f"openarm_{side}_joint{i}" for i in range(1, 8)]
+        self.qadr = np.array([self.m.jnt_qposadr[j] for j in jids])
+        self.dadr = np.array([self.m.jnt_dofadr[j] for j in jids])
+        self.lo, self.hi = self.m.jnt_range[jids, 0] + margin, self.m.jnt_range[jids, 1] - margin
+        self.damping, self.posture_gain = damping, posture_gain
+        self.posture = self.d.qpos[self.qadr].copy()
+        self.jacp, self.jacr = np.zeros((3, self.m.nv)), np.zeros((3, self.m.nv))
+
+    def reset_qpos(self, qpos):
+        """Start from the arm as it is (the qpos of the same model, kept from joint_states), and pull toward that posture
+        from now on."""
+        self.d.qpos[self.qadr] = np.clip(np.asarray(qpos)[self.qadr], self.lo, self.hi)
+        self.posture = self.d.qpos[self.qadr].copy()
+
+    def solve(self, target, iterations=15, step_max=0.15):
+        """(TCP position, TCP 3x3, joint angles) of the solution for `target` (arm_mount), from the last solution."""
+        q = self.d.qpos[self.qadr].copy()
+        for _ in range(iterations):
+            self.mj.mj_kinematics(self.m, self.d)
+            self.mj.mj_comPos(self.m, self.d)
+            e = np.asarray(target, float) - self.d.xpos[self.tcp]
+            if np.linalg.norm(e) < 2e-4:
+                break
+            self.mj.mj_jacBody(self.m, self.d, self.jacp, self.jacr, self.tcp)
+            J = self.jacp[:, self.dadr]
+            Jp = J.T @ np.linalg.inv(J @ J.T + self.damping ** 2 * np.eye(3))
+            dq = Jp @ e + (np.eye(7) - Jp @ J) @ (self.posture_gain * (self.posture - q))
+            n = np.linalg.norm(dq)
+            if n > step_max:
+                dq *= step_max / n
+            q = np.clip(q + dq, self.lo, self.hi)
+            self.d.qpos[self.qadr] = q
+        self.mj.mj_kinematics(self.m, self.d)
+        return self.d.xpos[self.tcp].copy(), self.d.xmat[self.tcp].reshape(3, 3).copy(), q.copy()
+
+
+MAPPINGS = {"body": np.diag([-1.0, -1.0, 1.0]),   # facing the robot, in the person's own frame: your right is its right,
+                                                   # toward the robot is its forward, up is up (a puppet, not a mirror)
+            "world": np.eye(3)}                     # the same direction in the room as the hand moves
+
+
 class Palm:
     """The newest palm: (xyz in its frame, image stamp in s, monotonic receipt)."""
 
@@ -281,7 +347,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", nargs="?", default="run", choices=("run", "frames"))
     ap.add_argument("--hand", default="right", choices=("left", "right"),
-                    help="which palm topic: the robot's side the hand is on (hand_tracker/palm.py)")
+                    help="which of the person's hands (hand_tracker/palm.py)")
+    ap.add_argument("--mode", default="relative", choices=("relative", "absolute"))
+    ap.add_argument("--mapping", default="body", choices=tuple(MAPPINGS), help="relative mode: whose frame the motion is in")
+    ap.add_argument("--gain", type=float, default=1.0, help="relative mode: metres of arm per metre of hand")
     ap.add_argument("--palm-topic", default=None, help="default /perception/hand/<hand>/palm")
     ap.add_argument("--transform", default="joints", choices=("joints", "tf", "calib"))
     ap.add_argument("--calib", default=os.path.join(HERE, "..", "hand_tracker", "cam_to_arm_nominal.json"),
@@ -292,9 +361,9 @@ def main():
     ap.add_argument("--standoff", type=float, default=0.10, help="m the hand stops short of the palm, toward the shoulder")
     ap.add_argument("--min-reach", type=float, default=0.25, help="m from the shoulder, at least")
     ap.add_argument("--max-reach", type=float, default=0.55, help="m from the shoulder, at most")
-    ap.add_argument("--box", default="0.10,0.65,-0.65,-0.05,0.25,1.20",
-                    help="x0,x1,y0,y1,z0,z1: the target is kept inside this box in arm_mount, metres. y1 -0.05: the right "
-                         "arm, holding its orientation, stalls on a joint limit past about -0.07 (the simulator has no reach gate)")
+    ap.add_argument("--box", default="0.05,0.85,-0.85,0.50,0.15,1.40",
+                    help="x0,x1,y0,y1,z0,z1: the goal is kept inside this box in arm_mount, metres. A safety box, larger "
+                         "than the reach: the IK solves what is out of reach to the nearest reachable point")
     ap.add_argument("--smooth-s", type=float, default=0.20, help="time constant of the target's low-pass")
     ap.add_argument("--max-speed", type=float, default=0.30, help="m/s the target may move at")
     ap.add_argument("--stale-s", type=float, default=0.60, help="a palm older than this is not followed")
@@ -371,6 +440,7 @@ def main():
     pub_target = node.create_publisher(PoseStamped, "/hand_follow/target", 10)   # and the target sent
 
     hand_model = g2s.HandModel(args.model)
+    ik = PositionIk(args.model, args.reference)
     sim_ctx = Context()
     rclpy.init(context=sim_ctx, domain_id=args.sim_domain)
     sim = g2s.SimArm(rclpy, sim_ctx, args.reference, hand_model)
@@ -463,11 +533,14 @@ def main():
         subscribe(args.hand)
         follow["on"] = True
     print(f"hand_follow: {'dummy circle' if args.dummy else palm_topic(args.hand)} -> {ARM_FRAME} ({args.transform}, tilt "
-          f"from {args.head_tilt_from}) -> {args.reference}/target on domain {args.sim_domain}; services "
+          f"from {args.head_tilt_from}) -> {args.mode}"
+          f"{f' ({args.mapping} frame, gain {args.gain})' if args.mode == 'relative' else ''}, IK -> "
+          f"{args.reference}/target on domain {args.sim_domain}; services "
           f"/perception/hand_follow/{{start,stop,status}}; {'FOLLOWING' if follow['on'] else 'stopped until start'}", flush=True)
 
     dt = 1.0 / args.rate
-    active, cmd, filt, rot = False, None, None, None
+    active, cmd, filt, rot, sent = False, None, None, None, None
+    anchor_palm = anchor_cmd = goal = None
     t0, last_print, last_err, last_err_at = time.monotonic(), 0.0, "", 0.0
     try:
         while True:
@@ -489,27 +562,37 @@ def main():
                     t, err = None, str(error)
                 if t is None:
                     active, state = False, "no transform: holding the last pose"
-            if t is None and cmd is not None:
+            if t is None and sent is not None:
                 # HOLD: the last pose sent, sent again. Stopped, or the hand lost (occluded, out of view, a rough palm),
                 # the arm is still given a target every tick, so nothing depends on how the arm's controller treats a
                 # silent reference (the simulation's holds, another's may not). The held pose is the last COMMANDED one,
                 # latched, never the measured hand: re-reading a sagging arm would walk its own target down.
-                sim.send(cmd, rot)
+                sim.send(*sent)
             if t is not None:
                 p_arm = t[:3, :3] @ got[0] + t[:3, 3]
-                goal = shape_target(p_arm, args.standoff, args.min_reach, args.max_reach, box)
                 if not active:
-                    if cmd is None:              # the first palm: start from where the hand is, holding its orientation
-                        cmd, rot = sim.hand()
-                        cmd = cmd.copy()
-                    filt, active = cmd.copy(), True   # after a hold: from the held pose, smoothed, no jump
+                    if cmd is None:              # the first palm: from where the arm is, its posture the IK's start
+                        with sim.lock:
+                            ik.reset_qpos(sim.model.data.qpos)
+                        cmd = sim.hand()[0].copy()
+                    # after a hold too: from the held pose, smoothed, and in relative mode the hand's motion counts from
+                    # here, so a palm that comes back somewhere else does not jump the arm
+                    anchor_palm, anchor_cmd = p_arm.copy(), cmd.copy()
+                    filt, active = cmd.copy(), True
+                if args.mode == "relative":
+                    goal = anchor_cmd + args.gain * (MAPPINGS[args.mapping] @ (p_arm - anchor_palm))
+                else:
+                    goal = shape_target(p_arm, args.standoff, args.min_reach, args.max_reach, box)
+                goal = np.array([min(max(goal[i], box[i][0]), box[i][1]) for i in range(3)])
                 filt = filt + (dt / (args.smooth_s + dt)) * (goal - filt)
                 step = filt - cmd
                 n = float(np.linalg.norm(step))
                 if n > args.max_speed * dt:
                     step *= args.max_speed * dt / n
-                cmd = cmd + step
-                sim.send(cmd, rot)
+                pos, rot, _ = ik.solve(cmd + step)
+                cmd = pos                        # what the arm can reach: pushing past the reach does not wind up
+                sent = (pos, rot)
+                sim.send(pos, rot)
                 state = "following"
                 stamp = node.get_clock().now().to_msg()
                 pm = PointStamped()

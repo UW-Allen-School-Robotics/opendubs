@@ -3,14 +3,14 @@
   python3 -m hand_tracker.node [--camera /camera] [--models /data/models/mediapipe] --ros-args -r __ns:=/perception
 
 Topics (under the node's namespace, /perception in tools/hand_stack.sh):
-  hand/<side>/palm   geometry_msgs/PointStamped  a FOLLOWABLE palm only (palm.py), in the colour image's own frame
+  hand/<side>/palm   geometry_msgs/PointStamped  a FOLLOWABLE point of the hand only (palm.py, --follow), in the colour image's own frame
                                                  (camera_color_optical_frame: x right, y down, z forward, metres),
                                                  stamped with the image. Nothing is published for a lost or rough palm,
                                                  so a follower's "fresh palm" test is also its "trustworthy palm" test.
   hand/state         std_msgs/String (JSON)      every processed frame: person distance and, per side, the source, xyz
                                                  and whether it is followable; for watching (`ros2 topic echo`), not for
                                                  steering.
-<side> is the robot's side the hand is on (palm.py): `right` is the hand the right arm mirrors.
+<side> is the person's own hand (palm.py): `right` is their right hand.
 
 ON DEMAND: a frame is only run through MediaPipe while one of those topics has a subscriber, so the node costs nothing
 when nobody follows. Newest frame only: a frame that arrives while one is being processed replaces the waiting one.
@@ -25,7 +25,7 @@ import time
 
 import numpy as np
 
-from hand_tracker.palm import SIDES, PalmTracker, followable
+from hand_tracker.palm import POLICIES, SIDES, PalmTracker, followable
 
 
 def main(argv=None):
@@ -48,6 +48,8 @@ def main(argv=None):
     ap.add_argument("--occl-tol", type=float, default=0.05, help="m; depth gap that splits a hand's landmarks into clusters")
     ap.add_argument("--arm-tol", type=float, default=0.45, help="m; pose hand points farther than this from the elbow are rejected")
     ap.add_argument("--always", action="store_true", help="process every frame, subscribers or not")
+    ap.add_argument("--follow", choices=POLICIES, default="hand",
+                    help="what is published as a palm: hand = any point on the hand with depth, palm = the palm only (palm.py)")
     ap.add_argument("--delegate", choices=("gpu", "cpu"), default="gpu",
                     help="where MediaPipe runs (gpu: 9 ms a landmarker on the Thor, cpu: 25-35 ms; gpu needs --runtime nvidia)")
     ap.add_argument("--log-s", type=float, default=60.0, help="seconds between rate lines in the log")
@@ -113,7 +115,7 @@ def main(argv=None):
             for i, side in enumerate(SIDES):
                 palm = palms.get(i)
                 src, xyz = (palm[0], palm[2]) if palm else (None, None)
-                ok = followable(src)
+                ok = followable(src, args.follow)
                 state["palms"][side] = {"source": src, "followable": ok,
                                         "xyz": [round(float(c), 4) for c in xyz] if xyz else None}
                 if ok:
