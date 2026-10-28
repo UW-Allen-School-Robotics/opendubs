@@ -293,7 +293,10 @@ class PalmTracker:
             # where the shoulders' midpoint is in the picture, as the angle below the optical axis (degrees, + down),
             # for a head that keeps the person centred. From the landmarks even off the image: with the shoulders just
             # above the frame the pose model still places them there, which says which way to look.
+            # right_deg likewise, the angle to the image's right (the robot's right), for a head that also pans.
+            u_mid = 0.5 * (pose_lm[L_SHOULDER].x + pose_lm[R_SHOULDER].x) * w
             v_mid = 0.5 * (pose_lm[L_SHOULDER].y + pose_lm[R_SHOULDER].y) * h
             shoulders["mid"] = {"below_deg": math.degrees(math.atan2(v_mid - K[3], K[1])),
+                                "right_deg": math.degrees(math.atan2(u_mid - K[2], K[0])),
                                 "vis": float(min(pose_lm[L_SHOULDER].visibility, pose_lm[R_SHOULDER].visibility))}
         return (person_z if idx is not None else None), palms, shoulders

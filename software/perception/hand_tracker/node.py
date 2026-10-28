@@ -10,8 +10,9 @@ Topics (under the node's namespace, /perception in tools/hand_stack.sh):
   hand/state         std_msgs/String (JSON)      every processed frame: person distance; per side the palm source, xyz,
                                                  whether it was published, and the shoulder (pose + depth, only where
                                                  the pose model sees it in the image), and shoulder_mid: the nearest
-                                                 person's shoulders as an angle below the optical axis (from the
-                                                 landmarks, also just off the image). hand_follow.py reads both.
+                                                 person's shoulders as angles below and right of the optical axis (from
+                                                 the landmarks, also just off the image). hand_follow.py and
+                                                 treat_follow.py read both.
 <side> is the person's own hand (palm.py): `right` is their right hand.
 
 --follow (palm.py's sources):
@@ -199,7 +200,8 @@ def main(argv=None):
                      "shoulders": {s: None if shoulders.get(i) is None else [round(float(c), 4) for c in shoulders[i]]
                                    for i, s in enumerate(SIDES)},
                      "shoulder_mid": None if "mid" not in shoulders else
-                     {"below_deg": round(shoulders["mid"]["below_deg"], 2), "vis": round(shoulders["mid"]["vis"], 2)}}
+                     {"below_deg": round(shoulders["mid"]["below_deg"], 2), "right_deg": round(shoulders["mid"]["right_deg"], 2),
+                      "vis": round(shoulders["mid"]["vis"], 2)}}
             for i, side in enumerate(SIDES):
                 palm = palms.get(i)
                 src, xyz = (palm[0], palm[2]) if palm else (None, None)
