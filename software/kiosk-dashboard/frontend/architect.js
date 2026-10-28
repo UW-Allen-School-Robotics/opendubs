@@ -1,4 +1,4 @@
-/* ARCHITECT tab: the program ARCHITECT wrote, what the Jabra listener hears, and the Orbbec's image.
+/* ARCHITECT tab: the demo day's state, the program ARCHITECT wrote, what the Jabra listener hears, and the Orbbec's image.
    Read-only, from /api/architect/ (backend/architect_proxy.py), and only while the tab is on screen:
    nothing is fetched while another view is up or the page is hidden, and the camera feed itself
    subscribes only while frames are asked for. The program is shown as ssa's CLI shows it (a numbered,
@@ -131,6 +131,44 @@ import { ArmView } from "./armview.js?v=39c54689";   // the teleop tab's arm vie
     finally { progBusy = false; }
   }
 
+  /* ---------- the demo day's coordinator (software/architect/opendubs_architect/demo_day.py) ---------- */
+  const DAY_NAMES = { IDLE_NAV: "PATROL", APPROACH: "APPROACH", ENGAGED: "WITH A VISITOR", CANDY: "CANDY", CHOREO: "SHOW", PAUSED: "PAUSED" };
+  let dayBusy = false;
+  function secs(s) { return s >= 60 ? Math.floor(s / 60) + " min " + Math.round(s % 60) + " s" : Math.round(s) + " s"; }
+  async function dayTick() {
+    if (!shown() || dayBusy) return;
+    dayBusy = true;
+    const steps = document.querySelectorAll("[data-day-state]");
+    try {
+      const r = await fetch("/api/architect/day", { cache: "no-store" });
+      if (!r.ok) {
+        badge("archDayBadge", "not running", "dimbadge");
+        steps.forEach((el) => el.classList.remove("on", "paused"));
+        $("archDayWhy").textContent = "The demo day's coordinator is not running.";
+        $("archDayMeta").textContent = "Start it on the robot: SHOW=<the candy show> software/architect/tools/dev.sh day";
+        return;
+      }
+      const d = await r.json();
+      badge("archDayBadge", (DAY_NAMES[d.state] || d.state || "?") + " · " + secs(d.since_s || 0),
+        d.state === "PAUSED" ? "bad" : d.state === "CANDY" || d.state === "CHOREO" ? "good" : "warn");
+      steps.forEach((el) => {
+        const on = el.dataset.dayState === d.state;
+        el.classList.toggle("on", on);
+        el.classList.toggle("paused", on && d.state === "PAUSED");
+      });
+      $("archDayWhy").textContent = d.why ? d.why.charAt(0).toUpperCase() + d.why.slice(1) : "—";
+      const bits = [];
+      bits.push(d.person ? "nearest person " + d.person.distance_m.toFixed(1) + " m, " + Math.abs(d.person.bearing_deg).toFixed(0) + "° " +
+                           (d.person.bearing_deg >= 0 ? "left" : "right") : "nobody seen");
+      if (d.show) bits.push("show " + d.show);
+      if (d.nav) bits.push("nav: " + d.nav + (d.nav_stub ? " (a stub: nothing moves)" : ""));
+      if (d.next_choreo_s != null) bits.push("a random show in " + secs(Math.max(0, d.next_choreo_s)));
+      if (d.choreo && d.choreo.length) bits.push("shows: " + d.choreo.join(", "));
+      $("archDayMeta").textContent = bits.join(" · ");
+    } catch (e) { badge("archDayBadge", "unreachable", "dimbadge"); }
+    finally { dayBusy = false; }
+  }
+
   /* ---------- speech ---------- */
   let after = 0, lastListener = null, listenBusy = false;
   const KINDS = { wake: "after \u201cOpenDubs\u201d", trick: "\u201ctrick or treat\u201d check", open: "while waiting for a reply" };
@@ -258,5 +296,6 @@ import { ArmView } from "./armview.js?v=39c54689";   // the teleop tab's arm vie
   setInterval(camTick, 500);
   setInterval(listenTick, 500);
   setInterval(progTick, 1000);
-  document.addEventListener("visibilitychange", () => { if (shown()) { camTick(); listenTick(); progTick(); } });
+  setInterval(dayTick, 1000);
+  document.addEventListener("visibilitychange", () => { if (shown()) { camTick(); listenTick(); progTick(); dayTick(); } });
 })();

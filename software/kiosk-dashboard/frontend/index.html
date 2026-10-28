@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=ff9e1c42" />
+  <link rel="stylesheet" href="style.css?v=a65bee5b" />
 </head>
 <body>
   <div id="app">
@@ -330,7 +330,7 @@
       </section>
     </main>
 
-    <!-- ARCHITECT: the program it wrote, the Orbbec's image, what the listener hears (architect.js; read-only) -->
+    <!-- ARCHITECT: the demo day's state, the program it wrote, the Orbbec's image, what the listener hears (architect.js; read-only) -->
     <main id="view-architect" class="view architectview">
       <div class="arch-left">
       <section class="card arch-cam">
@@ -353,6 +353,19 @@
       </section>
       </div>
       <div class="arch-right">
+      <section class="card arch-day">
+        <h2>DEMO DAY <span id="archDayBadge" class="badge dimbadge">—</span></h2>
+        <div class="arch-steps">
+          <span class="arch-step" data-day-state="IDLE_NAV">PATROL</span>
+          <span class="arch-step" data-day-state="APPROACH">APPROACH</span>
+          <span class="arch-step" data-day-state="ENGAGED">WITH A VISITOR</span>
+          <span class="arch-step" data-day-state="CANDY">CANDY</span>
+          <span class="arch-step" data-day-state="CHOREO">SHOW</span>
+          <span class="arch-step" data-day-state="PAUSED">PAUSED</span>
+        </div>
+        <div id="archDayWhy" class="arch-summary">—</div>
+        <div id="archDayMeta" class="sub">—</div>
+      </section>
       <section class="card arch-speech">
         <h2>SPEECH <span id="archEars" class="badge dimbadge">—</span></h2>
         <div class="arch-meter" title="The Jabra microphone's level"><div id="archLevel"></div></div>
@@ -584,7 +597,7 @@
   <script src="operate.js?v=a416f5b7"></script>
   <script type="module" src="teleop.js?v=88924ca4"></script>
   <script src="show_audio.js?v=b2f6a4e4"></script>
-  <script type="module" src="architect.js?v=2669e88d"></script>
+  <script type="module" src="architect.js?v=cd084c5c"></script>
   <script src="choreo.js?v=e4aa7cbc"></script>
   <script src="headface.js?v=ea3f18f3"></script>
   <script src="projector.js"></script>

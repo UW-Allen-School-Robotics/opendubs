@@ -1,6 +1,6 @@
 """The ARCHITECT tab's view of the robot's ARCHITECT services (software/architect on daphne/halloween).
 
-Three loopback services, each optional, each forwarded READ-ONLY under /api/architect/, so the page
+Four loopback services, each optional, each forwarded READ-ONLY under /api/architect/, so the page
 talks to one origin (standing rule 12) and nothing here can start, approve or stop anything:
 
   * /api/architect/runner         the demo runner's state (ARCHITECT's program: code, summary, sha,
@@ -9,6 +9,9 @@ talks to one origin (standing rule 12) and nothing here can start, approve or st
                                    recorded from: listener, 127.0.0.1:8099/api/feed
   * /api/architect/frame.jpg      the Orbbec's colour image, 640 wide: camera_feed, 127.0.0.1:8097/frame.jpg
                                    (it subscribes only while asked, so the tab costs nothing when closed)
+  * /api/architect/day            the demo day's coordinator: which state the robot is in (patrolling,
+                                   approaching a visitor, candy, a show, paused), why, who is near, and
+                                   the next random show: demo_day, 127.0.0.1:8096/api/state
   * /api/architect/state          which part of the demo is happening, for the face's Halloween ghost (a
                                    content skin, face/skins/ghost.js): {"available": true, "state", "since_s",
                                    "runs", "last", "refused_s"}, or {"available": false}. Always 200.
@@ -41,6 +44,7 @@ router = APIRouter()
 RUNNER = os.environ.get("OPENDUBS_ARCHITECT_RUNNER_URL", "http://127.0.0.1:8098")
 LISTENER = os.environ.get("OPENDUBS_ARCHITECT_LISTENER_URL", "http://127.0.0.1:8099")
 CAMERA = os.environ.get("OPENDUBS_ARCHITECT_CAMERA_URL", "http://127.0.0.1:8097")
+DAY = os.environ.get("OPENDUBS_ARCHITECT_DAY_URL", "http://127.0.0.1:8096")
 TIMEOUT_S = 2.0
 
 
@@ -77,6 +81,12 @@ async def runner():
 async def listener(after: int = 0):
     code, body, _ = await _fetch(f"{LISTENER}/api/feed?after={max(0, int(after))}")
     return _json(code, body, "listener")
+
+
+@router.get("/api/architect/day")
+async def day():
+    code, body, _ = await _fetch(f"{DAY}/api/state")
+    return _json(code, body, "demo day's coordinator")
 
 
 @router.get("/api/architect/frame.jpg")

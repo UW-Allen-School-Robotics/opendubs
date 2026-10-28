@@ -1,4 +1,4 @@
-"""The ARCHITECT tab's proxy: read-only forwarding of three optional loopback services, and a 503 that
+"""The ARCHITECT tab's proxy: read-only forwarding of four optional loopback services, and a 503 that
 says which one is down, never an error page."""
 import json
 import os
@@ -42,7 +42,7 @@ def _client(up=True):
     srv = HTTPServer(("127.0.0.1", 0), _Fake)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{srv.server_address[1]}" if up else "http://127.0.0.1:9"   # 9: nobody listens
-    architect_proxy.RUNNER = architect_proxy.LISTENER = architect_proxy.CAMERA = url
+    architect_proxy.RUNNER = architect_proxy.LISTENER = architect_proxy.CAMERA = architect_proxy.DAY = url
     app = FastAPI()
     app.include_router(architect_proxy.router)
     return TestClient(app), srv
@@ -52,6 +52,7 @@ def test_the_three_services_are_forwarded():
     c, srv = _client()
     try:
         assert c.get("/api/architect/runner").json()["state"] == "ARMED"
+        assert c.get("/api/architect/day").status_code == 200        # the same /api/state path
         assert c.get("/api/architect/listener?after=7").json()["asked"] == "/api/feed?after=7"
         r = c.get("/api/architect/frame.jpg")
         assert r.status_code == 200 and r.content == JPEG and r.headers["content-type"] == "image/jpeg"
@@ -63,7 +64,7 @@ def test_a_service_that_is_down_is_a_503_that_says_which():
     c, srv = _client(up=False)
     try:
         for path, what in (("/api/architect/runner", "runner"), ("/api/architect/listener", "listener"),
-                           ("/api/architect/frame.jpg", "camera")):
+                           ("/api/architect/frame.jpg", "camera"), ("/api/architect/day", "coordinator")):
             r = c.get(path)
             assert r.status_code == 503 and what in r.json()["error"]
     finally:
@@ -73,7 +74,7 @@ def test_a_service_that_is_down_is_a_503_that_says_which():
 def test_nothing_can_be_posted():
     c, srv = _client()
     try:
-        for path in ("/api/architect/runner", "/api/architect/listener", "/api/architect/frame.jpg"):
+        for path in ("/api/architect/runner", "/api/architect/listener", "/api/architect/frame.jpg", "/api/architect/day"):
             assert c.post(path).status_code == 405
     finally:
         srv.shutdown()
