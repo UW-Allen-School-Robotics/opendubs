@@ -172,9 +172,13 @@ def require_deadman(url: str = DASHBOARD, state=robot_state) -> None:
         raise Refused(why)
 
 
-def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot_state, deadman: bool = False) -> None:
-    """Refuse a move unless a person has said they are at the e-stop, CH5 is MANUAL or AUTO, and the e-stop is clear; with `deadman`, and CH6 is held."""
+def require_motion_permitted(supervised: bool, url: str = DASHBOARD, state=robot_state, deadman: bool = False, own_move: bool = True) -> None:
+    """Refuse a move unless a person has said they are at the e-stop, CH5 is MANUAL or AUTO, and the e-stop is clear; with `deadman`, and CH6 is held.
+    `own_move` is a move the service plans itself (activate, park, follow): only those assume the head is still and the neck centred. A runner's goal is swept in the twin
+    with its own head motion, so its refusal does not ask for head tracking OFF."""
     if not supervised:
+        if not own_move:
+            raise Refused("a move needs --supervised: a person at the e-stop and the arm supported or clear.")
         raise Refused("a move needs --supervised: a person at the e-stop, the arm supported or clear, head tracking OFF and the neck centred "
                       "(the head moves on its own and the twin and the stow check assume it does not; the arm service that would check is not built).")
     try:

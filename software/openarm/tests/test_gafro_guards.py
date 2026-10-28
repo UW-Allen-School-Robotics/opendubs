@@ -110,6 +110,8 @@ def state(**fields):
 
 
 check("not supervised refuses, whatever CH5 says", refuses(lambda: guards.require_motion_permitted(False, state=state()), "--supervised"), True)
+check("a runner goal's refusal does not ask for head tracking OFF", refuses(lambda: guards.require_motion_permitted(False, state=state(), own_move=False), "head tracking"), False)
+check("the service's own move's refusal does", refuses(lambda: guards.require_motion_permitted(False, state=state()), "head tracking"), True)
 check("MANUAL, e-stop clear, supervised: allowed", guards.require_motion_permitted(True, state=state(ch5="MANUAL")), None)
 check("AUTO, e-stop clear, supervised: allowed", guards.require_motion_permitted(True, state=state()), None)
 check("STANDBY (OFF) does not move an arm", refuses(lambda: guards.require_motion_permitted(True, state=state(ch5="STANDBY")), "STANDBY"), True)

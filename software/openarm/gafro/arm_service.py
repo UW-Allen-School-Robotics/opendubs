@@ -173,11 +173,12 @@ class ArmService:
         indices = np.asarray(self.robot.get_system().get_task_space(self.args.side).get_joint_indices())
         return np.asarray(self.robot.get_state().get_position(), dtype=float)[indices]
 
-    def _gate(self):
-        """What a moving command needs on a real bus, before it grants anything: the same as engage.py's. Returns (known_starts, tolerance, gate)."""
+    def _gate(self, own_move=True):
+        """What a moving command needs on a real bus, before it grants anything: the same as engage.py's. Returns (known_starts, tolerance, gate).
+        `own_move` False is a runner's goal (trajectory, gripper): the head clause of the supervision statement is for the service's own moves."""
         if not self.real:
             return None, None, None
-        guards.require_motion_permitted(self.args.supervised, self.args.dashboard, deadman=True)
+        guards.require_motion_permitted(self.args.supervised, self.args.dashboard, deadman=True, own_move=own_move)
         stow = self._stow()
         if stow is None:
             raise guards.Refused(f"no stow pose configured in {self.args.stow_conf or engage.STOW_CONF}: a move on a real bus starts near stow or ready")
@@ -294,7 +295,7 @@ class ArmService:
             if self.running:
                 return trajectory.Result(trajectory.INVALID_GOAL, f"{self.running} is running")
             try:
-                _, _, gate = self._gate()
+                _, _, gate = self._gate(own_move=False)
             except guards.Refused as refused:
                 return trajectory.Result(trajectory.INVALID_GOAL, str(refused))
             self.running = "trajectory"
@@ -312,7 +313,7 @@ class ArmService:
     def grip(self, metres):
         """Move the gripper's finger to `metres` (a gripper.Result). Runs beside an arm command: the permit is shared. Gated as the others are."""
         try:
-            self._gate()
+            self._gate(own_move=False)
         except guards.Refused as refused:
             return gripper.Result(message=str(refused))
         self.grip_cancel.clear()

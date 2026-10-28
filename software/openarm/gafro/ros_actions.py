@@ -3,7 +3,7 @@
 
 Only the adapters: the trajectory one checks the goal's joint names, turns the points into arrays and calls `ArmService.follow` (trajectory.py), which gates and plays it, a cancel
 being `ArmService.hold`; the gripper one calls `ArmService.grip` (gripper.py): a close that stops on something aborts as stalled, the signal the runner reads as "something is in there".
-Written against rclpy and control_msgs without a ROS here to run it: NEVER RUN, the first run is on a machine with ROS.
+Written against rclpy and control_msgs. It has run on the Thor (2026-10-26: `settle()` cites the error seen there, 2d53026); what that run covered beyond the trajectory goal is not recorded here.
 """
 from __future__ import annotations
 
