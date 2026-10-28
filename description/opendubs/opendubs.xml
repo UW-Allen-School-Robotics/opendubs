@@ -74,6 +74,11 @@
          115 x 65 x 40 mm envelope (not Orbbec's CAD). -->
     <mesh name="femto_mount"    file="femto_mount.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="femto_bolt"     file="femto_bolt.stl"     scale="0.001 0.001 0.001"/>
+    <!-- The ALTERNATIVE Femto mount, which tilts the camera 30 deg down: mount and camera envelope
+         in one mesh. Unused here; variants.py swaps it in (dimensions.yaml femto_mount.variants). -->
+    <mesh name="femto_mount_tilt30" file="femto_mount_tilt30.stl" scale="0.001 0.001 0.001"/>
+    <!-- The chest cover, with the neck's M5Dial on its back, in the head's export frame. -->
+    <mesh name="chest_cover"    file="chest_cover.stl"    scale="0.001 0.001 0.001"/>
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
@@ -197,6 +202,22 @@
                <include file="openarm_bimanual_decorated.xml"/> with its root at this site. -->
         <site name="arm_frame_mount" pos="0.423 0 0.3575" size="0.012" rgba="0.9 0.5 0.1 1"/>
 
+        <!-- THE CHEST COVER, fixed to the top of the arm extrusion, with the neck's M5Dial on its
+             back (the -x side). It replaces the OpenArm frame's stock cover (sim/scene.py hides
+             that one) and sits where it did: x -82.2..65.6, y +/-47, z 613..785 mm in the head's
+             export frame, so it is placed by the head's translation (dimensions.yaml head.export).
+             Its top is 8 mm below the neck.
+
+             Collision is a BOX, not the mesh. MuJoCo collides a mesh as its convex hull, and the
+             hull's sides at y +/-47 wrap the two shoulder bases (the arms' fixed link0, from
+             y +/-31 outward): every sweep would report that as a contact that never ends. The box
+             stops at y +/-29.5, between the shoulder bases. The 17 mm band outside it on each
+             side is occupied by the shoulder bases themselves. Large elsewhere: x, z about 2 mm outward. -->
+        <geom class="visual" type="mesh" mesh="chest_cover" material="frame" pos="0.423 0 0.356875"
+              name="chest_cover_visual"/>
+        <geom class="collision" type="box" pos="0.4147 0 1.055875" size="0.07589 0.0295 0.088"
+              name="chest_cover_collision"/>
+
         <!-- THE HEAD: a Samsung Galaxy Tab A11 on a pan/tilt neck. Rides with the extrusion, so
              it hangs off the lift platform.
              TILT AXIS at CAD (423, 0, 1245.575), measured — 115.1 mm above the top of the arm
@@ -269,10 +290,14 @@
                  (y +/-41..60.55, x 40.75..70.75 mm) slide into two pockets in the face's holder,
                  held on all four sides, and leave it at the face's top face (z 52.0 from the tilt
                  axis). The frame is the centre of those pocket mouths, aligned with this body.
-                 The module is its own body so it can later be attached and swapped as one. -->
+                 The module is its own body so it can be swapped as one: this is the DEFAULT mount
+                 (camera square to the face); description/opendubs/variants.py swaps in the 30 deg
+                 one, moving the meshes, the collision boxes and both camera sites. -->
             <body name="femto_mount" pos="0.05575 0 0.052">
-              <geom class="visual" type="mesh" mesh="femto_mount" material="frame" pos="-0.05575 0 -0.9407"/>
-              <geom class="visual" type="mesh" mesh="femto_bolt"  material="rubber" pos="-0.05575 0 -0.9407"/>
+              <geom class="visual" type="mesh" mesh="femto_mount" material="frame" pos="-0.05575 0 -0.9407"
+                    name="femto_mount_visual"/>
+              <geom class="visual" type="mesh" mesh="femto_bolt"  material="rubber" pos="-0.05575 0 -0.9407"
+                    name="femto_bolt_visual"/>
               <!-- Coarse boxes from each mesh's extents, about 2 mm outward, in this body's
                    frame. Mount: x -31.3..15.0, y +/-60.6, z -49.7..51.4 mm; camera: x -31.3..33.9,
                    y +/-57.6, z 7.4..47.6 mm. -->
