@@ -598,6 +598,9 @@ class StageShow:
         self.buffer_s = float(buffer_s or SETTINGS_DEFAULTS["stage_buffer_s"])
         # every page has its head start (a local copy, or buffer_s streamed); how far the slowest has got
         self.preloaded, self.buffered, self.need, self.dropped, self.stalled = False, 0.0, self.buffer_s, None, None
+        # mute the pages on a stall only when another device holds the music to take over (the runner says);
+        # when the stage box is the ONLY device with it, a muted page is silence for the rest of the show
+        self.mute_on_stall = True
 
     def _send(self, msg):
         try:
@@ -684,7 +687,8 @@ class StageShow:
             self.stalled = f"a stage page ran out of video at {float(st[0].get('at_s') or 0):.1f} s"
             self.log("video_error", output="stage", error=self.stalled)
             if self.on_lost:
-                self._send({"op": "mute", "id": self.id})        # the tablet plays the music from here
+                if self.mute_on_stall:
+                    self._send({"op": "mute", "id": self.id})    # the tablet plays the music from here
                 self.on_lost(self.stalled)
 
     def ready(self) -> bool:
