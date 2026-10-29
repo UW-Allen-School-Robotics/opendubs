@@ -80,10 +80,15 @@ ROS_OPS = {
 SERVICE_ONLY = ("follow", "supervise", "unsupervise", "prepare")
 
 
+#: The old stack's `ros2_control_node` as a process: the executable is the first word of the command line. Not `pgrep -f ros2_control_node`, which also finds another pgrep (this
+#: one runs at every status poll, and the arm services' watch runs one a second: they found each other, and the service latched "the old stack is running").
+ROS2_CONTROL_NODE = r"^([^ ]*/)?ros2_control_node( |$)"
+
+
 def _ros_running():
     """Whether the old stack's `ros2_control_node` runs (its container's processes are visible to the host): True, False, or None when pgrep cannot tell."""
     try:
-        r = _run(["pgrep", "-f", "ros2_control_node"], 3)
+        r = _run(["pgrep", "-f", ROS2_CONTROL_NODE], 3)
     except Exception:                                # noqa: BLE001
         return None
     return True if r.returncode == 0 else False if r.returncode == 1 else None
