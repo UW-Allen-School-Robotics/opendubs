@@ -13,6 +13,8 @@
 #   /usr/local/bin/arm                       the operator's command: arm start|status|activate|follow|viewer|doctor [left|right] (always replaced)
 #   /etc/systemd/system/opendubs-arm@.service  the unit (always replaced)
 #   /etc/opendubs/arm-service.env            this robot's settings, from opendubs-arm.env.example: only if absent, a deploy never overwrites it
+#   /opt/opendubs/ws                         the ROS workspace with opendubs_arm_interfaces (the `command` action's type), built from interfaces/ here; the wrapper
+#                                            sources it. Skipped, with a warning, where ROS or colcon is missing; ROOT= does not build it
 #   /etc/sudoers.d/opendubs-arm              kiosk may `systemctl start|stop|restart opendubs-arm@left|right.service` and nothing else; checked with visudo first
 set -euo pipefail
 
@@ -55,6 +57,21 @@ if [ -n "$ROOT" ]; then
 fi
 
 systemctl daemon-reload
+
+# The interfaces package, into a workspace the unit's user can read. Built from the copy of this directory that is being installed.
+ws="${OPENDUBS_ARM_WS:-/opt/opendubs/ws}"
+ros_setup="$(ls -d "${GAFRO_ROS_ROOT:-/opt/ros}"/*/setup.bash 2>/dev/null | sort | tail -n 1 || true)"
+if [ -z "$ros_setup" ] || ! bash -c ". '$ros_setup' && command -v colcon" >/dev/null 2>&1; then
+  echo "!! no ROS 2 or no colcon: opendubs_arm_interfaces is not built, so the arm service serves no command action"
+else
+  install -d -m0755 "$ws/src"
+  rm -rf "$ws/src/opendubs_arm_interfaces"
+  cp -a "$DIR/interfaces" "$ws/src/opendubs_arm_interfaces"
+  bash -c "set +u; . '$ros_setup'; set -u; cd '$ws' && colcon build --packages-select opendubs_arm_interfaces" >/dev/null \
+    || { echo "provision-arm-service.sh: colcon build of opendubs_arm_interfaces failed (in $ws)" >&2; exit 1; }
+  chmod -R a+rX "$ws"
+  echo "-- built opendubs_arm_interfaces into $ws"
+fi
 echo "== arm service installed (not enabled, not started) =="
 
 # What would stop it from starting, said now rather than at the first start. Warnings only.
