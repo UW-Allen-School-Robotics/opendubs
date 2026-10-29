@@ -64,6 +64,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-websocket
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" >/dev/null \
   || echo "  !! slam_toolbox not installed (offline?): opendubs-slam cannot start until it is"
+# The costmap (software/ros/costmap.sh) is started by hand, not by a service. Its own line, so a
+# missing package does not take SLAM down with it.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
+  "ros-${ROS_DISTRO}-nav2-costmap-2d" \
+  "ros-${ROS_DISTRO}-depth-image-proc" "ros-${ROS_DISTRO}-pointcloud-to-laserscan" >/dev/null \
+  || echo "  !! nav2_costmap_2d or the depth scan not installed (offline?): costmap.sh cannot start until they are"
 
 # --- the service user ---------------------------------------------------------
 # The ROS units and the sudoers rule name the account the nodes run as with placeholders

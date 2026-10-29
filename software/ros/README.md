@@ -248,6 +248,17 @@ dashboard's localhost socket `/ws/skeleton/in`, which fans it out to the page.
 slam_toolbox on the front scan, after `scan_body_filter.py` drops the robot's own returns. It is off
 unless `/etc/opendubs/slam.enabled` exists.
 
+The costmap is separate. `software/ros/costmap.sh` runs a Nav2 costmap (`nav2_costmap_2d`) on
+`/scan`, `/scan_rear` and `/scan_depth`, and publishes `nav_msgs/OccupancyGrid` on **`/costmap`**
+(updates on `/costmap_updates`), header frame `map`, 5 cm cells, a 30 m window centred on the
+robot. `/scan_depth` is the depth camera flattened to a scan in `base_link`: heights 0.2–1.0 m,
+out to 7 m (`depth_scan.yaml`); the costmap uses only the first 5 m of it. It does not publish
+on `/map`, and it does not clear a robot footprint. Stop it with Ctrl-C; SLAM keeps running. It
+needs SLAM's `map` frame. Its parameters, including inflation, are in `costmap.yaml`.
+Cells that leave the window are dropped, and a loop closure moves the map frame under the window.
+The packages are `ros-jazzy-nav2-costmap-2d`, `ros-jazzy-depth-image-proc` and
+`ros-jazzy-pointcloud-to-laserscan`.
+
 Everything site-specific lives on the robot in `/var/lib/opendubs/maps/`, never in the repo:
 
 | file | written by | holds |

@@ -1,0 +1,68 @@
+# Nav2 costmap of the body-filtered lidars and /scan_depth, published on /costmap (not /map).
+# A 30 m window centred on the robot, in the map frame, so it stays aligned with /map and
+# does not drift with odom. Cells that roll out of the window are dropped. It needs the
+# map -> odom transform from slam_toolbox. Lidar topics are /scan_filtered and
+# /scan_rear_filtered (scan_body_filter.py, started with opendubs-slam).
+#
+# shortcut: 30 m on a side; raise width and height when the window is too small. A loop
+# closure moves the map frame under the window.
+costmap:
+  ros__parameters:
+    global_frame: map
+    robot_base_frame: base_link
+    rolling_window: true
+    width: 16                     # metres; an integer, which is what this parameter is
+    height: 16
+    resolution: 0.05              # slam_toolbox.yaml, so the cells are the same size as /map
+    track_unknown_space: false     # unscanned cells are free
+    transform_tolerance: 0.3      # /odom arrives at ~8.7 Hz
+    initial_transform_timeout: 300.0   # slam can spend minutes loading a saved map
+    update_frequency: 10.0
+    publish_frequency: 2.0
+    always_send_full_costmap: true   # Foxglove keeps the first latched grid; updates are a different topic
+    robot_radius: 0.5             # no footprint. Above 0, inflation holds its peak out to this radius
+    plugins: ["obstacle_layer", "inflation_layer", "denoise_layer"]
+    obstacle_layer:
+      plugin: "nav2_costmap_2d::ObstacleLayer"
+      enabled: true
+      footprint_clearing_enabled: true
+      observation_sources: scan scan_rear depth
+      scan:
+        topic: /scan_filtered     # /scan less the robot body (scan_body_filter)
+        data_type: "LaserScan"
+        marking: true
+        clearing: true
+        obstacle_max_range: 11.9   # a no-return is inserted at the scan's 12 m; marking must stop short of that
+        raytrace_max_range: 12.0   # or the end of every empty ray is painted lethal
+        min_obstacle_height: 0.0
+        max_obstacle_height: 2.0  # the source's own default is 0, which drops this scan: the beam is 0.24 m up
+        inf_is_valid: true        # an empty ray clears. Dropped, the old hit stays forever
+      scan_rear:
+        topic: /scan_rear_filtered
+        data_type: "LaserScan"
+        marking: true
+        clearing: true
+        obstacle_max_range: 11.9
+        raytrace_max_range: 12.0
+        min_obstacle_height: 0.0
+        max_obstacle_height: 2.0
+        inf_is_valid: true
+      depth:
+        topic: /scan_depth         # depth_scan.yaml: base_link, heights 0.2..1.0, camera range 7 m
+        data_type: "LaserScan"
+        marking: true
+        clearing: true
+        obstacle_max_range: 5.0    # shorter than the camera: the head can tilt, so 7 m is not 7 m ahead
+        raytrace_max_range: 5.0
+        min_obstacle_height: 0.0   # the scan is already flat in base_link, so its points sit at z = 0
+        max_obstacle_height: 2.0   # the source default of 0 would drop every point
+        inf_is_valid: true        # empty angles clear out to 5 m; the inserted point is at 7 m, so it is not marked
+    inflation_layer:
+      plugin: "nav2_costmap_2d::InflationLayer"
+      inflation_radius: 0.5      # metres of cost around each hit
+      cost_scaling_factor: 0.0   # higher falls off faster, inside inflation_radius
+    denoise_layer:
+      plugin: "nav2_costmap_2d::DenoiseLayer"
+      enabled: true
+      minimal_group_size: 2          # a group smaller than this is removed
+      group_connectivity_type: 8    

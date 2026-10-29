@@ -33,6 +33,8 @@ jobs:
       - run: python3 software/ros/tests/test_tablet_camera_demand.py
       - run: python3 software/ros/tests/test_skeleton_relay.py
       - run: python3 software/ros/tests/test_scan_body_filter.py
+      - run: python3 software/ros/tests/test_costmap.py
+      - run: python3 software/ros/tests/test_head_joints.py
       - run: python3 software/ros/tests/test_floorplan.py
       - run: python3 software/ros/tests/test_people_guard.py
       - run: python3 software/ros/tests/test_dance_tracker.py

@@ -5,8 +5,9 @@
 # It runs in the /opendubs namespace because the arms' container already runs a
 # robot_state_publisher on /robot_description, which the arms' controller_manager reads: this one
 # must never publish there. Only TF is remapped to the global /tf and /tf_static. Moving joints
-# (zaxis, head_pan, head_tilt) are read from /opendubs/joint_states, which nothing publishes yet
-# (workplan L.2b), so the frames below them are absent; the LIDARs hang off fixed joints.
+# (zaxis, head_pan, head_tilt) are read from /opendubs/joint_states. costmap.launch.py holds
+# them at zero while the costmap runs, which connects camera_link. The LIDARs hang off fixed
+# joints and do not need it.
 # NOTE: do NOT `set -u` — ROS's setup.bash aborts under nounset.
 source /opt/ros/jazzy/setup.bash
 URDF="${OPENDUBS_URDF:-/opt/opendubs/description/opendubs.urdf}"

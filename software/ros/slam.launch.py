@@ -1,6 +1,7 @@
-"""OpenDubs SLAM: the robot-body filter on /scan (scan_body_filter.py), then slam_toolbox.
+"""OpenDubs SLAM: body filters on /scan and /scan_rear, then slam_toolbox.
 
 Run by slam.sh under opendubs-slam.service, which is off unless /etc/opendubs/slam.enabled exists.
+Front -> /scan_filtered (slam_toolbox). Rear -> /scan_rear_filtered (costmap).
 
 The mode follows the robot's site file (/var/lib/opendubs/maps/site.yaml, see floorplan.py):
   - it names a saved map whose pose graph is there  -> LOCALIZATION on that map, starting at the
@@ -47,8 +48,21 @@ def generate_launch_description():
             if mode == "localization" else "mapping (no saved map named in the site file)")
     return LaunchDescription([
         LogInfo(msg=f"opendubs slam: {what}"),
-        ExecuteProcess(cmd=["python3", os.path.join(HERE, "scan_body_filter.py")], name="scan_body_filter",
-                       output="screen"),
+        ExecuteProcess(
+            cmd=["python3", os.path.join(HERE, "scan_body_filter.py")],
+            name="scan_body_filter",
+            output="screen",
+        ),
+        ExecuteProcess(
+            cmd=["python3", os.path.join(HERE, "scan_body_filter.py")],
+            name="scan_body_filter_rear",
+            output="screen",
+            additional_env={
+                "OPENDUBS_SCAN_IN": "/scan_rear",
+                "OPENDUBS_SCAN_OUT": "/scan_rear_filtered",
+                "OPENDUBS_SCAN_NODE": "scan_body_filter_rear",
+            },
+        ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(st, "launch", launch)),
             launch_arguments={"slam_params_file": PARAMS_OUT, "use_sim_time": "false"}.items()),
