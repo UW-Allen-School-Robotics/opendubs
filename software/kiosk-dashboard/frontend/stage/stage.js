@@ -130,13 +130,15 @@
   // during the show). Each is kept for the page's life, and in IndexedDB by sha256, so the next show or a
   // reload fetches it again only if it changed. buffered_s / need_s are then the items' show time,
   // weighted by the bytes in. An item that fails to fetch is streamed, as before. ?prefetch=0 turns it
-  // off. A stage Pi plays its own copies instead and never pre-fetches unless told to.
+  // off. A stage Pi plays its own copies instead and never pre-fetches unless told to. Decided when a show
+  // loads, after one look for the device if none has answered yet: a page opened just before the show
+  // pre-fetches too (it streamed on the desk, 2026-10-29, loaded 6 s after it opened).
   const MIN_START_S = 8;                            // the least head start a streamed video starts on
   let pre = { id: null };
   const localUrl = {};                              // a show's url -> the box's copy, for the show loaded now
   const src = (url) => localUrl[url] || url;
   const prefetching = () => q.get("prefetch") === "1"
-    || (q.get("prefetch") !== "0" && !device && (readDevice.misses || 0) >= 3);   // not a stage device
+    || (q.get("prefetch") !== "0" && !device && !window.OpenDubsKiosk && (readDevice.misses || 0) >= 1);   // not a stage device
   const blobs = new Map();                          // sha256 (else url) -> a Blob URL, for the page's life
   const idb = () => idb.p || (idb.p = new Promise((ok, no) => {
     const r = indexedDB.open("opendubs-stage", 1);
@@ -182,6 +184,7 @@
                                         buffered_s: Math.round(me.buffered * 10) / 10, error: me.error || undefined } });
     const mine = (m.videos || []).filter(plays), first = mine[0];
     if (!first) { me.ready = true; return me.report(); }
+    if (!device && !readDevice.misses) await readDevice();   // no answer yet: one look before deciding
     for (const v of mine) {
       delete localUrl[v.url];
       if (!v.sha256 || !(device && device.device === "stage-pi")) continue;
