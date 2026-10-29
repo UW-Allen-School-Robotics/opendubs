@@ -3,6 +3,8 @@ right arm to it with the arm service's `reach_pose` action, and exit.
 
   treat_follow.sh reach [options]       (the tracker and the simulated arm started first if they are not running)
 
+  0. READY   first, every run: the `ready` command (same action as below) takes the simulated arm to its ready pose;
+             if it does not get there, nothing else is done (exit 1). Not with --dry-run.
   1. CENTRE  the head tilts (and pans with --head-pan) until the nearest person's torso is centred and settled
              (treat_follow.Head, the follower's own). THE HEAD MOVES BY ITSELF. Nobody settled on in --find-s: exit 3.
   2. WAIT    up to --wait-s for a hand held out (treat_brain.Offer) and STILL: --stable-frames tracker frames in a row
@@ -170,6 +172,68 @@ def main():
 
     code, t0 = 3, time.monotonic()
     try:
+        # 0. READY first, every run: the arm starts from the same known pose (the IK's orientation assumes it)
+        if not args.dry_run:
+            if args.arm_socket:
+                sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
+                import arm_client
+                try:
+                    print(f"sim arm service: {arm_client.send('hold', path=args.arm_socket, timeout=5.0).strip().splitlines()[0]}",
+                          flush=True)
+                except (OSError, IndexError) as error:
+                    print(f"could not tell the simulated arm service to hold ({error}): reach_pose may be refused", flush=True)
+            from opendubs_arm_interfaces.action import ArmCommand
+            from rclpy.action import ActionClient
+            sim_ctx = Context()
+            rclpy.init(context=sim_ctx, domain_id=args.sim_domain)
+            sim_node = Node("treat_reach_client", context=sim_ctx)
+            g2s.spin_in_thread(rclpy, sim_node, sim_ctx)
+            client = ActionClient(sim_node, ArmCommand, "/right_arm/command")
+            if not client.wait_for_server(timeout_sec=10.0):
+                print(f"no /right_arm/command on domain {args.sim_domain}: is the simulated arm service up, with "
+                      "opendubs_arm_interfaces built and sourced?", flush=True)
+                return 1
+            names = {0: "SUCCESS", 1: "FAILURE", 2: "INVALID_INPUT", 5: "NOT_FOUND (out of reach)"}
+
+            def command(name, params):
+                """One ArmCommand goal, its feedback printed: (accepted, result code or None). Ctrl-C or no result in
+                --result-s cancels it, and a cancel holds the arm where it is (the service's own rule)."""
+                print(f"{name} {json.dumps(params)} -> /right_arm/command (domain {args.sim_domain})", flush=True)
+                sent = client.send_goal_async(ArmCommand.Goal(name=name, params=json.dumps(params)),
+                                              feedback_callback=lambda fb: print(f"  {fb.feedback.stage}", flush=True))
+                deadline = time.monotonic() + 10.0
+                while not sent.done() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                handle = sent.result() if sent.done() else None
+                if handle is None or not handle.accepted:
+                    print(f"{name} was rejected (another move running, or the request is invalid: see the service's log)",
+                          flush=True)
+                    return False, None
+                result = handle.get_result_async()
+                deadline = time.monotonic() + args.result_s
+                try:
+                    while not result.done() and time.monotonic() < deadline:
+                        time.sleep(0.05)
+                except KeyboardInterrupt:
+                    print(f"interrupted: cancelling {name} (the arm holds where it is)", flush=True)
+                    handle.cancel_goal_async()
+                    time.sleep(0.5)
+                    raise
+                if not result.done():
+                    print(f"no result in {args.result_s:.0f} s: cancelling {name} (the arm holds where it is)", flush=True)
+                    handle.cancel_goal_async()
+                    time.sleep(0.5)
+                    return True, None
+                r = result.result().result
+                print(f"{name}: {names.get(r.result_code, r.result_code)}: {r.message}  {r.data}", flush=True)
+                return True, r.result_code
+
+            print("ready: the arm to its ready pose before anything else", flush=True)
+            _, first = command("ready", {})
+            if first != 0:
+                print("the arm did not get to ready: stopping here, nothing else is sent", flush=True)
+                return 1
+
         # 1. CENTRE
         print("centre: looking for a person" + (" (the head moves)" if head else ""), flush=True)
         settled = False
@@ -225,25 +289,6 @@ def main():
             return 0
 
         # 3. REACH, the simulated arm only
-        if args.arm_socket:
-            sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
-            import arm_client
-            try:
-                print(f"sim arm service: {arm_client.send('hold', path=args.arm_socket, timeout=5.0).strip().splitlines()[0]}",
-                      flush=True)
-            except (OSError, IndexError) as error:
-                print(f"could not tell the simulated arm service to hold ({error}): reach_pose may be refused", flush=True)
-        from opendubs_arm_interfaces.action import ArmCommand
-        from rclpy.action import ActionClient
-        sim_ctx = Context()
-        rclpy.init(context=sim_ctx, domain_id=args.sim_domain)
-        sim_node = Node("treat_reach_client", context=sim_ctx)
-        g2s.spin_in_thread(rclpy, sim_node, sim_ctx)
-        client = ActionClient(sim_node, ArmCommand, "/right_arm/command")
-        if not client.wait_for_server(timeout_sec=10.0):
-            print(f"no /right_arm/command on domain {args.sim_domain}: is the simulated arm service up, with "
-                  "opendubs_arm_interfaces built and sourced?", flush=True)
-            return 1
         params = {"position": [round(float(v), 4) for v in goal]}
         if args.orientation == "ik":
             ik = PositionIk(args.model, "right")          # starts at the model's `ready`, where the arm service starts
@@ -260,41 +305,6 @@ def main():
         params["tolerance_mm"] = args.tolerance_mm
         if args.speed:
             params["speed"] = args.speed
-        names = {0: "SUCCESS", 1: "FAILURE", 2: "INVALID_INPUT", 5: "NOT_FOUND (out of reach)"}
-
-        def command(name, params):
-            """One ArmCommand goal, its feedback printed: (accepted, result code or None). Ctrl-C or no result in
-            --result-s cancels it, and a cancel holds the arm where it is (the service's own rule)."""
-            print(f"{name} {json.dumps(params)} -> /right_arm/command (domain {args.sim_domain})", flush=True)
-            sent = client.send_goal_async(ArmCommand.Goal(name=name, params=json.dumps(params)),
-                                          feedback_callback=lambda fb: print(f"  {fb.feedback.stage}", flush=True))
-            deadline = time.monotonic() + 10.0
-            while not sent.done() and time.monotonic() < deadline:
-                time.sleep(0.05)
-            handle = sent.result() if sent.done() else None
-            if handle is None or not handle.accepted:
-                print(f"{name} was rejected (another move running, or the request is invalid: see the service's log)",
-                      flush=True)
-                return False, None
-            result = handle.get_result_async()
-            deadline = time.monotonic() + args.result_s
-            try:
-                while not result.done() and time.monotonic() < deadline:
-                    time.sleep(0.05)
-            except KeyboardInterrupt:
-                print(f"interrupted: cancelling {name} (the arm holds where it is)", flush=True)
-                handle.cancel_goal_async()
-                time.sleep(0.5)
-                raise
-            if not result.done():
-                print(f"no result in {args.result_s:.0f} s: cancelling {name} (the arm holds where it is)", flush=True)
-                handle.cancel_goal_async()
-                time.sleep(0.5)
-                return True, None
-            r = result.result().result
-            print(f"{name}: {names.get(r.result_code, r.result_code)}: {r.message}  {r.data}", flush=True)
-            return True, r.result_code
-
         accepted, reached = command("reach_pose", params)
         code = 0 if reached == 0 else 1
         if not accepted or not args.return_home:
