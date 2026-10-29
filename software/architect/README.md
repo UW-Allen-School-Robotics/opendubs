@@ -310,6 +310,26 @@ before letting go (`wait`).
   1 mm of the vertical and the fingers 19.9-20.1 degrees off it; 38.9 mm to the robot's own body.
   Recorded as `architect-93cbf2aabeca`, 34.6 s.
 
+**Wide open in the bucket, offered in front (2026-10-29).** The gripper now opens fully over the
+bucket, and the candy is offered in front of the chest, a little right of centre and further out
+(0.82, -0.12, 1.05), held there 3 s before letting go. What it took, on the twin with the bucket at
+both measured places:
+
+- **Fully open only once over the bucket.** Opened at rest, a finger passed 10 mm from the bucket on
+  the way in, so the gripper travels 40% open and opens above the rim.
+- **The grasp moved about 2 cm toward the bucket's centre, to (0.705, -0.07).** At the old point the
+  open fingers met the wall. Nearer still (x 0.72), the wrist turns over on the last 2 cm down, at
+  the edge of the arm's reach.
+- **The arm's posture has to be kept.** The IK keeps the arm's current posture, so a new offer point
+  left the arm behind the bucket in a slightly different posture, and its swing to rest went through
+  the bucket's back wall. Two fixes: the arm goes to and from the offer through the old offer point,
+  and it comes back behind the bucket to a NAMED pose, `behind_bucket`, the last pose of the show
+  that ran on the robot, so the swing to rest is the proven one. The arm config needs it
+  (`named: behind_bucket: {right: [-43.5, -4.5, 29.7, 133.5, -36.9, -39.5, -42.0]}`), and its right
+  box reaches x 0.88 for the offer.
+- 23.7 mm and 24.4 mm to the bucket at the closest (rim or base at the stage's edge), 38.9 mm to the
+  robot's own body. Recorded as `architect-bb75cd239645`, 38.0 s.
+
 ## On tobi's arm service: a program run step by step (the gafro backend)
 
 The candy show above is a placeholder on the old arm stack. The way forward is tobi's arm service
@@ -420,12 +440,12 @@ press; with it let go it waits for the press, as the others do. So while the dea
 "trick or treat" starts the arm: letting go stops it, and the supervisor keeps that thumb ready.
 
 ```sh
-SHOW=architect-93cbf2aabeca tools/dev.sh day                       # the coordinator
-DAY=1 SHOW=architect-93cbf2aabeca tools/dev.sh listen              # the listener, asking it first
-FAKE=1 SHOW=architect-93cbf2aabeca tools/dev.sh day                # a desk: no palette, nobody seen
+SHOW=architect-bb75cd239645 tools/dev.sh day                       # the coordinator
+DAY=1 SHOW=architect-bb75cd239645 tools/dev.sh listen              # the listener, asking it first
+FAKE=1 SHOW=architect-bb75cd239645 tools/dev.sh day                # a desk: no palette, nobody seen
 ```
 
-**At boot.** `SHOW=architect-93cbf2aabeca tools/dev.sh install` installs three systemd units from
+**At boot.** `SHOW=architect-bb75cd239645 tools/dev.sh install` installs three systemd units from
 `deploy/` (camera, listener with `DAY=1`, coordinator), filled in with this checkout, and starts
 them; `dev.sh uninstall` removes them, `dev.sh status` says whether they run. They are TEST units,
 like `archit-perception`'s: no deploy or provisioner touches them, and they run this checkout, so

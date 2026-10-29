@@ -938,7 +938,7 @@ class AlwaysSafe:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dashboard", default="http://127.0.0.1:8080")
-    ap.add_argument("--candy", default="architect-93cbf2aabeca", help="the candy show (the listener's --show)")
+    ap.add_argument("--candy", default="architect-bb75cd239645", help="the candy show (the listener's --show)")
     ap.add_argument("--choreo", nargs="+", default=["monster_mash", "ghostbusters", "them_bones"],
                     help="the full shows, played when asked for (\"OpenDubs, dance\", or by name)")
     ap.add_argument("--random", nargs="+", default=["wave-and-nod", "robotic-smile", "celebrate"],
