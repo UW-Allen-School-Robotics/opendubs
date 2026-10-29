@@ -30,7 +30,7 @@ no head, a scripted person in arm_mount who raises a hand after 2 s (for the act
     on the person, but only AFTER the first `ready` and it stops before `reach_pose`: the head and the arm never move
     at the same time, as `supervise` assumes. The right arm's J2 comes from the service's /joint_states (142 deg rule)
   - the reach goal at most REAL_MAX_UP m above the arm's shoulder (a hand held higher is reached toward at that height)
-  - reach_pose at REAL_SPEED rad/s at most, REAL_STANDOFF m short of the palm at least (`ready` takes no speed: it moves
+  - reach_pose at REAL_SPEED rad/s by default and REAL_SPEED_MAX at most (--speed), REAL_STANDOFF m short of the palm at least (`ready` takes no speed: it moves
     at the service's default, ~0.68 rad/s with the driver's max_velocity at 1.0)
   - before the first move it prints HOLD THE DEADMAN and waits (--deadman-wait-s) until CH5 is MANUAL or AUTO, the e-stop
     is clear and CH6 is held, as the arm service's own gate reads them (guards.motion_still_permitted, 10 times a second)
@@ -57,7 +57,8 @@ from treat_brain import SIDES, HandCapture, HeadLaw, HeadParams, Offer, OfferPar
 from treat_follow import Head  # noqa: E402
 
 
-REAL_SPEED = 0.3       # rad/s: --real's reach_pose joint speed at most (the service's default is ~0.68)
+REAL_SPEED = 0.4       # rad/s: --real's reach_pose joint speed by default (0.3 in V2: the user found it slow)
+REAL_SPEED_MAX = 0.6   # rad/s: and at most, with --speed (the service's own default is ~0.68, its cap 0.9)
 REAL_STANDOFF = 0.20   # m: --real stops at least this short of the palm
 REAL_MAX_UP = 0.25     # m: --real's goal at most this above the arm's shoulder (z ~0.95 m; reach_pose models no head)
 
@@ -133,7 +134,7 @@ def main():
             ap.error("--real --head needs --left-stowed: the head's clearance rule needs both arms' shoulders, and only "
                      "the right arm is run (say so only when the left arm is at stow and stays there)")
         args.max_up = min(args.max_up, REAL_MAX_UP)
-        args.speed = min(args.speed or REAL_SPEED, REAL_SPEED)
+        args.speed = min(args.speed or REAL_SPEED, REAL_SPEED_MAX)
         args.standoff = max(args.standoff, REAL_STANDOFF)
         action_domain = args.robot_domain
     else:
