@@ -76,7 +76,13 @@
   const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
   function connect() {
     ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/skeleton`);
-    ws.onopen = () => { backoff = 500; burst(); if (pre.report) pre.report(); };   // a new socket: say it again
+    ws.onopen = () => {                              // a new socket: say it again
+      backoff = 500; burst(); if (pre.report) pre.report();
+      // a stall told while the network was down went into the dead socket, and the dashboard dropped this
+      // page's old entry with it: told again, while that show plays (a 50 s outage on the desk, 2026-10-29)
+      const st = keepVideo.stall;
+      if (st && show && show.state === "playing" && st.id === show.id) send({ stall: st });
+    };
     ws.onmessage = (e) => {
       lastWsMsg = performance.now();
       const m = JSON.parse(e.data);
@@ -292,7 +298,8 @@
       keepVideo.dry = keepVideo.dry || now;
       if (now - keepVideo.dry > 1500 && keepVideo.stallFor !== show.id) {
         keepVideo.stallFor = show.id;
-        send({ stall: { id: show.id, role: ROLE, at_s: Math.round(st * 10) / 10 } });
+        keepVideo.stall = { id: show.id, role: ROLE, at_s: Math.round(st * 10) / 10 };
+        send({ stall: keepVideo.stall });
       }
       return st;                                     // when the data returns, the seek below catches up
     }
