@@ -545,6 +545,40 @@ def music_device_status(name, audio, video_outputs) -> dict:
             "why": f"no device is registered as the {name} show-audio output"}
 
 
+def plays_on(show, tl, video_override=None, audio_override=None, has_stage=False) -> dict:
+    """Where a routine's video and sound would go if started now, and why: the Shows page shows it on
+    each show, so no choice overrides another unseen (notes/design/choreo-shows-page.md). The same
+    precedence as a run: the operator's choice, else the show's own, else the robot's default (the
+    stage box for sound when the video plays on the stage). None where the show has no video / sound."""
+    vdoc = show.doc.get("video") if isinstance(show.doc.get("video"), dict) else {}
+    plays = [e for e in (tl.get("tracks") or {}).get("VIDEO", []) if (e.get("cue") or {}).get("do") == "play"]
+    v_own = vdoc.get("output")
+    if not plays:
+        video, v_from = None, None
+    elif video_override:
+        video, v_from = video_override, "your choice"
+    elif v_own:
+        video, v_from = v_own, "the show's own"
+    else:
+        video, v_from = plays[0].get("output") or cue.DEFAULT_VIDEO_OUTPUT, "the robot's default"
+    m = show.doc.get("music") if isinstance(show.doc.get("music"), dict) else {}
+    s_own = m.get("output") if m.get("output") in cue.MUSIC_DEVICES else None
+    has_sound = bool(m.get("song") or m.get("file")) or any(
+        e.get("output") in HUB_OUTPUTS for e in (tl.get("tracks") or {}).get("SOUND", []))
+    if not has_sound:
+        sound, s_from = None, None
+    elif audio_override in cue.MUSIC_DEVICES:
+        sound, s_from = audio_override, "your choice"
+    elif s_own:
+        sound, s_from = s_own, "the show's own"
+    elif has_stage and video == "stage":
+        sound, s_from = "stage", "the robot's default: its video plays on the stage"
+    else:
+        sound, s_from = "tablet", "the robot's default"
+    return {"video": video, "video_from": v_from, "video_own": v_own,
+            "sound": sound, "sound_from": s_from, "sound_own": s_own}
+
+
 def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False,
                  earcons: bool = True, grips_live: bool = False, lift_live: bool = False,
                  light_live: bool = False) -> list:
@@ -640,6 +674,7 @@ class Runner:
         self.music, self.music_on, self.music_why, self._load_id = [], None, None, None
         self._carrier = None                      # the output whose video carries the show's song
         self._stage_video = None                  # this run's video on the stage page, if any
+        self._video_names = set()                 # the outputs this run's videos are meant for
         self._music_named = False                 # the operator or the show chose the music device
         self.projector_settings = video_out.load_settings()
         self.skip = frozenset(skip or ())         # parts this run plays without (the operator approved)
@@ -847,7 +882,7 @@ class Runner:
         m = show.doc.get("music") if isinstance(show.doc.get("music"), dict) else {}
         if m.get("output") in cue.MUSIC_DEVICES:
             return m["output"], "the show's music output"
-        if self._stage_video is not None:
+        if self._stage_video is not None or ("stage" in self._video_names and "stage" in self.video_outputs):
             return "stage", "the robot's default: the show's video plays on the stage"
         return "tablet", "the robot's default"
 
@@ -874,7 +909,7 @@ class Runner:
                      if music_device_status(o, self.audio, self.video_outputs)["ready"]]
             return [("SHOW_AUDIO_OUTPUT_MISSING",
                      f"the show's sound plays on {need} ({how}), which can't play: {st['why']} — ready now: "
-                     f"{', '.join(ready) or 'none'}; choose another output on the projector card, or bring it up")]
+                     f"{', '.join(ready) or 'none'}. Bring it up, or choose another \"Sound plays on\" on the Shows page")]
         self._log("audio", note=f"music on {self.audio_device} ({how})" if music else
                   f"sounds on {self._hub_out}", device=self.audio_device, label=st["label"])
         return []
@@ -922,6 +957,7 @@ class Runner:
         runs without that video (as audio, DEC-7) — or a refusal, VIDEO_NOT_READY, for a show that says
         video: {required: true}."""
         items, skipped = video_items(show, tl)
+        self._video_names = {n for n in items if n != "off"}
         for why in skipped:
             self._log("video_warning", note=why)
         required = (show.doc.get("video") or {}).get("required") is True if isinstance(show.doc.get("video"), dict) else False
@@ -1545,8 +1581,10 @@ class Palette:
         # each show's own), and when the cast output was last checked (the tile's freshness)
         self.video = video or {}
         self.base = base                     # base_output.BaseOutput, or None: DANCE stays in the twin
-        self.video_override = None
-        self.audio_override = None           # the operator's music device for the next runs (None: each show's)
+        # The operator's choices for the next runs (None: each show's own). On a robot with a stage box both
+        # start on the stage (the user's decision, 2026-10-28); they last until changed.
+        self.video_override = "stage" if "stage" in self.video else None
+        self.audio_override = "stage" if "stage" in self.video else None
         self.video_checked_at = None
         self.hand = hand                     # hand_output.FloorHand, or None: this robot has no floor hand
         if "cast" in self.video:
@@ -1593,6 +1631,7 @@ class Palette:
                         "needs": tl.get("needs") or [], "can_skip": tl.get("can_skip") or [],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
                         "warnings": len(tl.get("warnings", [])),
+                        "plays_on": plays_on(show, tl, self.video_override, self.audio_override, "stage" in self.video),
                         "uses": routine_uses(show, tl, arms_live=self.arms is not None,
                                              face_live=self.face is not None and self.arms is not None,
                                              gaze_live=(self.gaze is not None and self.arms is not None

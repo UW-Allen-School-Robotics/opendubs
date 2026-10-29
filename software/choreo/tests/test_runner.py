@@ -265,6 +265,14 @@ au = R.NullAudio(outputs={"tablet": "tablet"})
 r, end = run_choice(au, "speakerphone")
 check("a chosen device that isn't there refuses the run, naming the ones that are ready",
       end[:2] == ("REFUSED", "SHOW_AUDIO_OUTPUT_MISSING") and "ready now: tablet" in end[2] and au.calls == [], end)
+sh = R.cue.load_show(AUDIO_SHOW)
+tl = sh.export(R.cue.load_limits(LIMITS), LIMITS)
+po = lambda **kw: R.plays_on(sh, tl, **kw)  # noqa: E731
+check("the Shows page's plays_on uses the run's precedence: the operator's choice, else the show's own, else the "
+      "robot's default — and says which",
+      po(audio_override="speakerphone")["sound"] == "speakerphone" and po(audio_override="speakerphone")["sound_from"] == "your choice"
+      and po()["sound"] == "tablet" and po()["sound_from"] == "the robot's default" and po()["video"] is None,
+      (po(audio_override="speakerphone"), po()))
 r, end = run_choice(R.NullAudio(hub=False), "stage")
 check("a runner with no show-audio hub (a laptop's twin) never refuses on a device", end[0] == "COMPLETED", end)
 
