@@ -16,6 +16,9 @@
 #                                       default (the tracker and the
 #                                       simulated arm started too); --real [--head --left-stowed] for THE REAL ARM
 #   treat_follow.sh services-down       that node stopped
+#   treat_follow.sh prepare [--check]   the REAL arm and the services ready for `sequence`, in one go (treat_prepare.sh):
+#                                       controller, old stack off, CAN link, arm service up and supervised, the arm at
+#                                       ready (HOLD THE DEADMAN: from stow it activates), services up. --check: look only
 #   treat_follow.sh sequence [opts]     treat_sequence.py: the services called in order, as `reach` runs
 #   treat_follow.sh call NAME [JSON]    one service from a terminal, e.g. call find_hand '{}' or call status
 #   treat_follow.sh reset | ctl ...     the simulated arm (grasp_to_sim.sh's)
@@ -168,6 +171,9 @@ case "${cmd}" in
     fi
     rm -f "${GRASP_SIM_DIR}/services.pid"
     ;;
+  prepare)
+    exec "${HERE}/treat_prepare.sh" "$@"
+    ;;
   sequence)
     ros
     exec python3 -u "${HERE}/treat_sequence.py" "$@"
@@ -182,6 +188,6 @@ case "${cmd}" in
     exec python3 -u "${HERE}/treat_follow.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@"
     ;;
   *)
-    sed -n '2,31p' "$0"; exit 1
+    sed -n '2,34p' "$0"; exit 1
     ;;
 esac

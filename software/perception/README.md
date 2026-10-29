@@ -397,6 +397,25 @@ the next. Nothing else passes between them (the services read the tracker and th
 | `stop`, `rearm` | `{}` | cancel any move (the arm holds); clear a latched stop |
 | `status` | `RobotQuery` | mode, permit, stopped, busy, the arm's joints, the head |
 
+**On the real arm, two commands** (on the Thor, in `software/perception/tools`; CH5 MANUAL, CH7 OFF, the e-stop in
+reach, no dashboard arm buttons):
+
+```sh
+./treat_follow.sh prepare        # 1. everything ready; HOLD THE DEADMAN when it asks (from stow it activates the arm)
+./treat_follow.sh sequence       # 2. HOLD THE DEADMAN: ready -> find the hand -> one move there -> 5 s -> ready
+./treat_follow.sh sequence       #    again, as often as you like (the arm ends at ready, the services stay up)
+```
+
+`prepare` (`tools/treat_prepare.sh`) does, in order, and stops at the first thing it cannot put right safely, saying
+what to do: the controller (CH5, the e-stop, motion power); the old arm stack off (`openarm-up down`); the right arm's
+CAN link (restarted if not `ERROR-ACTIVE`); the arm service from `/opt/treat-follow-archit` up, `/right_arm/command`
+listed, supervised; the arm at ready (from stow: waits for the deadman, then `activate`; from anywhere else it stops:
+`ctl park --allow-large` with someone watching); the treat services up (`--real --head --left-stowed`, or the options
+you give it). `prepare --check` only looks and reports. When you are done: `arm-service ctl park` (deadman), then
+`./treat_follow.sh services-down` and `/opt/treat-follow-archit/arm-service down`.
+
+Everything by hand, or in the simulation:
+
 ```sh
 ./treat_follow.sh services --dummy            # simulation, a scripted person (no camera, no head)
 ./treat_follow.sh services                    # simulation, the camera and the head
@@ -450,4 +469,5 @@ clients: all answered. The units came back on their own after a reboot.
 | `tools/treat_arm_service.sh` | the real arm's service by hand from this branch |
 | `tools/treat_services.py`, `tools/treat_sequence.py` | the treat steps as ROS 2 services, and the program that calls them |
 | `TREAT_SERVICES.md` | those services' API: types, requests, responses, result codes |
+| `tools/treat_prepare.sh` | `treat_follow.sh prepare`: the real arm and the services ready for `sequence` |
 | `tests/test_treat_brain.py` | the decisions that, wrong, move the arm or head when they should not |

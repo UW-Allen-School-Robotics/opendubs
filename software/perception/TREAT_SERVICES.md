@@ -5,6 +5,20 @@ The ROS 2 services of the trick-or-treat program (branch
 by one node, [`tools/treat_services.py`](tools/treat_services.py), and called in order by
 [`tools/treat_sequence.py`](tools/treat_sequence.py). How to run them: [README.md, "As ROS 2 services"](README.md#as-ros-2-services-branch-archittreat-follow-ros).
 
+## Running it on the real arm
+
+On the Thor, in `software/perception/tools`. CH5 MANUAL, CH7 OFF, the e-stop in reach, no dashboard arm buttons:
+
+```sh
+./treat_follow.sh prepare        # everything ready; HOLD THE DEADMAN when it asks (from stow it activates the arm)
+./treat_follow.sh sequence       # HOLD THE DEADMAN, then run it; repeat as often as you like
+```
+
+`prepare` checks the controller, turns the old arm stack off, restarts the right arm's CAN link if needed, starts the
+arm service and supervises it, brings the arm to ready, and starts these services (`--real --head --left-stowed`). It
+stops at the first thing it cannot put right safely and says what to do; `prepare --check` only reports. Details:
+[README.md, "As ROS 2 services"](README.md#as-ros-2-services-branch-archittreat-follow-ros).
+
 ## The interface
 
 Every service is one of the two `robot_api_interfaces` types the rest of `/perception` uses
