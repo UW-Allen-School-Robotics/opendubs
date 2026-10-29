@@ -25,7 +25,11 @@ no head, a scripted person in arm_mount who raises a hand after 2 s (for the act
 
 --real (treat_follow.sh reach-real): THE REAL RIGHT ARM, for supervised testing, the same steps with these changes:
   - the goals go to the real arm service (opendubs-arm@right) on the robot's domain; nothing is sent to the simulation
-  - the head stays still (--no-head) and the real arms' clearance rule is on (--arm-check)
+  - the head stays still (--no-head) and the real arms' clearance rule is on (--arm-check). With --head (and
+    --left-stowed: the left arm is not run and is at stow, so its unpublished position counts as clear) the head centres
+    on the person, but only AFTER the first `ready` and it stops before `reach_pose`: the head and the arm never move
+    at the same time, as `supervise` assumes. The right arm's J2 comes from the service's /joint_states (142 deg rule)
+  - the reach goal at most REAL_MAX_UP m above the arm's shoulder (a hand held higher is reached toward at that height)
   - reach_pose at REAL_SPEED rad/s at most, REAL_STANDOFF m short of the palm at least (`ready` takes no speed: it moves
     at the service's default, ~0.68 rad/s with the driver's max_velocity at 1.0)
   - before the first move it prints HOLD THE DEADMAN and waits (--deadman-wait-s) until CH5 is MANUAL or AUTO, the e-stop
@@ -55,6 +59,7 @@ from treat_follow import Head  # noqa: E402
 
 REAL_SPEED = 0.3       # rad/s: --real's reach_pose joint speed at most (the service's default is ~0.68)
 REAL_STANDOFF = 0.20   # m: --real stops at least this short of the palm
+REAL_MAX_UP = 0.25     # m: --real's goal at most this above the arm's shoulder (z ~0.95 m; reach_pose models no head)
 
 
 class PermitLost(Exception):
@@ -93,6 +98,11 @@ def main():
                          "simulation that failed for a raised hand: 'the planned path leaves a joint's range')")
     ap.add_argument("--model", default=g2s.REPO_MODEL if os.path.exists(g2s.REPO_MODEL) else "openarm_assets:bimanual")
     ap.add_argument("--no-head", dest="head", action="store_false", help="leave the head where it is")
+    ap.add_argument("--head", dest="real_head", action="store_true",
+                    help="--real: centre the head too (needs --left-stowed; the head never moves while the arm does)")
+    ap.add_argument("--left-stowed", action="store_true",
+                    help="--real --head: the left arm is not run and is at stow: its unpublished position counts as clear")
+    ap.add_argument("--max-up", type=float, default=0.35, help="m: the reach goal at most this above the arm's shoulder")
     ap.add_argument("--head-pan", action="store_true", help="pan as well as tilt to centre the torso")
     ap.add_argument("--neck-host", default=None)
     ap.add_argument("--head-quiet-s", type=float, default=0.35)
@@ -118,7 +128,11 @@ def main():
     if args.real:
         if args.dummy:
             ap.error("--real and --dummy together: a scripted person must not drive the real arm")
-        args.head, args.arm_check = False, True
+        args.head, args.arm_check = args.real_head, True
+        if args.head and not args.left_stowed:
+            ap.error("--real --head needs --left-stowed: the head's clearance rule needs both arms' shoulders, and only "
+                     "the right arm is run (say so only when the left arm is at stow and stays there)")
+        args.max_up = min(args.max_up, REAL_MAX_UP)
         args.speed = min(args.speed or REAL_SPEED, REAL_SPEED)
         args.standoff = max(args.standoff, REAL_STANDOFF)
         action_domain = args.robot_domain
@@ -166,9 +180,12 @@ def main():
         if not args.arm_check:
             return None
         # the follower's rule: the head moves only while both real arms are known and neither shoulder is raised
-        if time.monotonic() - real_j2["at"] > 2.0 or len(real_j2["value"]) < 2:
+        values = dict(real_j2["value"])
+        if args.left_stowed:
+            values.setdefault("openarm_left_joint2", 0.0)    # not run, at stow: what it publishes, if anything, wins
+        if time.monotonic() - real_j2["at"] > 2.0 or len(values) < 2:
             return "the real arms' positions are not known (/joint_states)"
-        up = [n for n, v in real_j2["value"].items() if math.degrees(abs(v)) > args.arm_j2_max]
+        up = [n for n, v in values.items() if math.degrees(abs(v)) > args.arm_j2_max]
         return f"an arm's shoulder is raised ({', '.join(up)})" if up else None
 
     head = None
@@ -179,7 +196,8 @@ def main():
         mode = {"m": "watch"}
         head = Head(HeadTilt(host, None, args, arms_clear), HeadLaw(HeadParams(pan=args.head_pan)), lambda: mode["m"])
         threading.Thread(target=head.run, daemon=True).start()
-        head.start()
+        if not args.real:
+            head.start()                                 # --real: only after the first `ready` (step 1)
         if not args.arm_check:
             print("head: the real arms' positions are not checked (simulation; --arm-check to check them)", flush=True)
 
@@ -312,6 +330,11 @@ def main():
                 print("the arm did not get to ready: stopping here, nothing else is sent", flush=True)
                 return 1
 
+        if args.real:
+            t0 = time.monotonic()                        # --find-s from here: the deadman wait and `ready` came first
+            if head is not None:
+                head.start()                             # the arm is at ready and still: now the head may move
+                print("head: centring on the person (the arm is still)", flush=True)
         # 1. CENTRE
         print("centre: looking for a person" + (" (the head moves)" if head else ""), flush=True)
         settled = False
@@ -362,7 +385,7 @@ def main():
             print(f"no raised hand in {args.wait_s:.0f} s: done", flush=True)
             return 2
         side, palm = got
-        goal = reach_goal(palm, SHOULDER, standoff=args.standoff)
+        goal = reach_goal(palm, SHOULDER, standoff=args.standoff, max_up=args.max_up)
         print(f"captured the {side} hand at {fmt(palm)} in {ARM_FRAME}; reach_pose goal {fmt(goal)}", flush=True)
         if args.dry_run:
             print("--dry-run: no goal sent", flush=True)
