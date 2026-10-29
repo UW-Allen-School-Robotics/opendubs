@@ -12,7 +12,10 @@ right arm to it with the arm service's `reach_pose` action, and exit.
   3. REACH   the goal is that palm, --standoff short and inside the arm's comfortable reach (treat_brain.reach_goal);
              the simulated arm service is told to `hold` (a running follow would make it refuse), then one ArmCommand
              goal `reach_pose` {"position": goal} on /right_arm/command (software/openarm/interfaces). Its feedback and
-             result are printed; exit 0 if it reached the pose, 1 if not.
+             result are printed.
+  4. HOME    after --treat-s (the treat taken), the `ready` command on the same action takes the arm back to the
+             model's `ready` pose (--no-return: it stays). Exit 0 if it reached the pose and got home, 1 if not.
+             Ctrl-C at any point cancels what is running, the arm holds where it is, and no further move is made.
 
 Only the simulation: the goal goes to --sim-domain, which must differ from the robot's. --dummy: no camera and no head, a
 scripted person in arm_mount who raises a hand after 2 s (for the action path without anyone in frame). --dry-run: all
@@ -83,7 +86,10 @@ def main():
     ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
     ap.add_argument("--sim-domain", type=int, default=78)
     ap.add_argument("--arm-socket", default=os.environ.get("HAND_ARM_SOCKET"), help="the simulated arm service's socket")
-    ap.add_argument("--result-s", type=float, default=60.0, help="s to wait for the action's result")
+    ap.add_argument("--result-s", type=float, default=60.0, help="s to wait for each action's result")
+    ap.add_argument("--treat-s", type=float, default=5.0, help="s the hand stays at the treat before going back to ready")
+    ap.add_argument("--no-return", dest="return_home", action="store_false",
+                    help="stay at the treat: no `ready` afterwards")
     args = ap.parse_args()
     args.head = args.head and not args.dummy
     if args.sim_domain == args.robot_domain:
@@ -254,29 +260,53 @@ def main():
         params["tolerance_mm"] = args.tolerance_mm
         if args.speed:
             params["speed"] = args.speed
-        print(f"reach_pose {json.dumps(params)} -> /right_arm/command (domain {args.sim_domain})", flush=True)
-        sent = client.send_goal_async(ArmCommand.Goal(name="reach_pose", params=json.dumps(params)),
-                                      feedback_callback=lambda fb: print(f"  {fb.feedback.stage}", flush=True))
-        deadline = time.monotonic() + 10.0
-        while not sent.done() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        handle = sent.result() if sent.done() else None
-        if handle is None or not handle.accepted:
-            print("reach_pose was rejected (another move running, or the request is invalid: see the service's log)", flush=True)
-            return 1
-        result = handle.get_result_async()
-        deadline = time.monotonic() + args.result_s
-        while not result.done() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        if not result.done():
-            print(f"no result in {args.result_s:.0f} s: cancelling (the arm holds)", flush=True)
-            handle.cancel_goal_async()
-            time.sleep(0.5)
-            return 1
-        r = result.result().result
         names = {0: "SUCCESS", 1: "FAILURE", 2: "INVALID_INPUT", 5: "NOT_FOUND (out of reach)"}
-        print(f"reach_pose: {names.get(r.result_code, r.result_code)}: {r.message}  {r.data}", flush=True)
-        code = 0 if r.result_code == 0 else 1
+
+        def command(name, params):
+            """One ArmCommand goal, its feedback printed: (accepted, result code or None). Ctrl-C or no result in
+            --result-s cancels it, and a cancel holds the arm where it is (the service's own rule)."""
+            print(f"{name} {json.dumps(params)} -> /right_arm/command (domain {args.sim_domain})", flush=True)
+            sent = client.send_goal_async(ArmCommand.Goal(name=name, params=json.dumps(params)),
+                                          feedback_callback=lambda fb: print(f"  {fb.feedback.stage}", flush=True))
+            deadline = time.monotonic() + 10.0
+            while not sent.done() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            handle = sent.result() if sent.done() else None
+            if handle is None or not handle.accepted:
+                print(f"{name} was rejected (another move running, or the request is invalid: see the service's log)",
+                      flush=True)
+                return False, None
+            result = handle.get_result_async()
+            deadline = time.monotonic() + args.result_s
+            try:
+                while not result.done() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+            except KeyboardInterrupt:
+                print(f"interrupted: cancelling {name} (the arm holds where it is)", flush=True)
+                handle.cancel_goal_async()
+                time.sleep(0.5)
+                raise
+            if not result.done():
+                print(f"no result in {args.result_s:.0f} s: cancelling {name} (the arm holds where it is)", flush=True)
+                handle.cancel_goal_async()
+                time.sleep(0.5)
+                return True, None
+            r = result.result().result
+            print(f"{name}: {names.get(r.result_code, r.result_code)}: {r.message}  {r.data}", flush=True)
+            return True, r.result_code
+
+        accepted, reached = command("reach_pose", params)
+        code = 0 if reached == 0 else 1
+        if not accepted or not args.return_home:
+            return code
+        # HOME: the arm moved (or tried to): leave the treat there for --treat-s, then back to `ready` by the same
+        # action. Ctrl-C during the wait or the move stops it where it is: no move is made after an interrupt.
+        print(f"holding for {args.treat_s:.0f} s for the treat to be taken, then back to ready (Ctrl-C: stay)", flush=True)
+        time.sleep(args.treat_s)
+        _, home = command("ready", {})
+        if home != 0:
+            print("the arm did not get back to ready: it holds where it is", flush=True)
+            return 1
         return code
     except KeyboardInterrupt:
         return 130
