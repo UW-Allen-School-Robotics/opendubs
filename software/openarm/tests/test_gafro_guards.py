@@ -74,6 +74,32 @@ check("a running ros2_control_node is found", guards.stack_running(run=lambda *a
 check("this process is not the stack, even if its command line names it",
       guards.stack_running(run=lambda *a, **k: Result(f"{own} python ros2_control_node\n")), [])
 check("nothing running", guards.stack_running(run=lambda *a, **k: Result("")), [])
+check("the stack's binary, with its full path, is found",
+      guards.stack_running(run=lambda *a, **k: Result("4243 /opt/ros/jazzy/lib/controller_manager/ros2_control_node --ros-args\n")),
+      ["4243 /opt/ros/jazzy/lib/controller_manager/ros2_control_node --ros-args"])
+# What the left service latched on, 2026-10-29: the dashboard's own pgrep, found by the watch's pgrep -f. A process that only mentions the name is not the stack.
+check("another pgrep looking for the stack is not the stack",
+      guards.stack_running(run=lambda *a, **k: Result("1099592 pgrep -f ros2_control_node\n")), [])
+check("neither is a shell or a sudo that mentions it",
+      guards.stack_running(run=lambda *a, **k: Result("77 bash -c pgrep -f ros2_control_node\n78 sudo docker exec openarm pgrep ros2_control_node\n")), [])
+check("the stack is found beside such lines",
+      guards.stack_running(run=lambda *a, **k: Result("1099592 pgrep -f ros2_control_node\n4244 ros2_control_node --ros-args\n")), ["4244 ros2_control_node --ros-args"])
+
+# The same question is asked in three more places (the dashboard's status poll, the unit's wrapper, provisioning). They share one pattern, anchored at the executable, and none may go back
+# to a bare `pgrep -f ros2_control_node` (finds another pgrep) or to `pgrep -x` (the kernel cuts a process name at 15 characters, so "ros2_control_node" never equals it).
+import re  # noqa: E402
+
+ANCHORED = r"^([^ ]*/)?ros2_control_node( |$)"
+check("the pattern finds the stack's executable, with or without a path",
+      [bool(re.search(ANCHORED, c)) for c in ("ros2_control_node --ros-args", "/opt/ros/jazzy/lib/controller_manager/ros2_control_node --ros-args", "ros2_control_node")], [True, True, True])
+check("the pattern does not find a pgrep, a shell or a sudo",
+      [bool(re.search(ANCHORED, c)) for c in ("pgrep -f ros2_control_node", "bash -c pgrep -f ros2_control_node", "sudo docker exec openarm ros2_control_node")], [False, False, False])
+for relative in ("opendubs-arm", "provision-openarm.sh", os.path.join("..", "kiosk-dashboard", "backend", "openarm.py")):
+    text = open(os.path.join(HERE, "..", relative)).read()
+    code = "\n".join(line.split("#")[0] for line in text.splitlines())             # the comments quote the bad command, in words
+    check(f"{os.path.basename(relative)} uses the anchored pattern", ANCHORED in code or "ROS2_CONTROL_NODE" in code, True)
+    check(f"{os.path.basename(relative)} has no unanchored pgrep for the stack",
+          bool(re.search(r"pgrep\s+(-f|-x)\s+[\"']?ros2_control_node", code)), False)
 
 check("a command frame (0x003) from someone else is seen", guards.foreign_commands("x", 0.3, bus_with(frame(0x003))), [3])
 check("a CAN FD command frame is seen too", guards.foreign_commands("x", 0.3, bus_with(frame(0x008, fd=True))), [8])

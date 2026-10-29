@@ -27,7 +27,8 @@ service="$OPENDUBS_REPO/software/openarm/gafro/arm_service.py"
 
 # The old stack (ros2_control in the `openarm` container, started by openarm-up) and this service must not both drive an arm. Its processes are
 # visible here. The driver's own listen for another sender is the second line of defence; this one says why. Exit status 2 is not retried.
-if pgrep -f ros2_control_node >/dev/null 2>&1; then
+# The pattern is anchored at the executable: a plain `pgrep -f ros2_control_node` also finds another pgrep (the dashboard runs one at every status poll), and exit 2 is not retried.
+if pgrep -f '^([^ ]*/)?ros2_control_node( |$)' >/dev/null 2>&1; then
     echo "opendubs-arm: the old arm stack is running (ros2_control_node): run \`openarm-up down\` first; two senders on one bus must not happen" >&2
     exit 2
 fi
