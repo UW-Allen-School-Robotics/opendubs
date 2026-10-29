@@ -387,11 +387,12 @@ the next. Nothing else passes between them (the services read the tracker and th
 | `ready` | `{}` | the arm to ready |
 | `move_pose` | `{"position": [x,y,z], "orientation"?: [w,x,y,z], "speed"?}` | the hand to a pose (`reach_pose`) |
 | `move_joints` | `{"joints": [7 rad]}` or `{"joints_deg": [7]}`, `"speed"?` | one continuous, collision-checked joint move |
-| `centre_person` | `{"timeout_s"?: 20}` | the head centres the person and holds |
+| `centre_person` | `{"timeout_s"?: 20}` | the head centres the person and holds, the shoulders 15 deg above the picture's centre so the hands stay in frame (`--head-aim-deg`) |
 | `get_hand` | `{"timeout_s"?: 10}` | a hand held out and still: `side`, `palm` (arm_mount) |
 | `find_hand` | `{"find_s"?: 20, "wait_s"?: 10}` | `centre_person`, then `get_hand` |
 | `plan_treat` | `{"palm": [x,y,z], "jaws_level"?: true}` | no motion: `joints`, `pose` toward that palm |
 | `hold` | `{"seconds"?: 5}` | wait at the treat |
+| `gripper_open`, `gripper_close` | `{"position"?: m}` | the gripper (the arm service's `gripper_cmd`: 0 shut, 0.044 open); a close that stops on something is "holding", one that never moved fails. **Not working on opendubs2 yet** (below) |
 | `stop`, `rearm` | `{}` | cancel any move (the arm holds); clear a latched stop |
 | `status` | `RobotQuery` | mode, permit, stopped, busy, the arm's joints, the head |
 
@@ -400,13 +401,29 @@ the next. Nothing else passes between them (the services read the tracker and th
 ./treat_follow.sh services                    # simulation, the camera and the head
 ./treat_follow.sh services --real --head --left-stowed   # THE REAL ARM (arm service up, supervised, activated)
 ./treat_follow.sh sequence                    # ready -> find_hand -> plan_treat -> move_joints -> hold -> ready
+./treat_follow.sh sequence --gripper          # ... gripper_close first and gripper_open at the treat (once calibrated)
 ./treat_follow.sh call find_hand '{}'         # any one service (sent once: never resent)
 ./treat_follow.sh services-down
 ```
 
 One step at a time (a second call is refused while one runs); the head and the arm never move together. With `--real`
 the deadman must be held before the sequence starts: a move is refused unless it is held, and releasing it during a run
-cancels the move and latches a stop that refuses every later move until `rearm`.
+cancels the move and latches a stop that refuses every later move until `rearm`. `services-down` stops the node (TERM,
+then KILL after 5 s); a move it interrupts ends and the arm holds.
+
+**The gripper on opendubs2 is not calibrated for the arm service** (2026-10-28). The robot's
+`/etc/opendubs/openarm-gafro-right-only.yaml` has `use_gripper: false`, and the arm service needs the gripper motor's
+MEASURED angles at fully open and fully shut. A trial with angles derived from the old stack's finger calibration
+(`gripper_open_position: -1.16`, `gripper_closed_position: 0.02`) failed: the gripper never moved, `activate` then
+stopped on its tracking check, and the arm service exited with the arm held part-way. Recovery: one person supported the
+arm, the e-stop was cycled and the arm lowered by hand, then `openarm-can@arm_right` restarted, `arm-service up` and
+`ctl park --allow-large`. Until the angles are measured, leave `--gripper` off: the sequence then works as tested.
+In the simulation the OpenArm has no gripper ("the robot's grippers: []"); the services were checked against a stand-in.
+
+Pitfalls seen on the robot: run `arm-service up` in a command of its own, because the arm service refuses to start if
+any command line on the machine contains `ros2_control_node`, its own launcher's included. If `up` says
+"CAN bus 'arm_right' is not healthy" after the arm was in error, the e-stop cycle clears it, but the arm goes limp:
+support it first unless it is at stow.
 
 ## Measured on opendubs2 (2026-10-24)
 
