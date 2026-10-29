@@ -311,6 +311,70 @@ ros2 service call /perception/status robot_api_interfaces/srv/RobotQuery
 `perception server down`, `AnyGrasp unreachable`); `data` is filled in either way.
 `last_info_age_s`: seconds since the camera's last frame (above 2 s counts as down).
 
+## Trick or treat: hand tracking and the right arm
+
+A person raises a hand, the robot's right arm brings a candy to it. On branch
+[`archit/treat-follow`](https://github.com/UW-Allen-School-Robotics/opendubs/tree/archit/treat-follow), not on `main`;
+on opendubs2 it runs from `~archit/treat-follow` (a copy of that branch). Versions are tags, `treat-follow-v0` ... `-v2.3`.
+
+**How it sees.** The hand tracker (`hand_tracker/`, MediaPipe's hand and pose landmarkers on the Femto Bolt's colour and
+depth) publishes both palms, both shoulders and the torso's angle off the camera's axis on `/perception/hand/state`. The
+scripts move those into the arm's frame (`arm_mount`) through the head's joints, re-tilted to the camera's accelerometer,
+and decide when a hand is held out (`treat_brain.py`). The tracker and the camera start on demand (`tools/hand_stack.sh`).
+
+All commands on the Thor, in `~/treat-follow/software/perception/tools`. THE HEAD MOVES BY ITSELF in every mode but
+`--no-head`.
+
+### In the simulation (no real arm)
+
+The simulated arm is the arm service itself on MuJoCo (`grasp_to_sim.sh sim`, ROS domain 78, viewer on port 8098).
+
+```sh
+# V0: live follow: the arm follows a held-out hand, home when it drops
+./treat_follow.sh up            # tracker, simulated arm, follower; nothing moves yet
+./treat_follow.sh start         # the head centres the person; the arm follows
+./treat_follow.sh stop          # or `down`: everything off
+
+# V1.2: one reach per run: ready -> reach_pose to a raised, still hand -> ready, then exit
+./treat_follow.sh down          # `reach` refuses while a follower runs
+./treat_follow.sh reach                       # a person in front of the camera
+./treat_follow.sh reach --jaws-level          # ... ending with the jaws level (the real arm's default)
+./treat_follow.sh reach --dummy               # no camera, no head: a scripted person raises a hand
+./treat_follow.sh ctl activate --allow-large --move-seconds 8   # the simulated arm back to ready, if it wedged
+```
+
+`reach` exits 0 when the hand was reached and the arm got home, 1 when not, 2 with no hand held out in 10 s, 3 with
+nobody found in 20 s.
+
+### On the real right arm (supervised)
+
+The arm service runs by hand from a staged copy of this branch (`treat_arm_service.sh`), so nothing in `/etc` changes
+and nothing is deployed; its header has the staging steps (`/opt/treat-follow-archit`: the tree, `opendubs_arm_interfaces`
+built with colcon, a setup script). **Controller:** CH5 MANUAL, CH7 OFF, the e-stop in reach, CH6 (the deadman) held
+whenever the arm moves. **Do not press the dashboard's arm buttons:** the deployed dashboard starts the old stack.
+
+```sh
+A=/opt/treat-follow-archit/arm-service        # the same script as tools/treat_arm_service.sh
+openarm-up status; openarm-up down             # the old stack off (--drop only with both arms at stow)
+$A up                                          # motors on, holding: no motion (it says if arm_right needs
+                                               #   `sudo systemctl restart openarm-can@arm_right`)
+$A status                                      # must list /right_arm/command
+$A ctl supervise
+$A ctl activate                                # DEADMAN: stow -> ready
+./treat_follow.sh reach-real --head --left-stowed   # DEADMAN: ready -> centre the head -> a raised, still hand ->
+                                                    #   one move there, jaws level -> 5 s -> ready
+$A ctl park                                    # DEADMAN: ready -> stow
+$A ctl unsupervise; $A down
+```
+
+`reach-real` waits for the deadman before anything moves, and letting go of it at any time stops the arm and ends the
+script (exit 4); nothing moves again after that. Its limits: the head and the arm never move at the same time; the
+hand stops 20 cm short of the palm and at most 25 cm above the arm's shoulder; joints at 0.4 rad/s (`--speed`, up to
+0.6). Options: `--no-head` keeps the head still, `--head-pan` pans as well, `--no-jaws-level` ends with the IK's own
+orientation (V2.2), `--jaws-steps` reaches in eight `reach_pose` steps instead of one move, `--no-return` stays at the
+treat, `--treat-s` sets the wait. If the driver says "CAN bus 'arm_right' is not healthy" after the old stack ran, cycle
+the e-stop, restart the link, and `$A up` again.
+
 ## Measured on opendubs2 (2026-10-24)
 
 From a terminal on the Thor: `status` 51 ms; `locate` 130–250 ms; `detect` / `segment` 150–900 ms;
@@ -329,3 +393,8 @@ clients: all answered. The units came back on their own after a reboot.
 | `tools/perception_call.sh`, `tools/perception_call.py` | calling it from a terminal |
 | `anygrasp_server/` | the workstation's AnyGrasp server |
 | `notes/workplan-perception.md` | how it was built and tested |
+| `hand_tracker/`, `tools/hand_stack.sh` | trick or treat: the MediaPipe hand tracker and its container |
+| `tools/treat_follow.sh` | trick or treat: every mode (`up`/`start` V0, `reach`, `reach-real`) |
+| `tools/treat_follow.py`, `tools/treat_reach.py`, `tools/treat_brain.py` | the live follower, the one-shot reach, the decisions |
+| `tools/treat_arm_service.sh` | the real arm's service by hand from this branch |
+| `tests/test_treat_brain.py` | the decisions that, wrong, move the arm or head when they should not |
