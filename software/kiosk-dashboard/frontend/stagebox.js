@@ -6,7 +6,12 @@
    the output, a volume per output, the Bluetooth speaker (pair: scan, then choose it) and a test tone.
    Through GET /api/stage/box and POST /api/stage/box/command (stage_box.py): the box pulls the commands
    every 2 s and reports each one's result. Everything but the volume is refused while a show is loaded or
-   playing. A card of its own, beside the projector card (projector.js). */
+   playing. A card of its own, beside the projector card (projector.js).
+
+   On the Shows page in three steps (Choreography's layout, 2026-10-28) this card is the stage box's SETUP and
+   goes under Advanced (#showsAdvStageBox); step 1's "Sound plays on" row (projector.js) gets the volume of
+   the speaker the box plays through now (#sbMainVol), and its TEST SOUND for the stage box comes here
+   (window.OpenDubsStageBox.test). With no such container the card stays where it was. */
 "use strict";
 (() => {
   const view = document.getElementById("view-shows");
@@ -32,7 +37,8 @@
     <div class="pj-row pj-wrap" id="sbFoundRow" hidden><span class="pj-k"></span><span class="pj-v" id="sbFound"></span></div>
     <div class="pj-row pj-wrap"><span class="pj-k">Box software</span><span class="pj-v pj-note" id="sbSoft">—</span></div>
     <div class="pj-note" id="sbWhy"></div>`;
-  view.appendChild(card);
+  const adv = document.getElementById("showsAdvStageBox");
+  if (adv) { card.className = "pj-card pj-adv"; adv.appendChild(card); } else view.appendChild(card);
   const $ = (id) => document.getElementById(id);
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   let last = null, waiting = null, choosing = false;      // waiting: the id of the command whose result is shown next
@@ -42,16 +48,19 @@
     if (code && window.helpLink) $("sbWhy").appendChild(helpLink(code));
   }
 
-  async function send(cmd, label) {
-    say(label + "…");
+  // tell: also given each line said about this command (step 1's TEST SOUND shows them by its own row)
+  async function send(cmd, label, tell) {
+    const out = (text, code) => { say(text, code); if (tell) tell(text, code); };
+    out(label + "…");
     try {
       const r = await fetch("/api/stage/box/command", { method: "POST", headers: { "Content-Type": "application/json" },
                                                        body: JSON.stringify(cmd) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { say(`${label}: ${j.error || `HTTP ${r.status}`}`, j.code); return; }
-      waiting = { id: j.id, label };
-    } catch (e) { say(`${label}: ${e.message}`); }
+      if (!r.ok) { out(`${label}: ${j.error || `HTTP ${r.status}`}`, j.code); return; }
+      waiting = { id: j.id, label, tell };
+    } catch (e) { out(`${label}: ${e.message}`); }
   }
+  window.OpenDubsStageBox = { test: (tell) => send({ op: "test" }, "Test sound on the stage box", tell) };
 
   function render(b) {
     last = b;
@@ -90,6 +99,16 @@
         <button class="iobtn" data-vol="${k}" data-d="-${STEP}">−</button>
         <span class="pj-val">${typeof vols[k] === "number" ? Math.round(vols[k] * 100) + " %" : "—"}</span>
         <button class="iobtn" data-vol="${k}" data-d="${STEP}">+</button></div>`).join("");
+    // Step 1's "Sound plays on" row: the volume of the speaker the box plays through now, while the stage box
+    // is the chosen sound device.
+    const mv = $("sbMainVol"), act = on && s.actual, pick = $("pjAudMain");
+    if (mv) {
+      const show = act && pick && pick.value === "stage" && typeof vols[act] === "number";
+      mv.innerHTML = !show ? "" : `<span class="pj-note">${SHORT[act]} volume</span>`
+        + `<button class="iobtn" data-vol="${act}" data-d="-${STEP}">−</button>`
+        + `<span class="pj-val">${Math.round(vols[act] * 100)} %</span>`
+        + `<button class="iobtn" data-vol="${act}" data-d="${STEP}">+</button>`;
+    }
     // The speaker.
     const bt = s.bt;
     const ADAPTER = { blocked: "the box's Bluetooth is blocked (rfkill): it lifts it itself within seconds",
@@ -108,7 +127,12 @@
       (sw.offered && sw.offered !== sw.installed ? ` · the robot offers ${sw.offered}` : "") + ` · ${sw.state}`;
     // The result of the command sent last, once the box has run it.
     const res = waiting && (b.results || {})[waiting.id];
-    if (res) { say(`${waiting.label}: ${res.text}`, res.ok ? null : busy ? "SHOW_STAGE_SOUND_BUSY" : null); waiting = null; }
+    if (res) {
+      const code = res.ok ? null : busy ? "SHOW_STAGE_SOUND_BUSY" : null;
+      say(`${waiting.label}: ${res.text}`, code);
+      if (waiting.tell) waiting.tell(`${waiting.label}: ${res.text}`, code);
+      waiting = null;
+    }
     else if (busy && !waiting) say("A show is loaded or playing: only the volume changes until it ends.");
   }
 
@@ -127,7 +151,7 @@
   $("sbTest").addEventListener("click", () => send({ op: "test" }, "Test sound"));
   $("sbScan").addEventListener("click", () => send({ op: "scan" }, "Looking for speakers (put it in pairing mode)"));
   $("sbForget").addEventListener("click", () => send({ op: "forget" }, "Forget the speaker"));
-  card.addEventListener("click", (e) => {
+  function onClick(e) {
     const p = e.target.closest && e.target.closest("[data-pair]");
     if (p) return send({ op: "pair", addr: p.dataset.pair }, "Pairing");
     const v = e.target.closest && e.target.closest("[data-vol]");
@@ -139,7 +163,9 @@
       render(last);
       send({ op: "volume", output: k, value: next }, `${SHORT[k]} volume ${Math.round(next * 100)} %`);
     }
-  });
+  }
+  card.addEventListener("click", onClick);
+  if ($("sbMainVol")) $("sbMainVol").addEventListener("click", onClick);
 
   setInterval(poll, POLL_MS);
   poll();
