@@ -64,11 +64,13 @@
       $("sbNow").textContent = b.age_s == null ? "the stage box has not reported (is it on, on the robot's Wi-Fi?)"
         : `no report for ${Math.round(b.age_s)} s`;
     } else {
-      const bits = [s.actual ? `${NAMES[s.actual]}${s.name ? ` (${esc(s.name)})` : ""}` : "nothing: no sound output found"];
-      if (s.setting && s.setting !== s.actual && s.setting !== "auto") bits.push(`<span class="pj-bad">chosen: ${SHORT[s.setting]}${s.why ? " — " + esc(s.why) : ""}</span>`);
-      else if (s.setting === "auto") bits.push("chosen: auto");
+      // a named output plays as chosen or not at all (#591): nothing, and why, refuses a show meant for here
+      const bits = [s.actual ? `${NAMES[s.actual]}${s.name ? ` (${esc(s.name)})` : ""}`
+        : `<span class="pj-bad">nothing: ${esc(s.why || s.error || "no sound output found")}</span>`];
+      if (s.setting === "auto") bits.push("chosen: auto");
+      else if (!s.actual && s.setting) bits.push(`chosen: ${SHORT[s.setting]}`);
       if (typeof s.latency_ms === "number") bits.push(`about ${s.latency_ms} ms late`);
-      if (s.error) bits.push(`<span class="pj-bad">${esc(s.error)}</span>`);
+      if (s.error && s.actual) bits.push(`<span class="pj-bad">${esc(s.error)}</span>`);
       $("sbNow").innerHTML = bits.join(" · ");
     }
     const streams = (s.playing || []).map((p) => `${esc(p.app)} → ${SHORT[p.kind] || p.kind}${p.running ? " (playing)" : " (idle)"}`);

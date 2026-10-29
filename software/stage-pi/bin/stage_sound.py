@@ -8,6 +8,10 @@ Dialogue stays on the robot's head tablet; this is the music. The outputs:
   auto   hdmi if the screen says it has sound (its EDID), else usb if plugged in, else bt if paired and
          connected, else the jack. A building's video wall with no speaker reports none, so auto skips it.
 
+A NAMED output is never swapped for another (#591, no quiet fallback): bt chosen with the speaker off
+reports NO output and why, so the robot refuses a show that would play here, rather than playing it into
+the jack with nothing plugged in. Only auto falls through the list.
+
 HOW: PipeWire with WirePlumber, Raspberry Pi OS's own sound stack, with bluez5 for Bluetooth. Chromium
 plays to PipeWire's DEFAULT sink, and this sets that default. So the output changes live: the page never
 reloads, its video and its clock sync are untouched. A test tone mixes in beside the page. And a speaker
@@ -40,6 +44,10 @@ import wave
 OUTPUTS = ("hdmi", "jack", "usb", "bt")
 SETTINGS = ("auto",) + OUTPUTS
 AUTO_ORDER = ("hdmi", "usb", "bt", "jack")
+MISSING = {"hdmi": "no HDMI sound output: is a screen with a speaker on the HDMI port?",
+           "usb": "no USB audio adapter is plugged in",
+           "jack": "this box has no 3.5 mm jack (a Raspberry Pi 5 has none)",
+           "bt": "the Bluetooth speaker is not connected"}
 LATENCY_MS = {"hdmi": 40, "jack": 20, "usb": 20, "bt": 200}
 DEFAULT_VOLUME = 0.7
 MAX_VOLUME = 1.0                       # no boost past the sink's own 100 %
@@ -218,19 +226,29 @@ def parse_dump(dump: list, shown: list[dict]) -> dict:
 
 
 def choose(setting: str, available: set, hdmi_audio: bool) -> tuple[str | None, str | None]:
-    """The output to use, and why it is not the one chosen (None when it is)."""
+    """The output to use, and why there is none (None when there is one). A named output or nothing."""
     if setting in OUTPUTS:
-        if setting in available:
-            return setting, None
-        why = f"{setting} is not available"
-    else:
-        why = None
+        return (setting, None) if setting in available else (None, MISSING[setting])
     for k in AUTO_ORDER:
         if k == "hdmi" and not hdmi_audio:
             continue                                      # a screen with no speaker (a video wall)
         if k in available:
-            return k, why
-    return None, why or "no sound output found"
+            return k, None
+    return None, "no sound output found"
+
+
+def bt_why(bt: dict | None, adapter: str | None) -> str:
+    """Why a chosen Bluetooth speaker is not playing, in the operator's words."""
+    if adapter == "none":
+        return "the box has no Bluetooth adapter"
+    if adapter in ("blocked", "off"):
+        return "the box's Bluetooth is off: it turns it on itself within seconds"
+    if not bt:
+        return "no Bluetooth speaker is paired: pair one on the Stage Box Sound card"
+    name = bt.get("name") or bt.get("addr")
+    if not bt.get("paired"):
+        return f"the Bluetooth speaker {name} is not paired any more: pair it again"
+    return f"the Bluetooth speaker {name} is not connected: is it on, and in range?"
 
 
 # ---- Bluetooth ---------------------------------------------------------------------------------------
@@ -383,6 +401,8 @@ class Sound:
                 _as_stage(["wpctl", "set-volume", str(s["id"]), f"{want:.2f}"])
                 live["applied"][k] = (s["id"], want)
         self._keep_connected("bt" in sinks)
+        if actual is None and self.settings["output"] == "bt":
+            why = bt_why(live["bt"], live["adapter"])
         with lock:
             live.update(sinks=sinks, actual=actual, why=why, playing=p["playing"], default=p["default"], error=None)
 

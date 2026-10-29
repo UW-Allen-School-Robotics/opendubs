@@ -5,6 +5,10 @@
    output (a Chromecast-style cast receiver, the Thor's HDMI): found and ready, or why not; which output
    is selected, with a control to change it; and while a show plays, its video and how far the picture
    is from the show's clock. A status older than STALE_S is shown as "not checked", never as ready.
+   And where the show's SOUND plays (#591, GET/POST /api/choreo/audio/output): the head tablet, the
+   speakerphone or the stage box, each ready or why not; the operator's choice lasts until changed, as the
+   video's does. A run whose chosen output is not ready is refused (SHOW_AUDIO_OUTPUT_MISSING), never
+   played silently. The rows stay hidden on a runner that has no such endpoint.
    A card of its own in the Shows view, so it never edits the Shows page's own file (choreo.js). */
 "use strict";
 (() => {
@@ -38,6 +42,11 @@
     <div class="pj-row pj-wrap"><label class="pj-k" for="pjOut">Show video on</label>
       <select id="pjOut"><option value="">each show's own</option><option value="cast">the projector (cast)</option><option value="stage">the stage page (the projector's app)</option><option value="hdmi">HDMI</option><option value="off">nowhere (off)</option></select>
       <span class="pj-note" id="pjDefault"></span></div>
+    <div class="pj-row pj-wrap" id="pjAudRow" hidden><label class="pj-k" for="pjAudOut">Show sound on</label>
+      <select id="pjAudOut"><option value="">each show's own</option><option value="stage">the stage box</option>
+        <option value="tablet">the head tablet</option><option value="speakerphone">the speakerphone</option></select>
+      <span class="pj-note" id="pjAudDefault"></span></div>
+    <div class="pj-row pj-wrap" id="pjAudOutsRow" hidden><span class="pj-k"></span><span class="pj-v" id="pjAudOuts"></span></div>
     <div class="pj-note pj-bad" id="pjNote" hidden></div>
     <div class="pj-row pj-wrap"><span class="pj-k">Music</span><span class="pj-v" id="pjMusic">—</span></div>
     <div class="pj-row pj-wrap"><span class="pj-k">Cast audio lead</span>
@@ -162,7 +171,8 @@
 
   // The stage pages' show loading and their local videos (GET /api/stage, Choreography #479): a local
   // copy on the box plays with no Wi-Fi; otherwise a page buffers the show before it may start. A page
-  // that ran dry mid-show is a stall, and the tablet then plays the music.
+  // that ran dry mid-show is a stall: the tablet takes the music only if it holds a copy, and music chosen
+  // for the stage box has none (#591), so the line does not say who has it.
   function stageStatus(j) {
     const lines = [], loads = Array.isArray(j && j.preload) ? j.preload : [];
     loads.forEach((p, i) => {
@@ -175,7 +185,7 @@
       lines.push(`${who}${p.id ? esc(p.id) + ": " : ""}${s}`);
     });
     for (const st of (j && j.stalls) || []) {
-      lines.push(`<span class="pj-bad">stalled at ${Number(st.at_s || 0).toFixed(1)} s — the tablet has the music</span>`);
+      lines.push(`<span class="pj-bad">stalled at ${Number(st.at_s || 0).toFixed(1)} s: the page ran out of data</span>`);
     }
     if (j && j.show && j.show.muted) lines.push(`<span class="pj-bad">stage pages silent for this show</span>`);
     const info = Array.isArray(j && j.pages_info) ? j.pages_info.find((x) => x && "media_items" in x) : null;
@@ -188,8 +198,51 @@
     $("pjStageLoad").innerHTML = lines.join(" · ");
   }
 
+  // Where the show's sound plays (#591): each output, ready or why not, and the choice for the next run.
+  const AUD_NAMES = { stage: "Stage box", tablet: "Head tablet", speakerphone: "Speakerphone" };
+  let audBusy = false;
+  function renderAudio(a) {
+    const has = !!(a && Array.isArray(a.outputs));
+    $("pjAudRow").hidden = $("pjAudOutsRow").hidden = !has;
+    if (!has) return;
+    const want = a.override || "";
+    if (!audBusy && $("pjAudOut").value !== want) $("pjAudOut").value = want;
+    const byName = Object.fromEntries(a.outputs.map((o) => [o.name, o]));
+    for (const opt of $("pjAudOut").options) {
+      if (!opt.value) continue;
+      const o = byName[opt.value];
+      opt.textContent = opt.textContent.replace(/ — .*$/, "") + (!o ? " — not connected" : o.ready ? "" : " — not ready");
+    }
+    $("pjAudDefault").textContent = !a.override && a.default ? `now: ${a.default}` : "";
+    const bits = a.outputs.map((o) => `<span class="sdot ${o.ready ? "ok" : "warn"}"></span>${esc(AUD_NAMES[o.name] || o.name)}`
+      + (o.label ? ` (${esc(o.label)})` : "") + ": " + (o.ready ? "ready" : `<span class="pj-bad">${esc(o.why || "not ready")}</span>`));
+    const sel = a.override && byName[a.override];
+    if (a.override && !(sel && sel.ready)) bits.push(`<span class="pj-bad">the next run is refused until ${esc(AUD_NAMES[a.override] || a.override)} is ready</span>`);
+    if (a.playing) bits.push(`playing: ${esc(a.playing.show || "?")} on ${esc(AUD_NAMES[a.playing.output] || a.playing.output || "?")}`);
+    $("pjAudOuts").innerHTML = bits.join(" · ");
+    $("pjAudOut").disabled = !!a.playing;
+  }
+  async function pollAudio() {
+    try {
+      const r = await fetch("/api/choreo/audio/output", { cache: "no-store" });
+      renderAudio(r.ok ? await r.json() : null);
+    } catch (e) { renderAudio(null); }
+  }
+  $("pjAudOut").addEventListener("change", async (e) => {
+    audBusy = true;
+    try {
+      const r = await fetch("/api/choreo/audio/output", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                        body: JSON.stringify({ output: e.target.value || null }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { $("pjWhy").textContent = `Sound output not changed: ${j.error || j.detail || `HTTP ${r.status}`}`; if (j.code && window.helpLink) $("pjWhy").appendChild(helpLink(j.code)); }
+      else { $("pjWhy").textContent = ""; renderAudio(j); }
+    } catch (err) { $("pjWhy").textContent = `Sound output not changed: ${err.message}`; }
+    finally { audBusy = false; pollAudio(); }
+  });
+
   async function poll() {
     if (!view.classList.contains("active")) return;
+    pollAudio();
     try {
       const r = await fetch("/api/choreo/video", { cache: "no-store" });
       if (!r.ok) throw new Error(r.status === 404 ? "this robot's dashboard has no video service yet" : `HTTP ${r.status}`);
