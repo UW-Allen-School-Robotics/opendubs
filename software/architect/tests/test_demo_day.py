@@ -185,6 +185,69 @@ class Rest(unittest.TestCase):
             dd.arms_away(pos, dd.RosArms.SIDES)
 
 
+class Hound(unittest.TestCase):
+    """HoundNav (2026-10-29): the nav is told to hold and carry on, and the base counts as still only
+    when the nav has let go of it and /odom says it is not moving."""
+
+    def setUp(self):
+        self.clock, self.sent = Clock(), []
+        self.nav = dd.HoundNav(publish=self.sent.append, clock=self.clock)
+
+    def fresh(self, owner="nav", vx=0.0, wz=0.0):
+        self.nav.on_owner('{"owner": %s}' % ("null" if owner is None else '"%s"' % owner))
+        self.nav.on_odom(vx, 0.0, wz)
+
+    def test_patrol_lifts_the_hold_and_stop_sets_it_once(self):
+        self.nav.patrol()
+        self.nav.stop()
+        self.nav.stop()
+        self.assertEqual(self.sent, [False, True])
+
+    def test_still_needs_the_nav_to_let_go_of_the_base_and_odom_at_rest(self):
+        self.nav.stop()
+        self.fresh(owner="nav")
+        self.assertFalse(self.nav.still())                  # it ignored the hold, or has not released yet
+        self.fresh(owner=None, vx=0.3)
+        self.assertFalse(self.nav.still())                  # released, still rolling
+        self.fresh(owner=None)
+        self.assertTrue(self.nav.still())
+        self.fresh(owner="show")                            # a show's dance tracker may hold it
+        self.assertTrue(self.nav.still())
+
+    def test_stale_or_unknown_is_not_still_and_patrolling_is_not_still(self):
+        self.nav.stop()
+        self.assertFalse(self.nav.still())                  # nothing heard yet
+        self.fresh(owner=None)
+        self.clock.t += 1.0                                 # /odom gone quiet
+        self.assertFalse(self.nav.still())
+        self.fresh(owner=None)
+        self.nav.patrol()
+        self.assertFalse(self.nav.still())
+
+    def test_the_hold_is_said_again_for_a_bridge_that_restarted(self):
+        self.nav.stop()
+        self.clock.t += dd.HoundNav.RESEND_S
+        self.nav.tick()
+        self.assertEqual(self.sent, [True, True])
+
+    def test_an_approach_holds_the_base(self):
+        self.nav.patrol()
+        self.nav.approach(dd.Person(2.0, 0.0), 1.2)
+        self.assertEqual(self.sent[-1], True)
+
+    def test_candy_is_refused_while_the_nav_keeps_the_base(self):
+        co = dd.Coordinator(self.nav, People(), Palette(), Safety(), "candy_show", ["monster_mash"],
+                            clock=self.clock, rng=random.Random(0))
+        co.still_wait_s = 0.05
+        co.tick()
+        self.assertEqual(self.sent[-1], False)              # patrolling
+        self.fresh(owner="nav")
+        self.assertEqual(co.request("candy"), (False, "the base did not come to rest"))
+        self.assertEqual(self.sent[-1], True)               # ... and told to hold
+        self.fresh(owner=None)
+        self.assertTrue(co.request("candy")[0])
+
+
 class Day(unittest.TestCase):
     def setUp(self):
         self.clock, self.nav, self.people, self.pal, self.safe = Clock(), Nav(), People(), Palette(), Safety()

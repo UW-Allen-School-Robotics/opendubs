@@ -472,6 +472,7 @@ class Coordinator:
             return {"state": self.state, "since_s": round(self.clock() - self.since, 1), "why": self.why,
                     "person": self.person.doc() if self.person else None, "nav": self.nav_doing,
                     "nav_stub": isinstance(self.nav, StubNav),
+                    "nav_state": self.nav.status() if hasattr(self.nav, "status") else None,
                     "show": self.show, "choreo": self.choreo, "random": self.shorts, "candy": self.candy,
                     "next_choreo_s": round(nxt - self.clock()) if nxt is not None and self.state == "IDLE_NAV" else None}
 
@@ -503,6 +504,131 @@ class StubNav:
 
     def still(self) -> bool:
         return True
+
+
+class HoundNav:
+    """The robot's nav stack (hound_nav's robot_bridge.py, in opendubs-gates-sim), behind the four calls.
+
+    THE CONTRACT the bridge needs (2026-10-29: proposed, not yet in it; until it is, still() is never
+    true while the nav holds the base, so no show and no candy is granted, which is the safe failure):
+
+      /hound_nav/hold  std_msgs/Bool, transient local. True: stop the mission, send one zero Twist and
+                       RELEASE the base (/base/release {"owner": "nav"}), and claim nothing until False.
+                       False: claim the base again and carry on with the mission.
+
+    What it reads, all already on the robot: /base/owner (the base selector's, 2 Hz) and /odom (the
+    drive bridge's; its twist is in base_link). still() is true only when the base is not the nav's
+    and /odom, fresh, says it is not moving: a nav that ignores the hold, or keeps renewing its lease,
+    is never "still", so a later deadman press can never drive it under the arm.
+
+    patrol() is "carry on": the mission itself (which waypoints, looping) is set on the nav's own page.
+    approach() holds the base for now: the bridge takes goals only from its page, so the robot waits
+    where it is and a visitor is ENGAGED by walking up. The coordinator never claims the base itself:
+    a show's dance tracker must be able to take it."""
+
+    OWNER = "nav"
+    ODOM_STALE_S = 0.6           # /odom is ~8.7 Hz
+    OWNER_STALE_S = 1.5          # /base/owner is 2 Hz
+    STILL_LIN = 0.02             # m/s
+    STILL_ANG = 0.05             # rad/s
+    RESEND_S = 1.0               # the hold is said again this often, so a restarted bridge hears it
+
+    def __init__(self, log=None, publish=None, clock=time.monotonic):
+        """`publish(bool)` sends the hold; None: ROS (start())."""
+        self._log_fn, self.publish, self.clock = log, publish, clock
+        self.lock = threading.Lock()
+        self.hold, self.doing = True, None       # held until told to patrol: a coordinator starting never drives
+        self.owner, self.owner_at = None, None
+        self.twist, self.odom_at = None, None
+        self.sent_at = None
+
+    # ---- what the robot says
+    def on_owner(self, data: str) -> None:
+        try:
+            owner = (json.loads(data) or {}).get("owner")
+        except ValueError:
+            return
+        with self.lock:
+            self.owner, self.owner_at = owner, self.clock()
+
+    def on_odom(self, vx: float, vy: float, wz: float) -> None:
+        with self.lock:
+            self.twist, self.odom_at = (vx, vy, wz), self.clock()
+
+    # ---- the four calls
+    def _set(self, hold: bool, what: str, **kw) -> None:
+        with self.lock:
+            changed = hold != self.hold or self.sent_at is None
+            self.hold = hold
+        if changed:
+            self._send()
+        if self.doing != what:
+            self.doing = what
+            if self._log_fn:
+                self._log_fn({"t": round(time.time(), 3), "event": "nav", "did": what, "hold": hold, **kw})
+
+    def _send(self) -> None:
+        with self.lock:
+            hold, self.sent_at = self.hold, self.clock()
+        self.publish(hold)
+
+    def tick(self) -> None:
+        """Say the hold again every RESEND_S (the ROS thread's timer)."""
+        if self.sent_at is None or self.clock() - self.sent_at >= self.RESEND_S:
+            self._send()
+
+    def patrol(self) -> None:
+        self._set(False, "patrol")
+
+    def approach(self, person: Person, standoff_m: float) -> None:
+        self._set(True, "wait for them", **person.doc(), standoff_m=standoff_m)
+
+    def stop(self) -> None:
+        self._set(True, "stop")
+
+    def still(self) -> bool:
+        now = self.clock()
+        with self.lock:
+            if not self.hold:
+                return False
+            if self.owner_at is None or now - self.owner_at > self.OWNER_STALE_S or self.owner == self.OWNER:
+                return False                     # unknown, or the nav still holds the base: it may drive
+            if self.odom_at is None or now - self.odom_at > self.ODOM_STALE_S:
+                return False
+            vx, vy, wz = self.twist
+        return math.hypot(vx, vy) < self.STILL_LIN and abs(wz) < self.STILL_ANG
+
+    def status(self) -> dict:
+        with self.lock:
+            return {"hold": self.hold, "owner": self.owner, "moving": None if self.twist is None else
+                    [round(v, 3) for v in self.twist]}
+
+    # ---- ROS
+    def start(self, hold_topic: str = "/hound_nav/hold") -> "HoundNav":
+        import rclpy
+        from nav_msgs.msg import Odometry
+        from rclpy.executors import SingleThreadedExecutor
+        from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+        from std_msgs.msg import Bool, String
+        ctx = rclpy.Context()
+        rclpy.init(context=ctx)
+        node = rclpy.create_node("architect_demo_day_nav", context=ctx)
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             reliability=ReliabilityPolicy.RELIABLE)
+        pub = node.create_publisher(Bool, hold_topic, latched)
+        self.publish = lambda hold: pub.publish(Bool(data=bool(hold)))
+        node.create_subscription(String, "/base/owner", lambda m: self.on_owner(m.data), latched)
+
+        def odom(m):
+            t = m.twist.twist
+            self.on_odom(t.linear.x, t.linear.y, t.angular.z)
+        node.create_subscription(Odometry, "/odom", odom, qos_profile_sensor_data)
+        node.create_timer(0.2, self.tick)
+        ex = SingleThreadedExecutor(context=ctx)
+        ex.add_node(node)
+        threading.Thread(target=ex.spin, daemon=True).start()
+        self._send()                             # held from the start
+        return self
 
 
 class PerceptionPeople:
@@ -740,6 +866,9 @@ def main(argv=None) -> int:
     ap.add_argument("--every", type=float, nargs=2, default=list(CHOREO_EVERY_S), metavar=("MIN_S", "MAX_S"),
                     help="a random choreo pick after this long patrolling")
     ap.add_argument("--people", choices=("perception", "fake"), default="perception")
+    ap.add_argument("--nav", choices=("stub", "hound"), default="stub",
+                    help="stub (moves nothing) or hound: the robot's nav stack, told to hold and carry on over "
+                         "/hound_nav/hold (HoundNav: the bridge must honour it, or nothing is ever granted)")
     ap.add_argument("--palette", choices=("dashboard", "fake"), default="dashboard")
     ap.add_argument("--candy-runner", metavar="URL",
                     help="the candy run is the ARCHITECT runner's program (e.g. http://127.0.0.1:8098, the gafro "
@@ -772,7 +901,8 @@ def main(argv=None) -> int:
                 raise SystemExit(f"demo_day: {r!r} does not validate: {'; '.join(have[r].get('problems') or [])}")
     people = PerceptionPeople() if args.people == "perception" else Nobody()
     arms = RosArms() if args.rest and args.palette != "fake" else None
-    co = Coordinator(StubNav(log), people, palette, safety, args.candy, args.choreo, log=log,
+    nav = HoundNav(log).start() if args.nav == "hound" else StubNav(log)
+    co = Coordinator(nav, people, palette, safety, args.candy, args.choreo, log=log,
                      choreo_every=tuple(args.every), shorts=args.random, arms=arms, rest=args.rest or None)
     if args.start_paused:
         co.pause("started paused: POST /api/resume to begin the demo day")
@@ -821,7 +951,7 @@ def main(argv=None) -> int:
             self._send(404, {"error": "not found"})
 
     log({"t": round(time.time(), 3), "event": "listening", "port": args.port, "candy": args.candy,
-         "choreo": args.choreo, "nav": "stub", "people": args.people})
+         "choreo": args.choreo, "nav": args.nav, "people": args.people})
     ThreadingHTTPServer((args.host, args.port), H).serve_forever()
     return 0
 

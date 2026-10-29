@@ -31,7 +31,8 @@
 #                                  patrol, approach a visitor, candy, and the preprogrammed shows, one at a time.
 #                                  SHOW=<the candy routine>, CHOREO="monster_mash ghostbusters them_bones" (3-5),
 #                                  EVERY="240 480" (a random pick after this many seconds of patrolling); the nav
-#                                  is a stub (moves nothing) until the nav stack is here; who is near comes from
+#                                  is a stub (moves nothing); NAV=hound: the robot's nav stack, told to hold on
+#                                  /hound_nav/hold (its bridge must honour it: README); who is near comes from
 #                                  the perception services. FAKE=1: no palette and nobody seen, for a desk.
 #                                  Start the listener with DAY=1 so "trick or treat" asks it first
 #   dev.sh install                 start camera, listen and day at boot: the systemd units in deploy/, filled in with
@@ -233,6 +234,7 @@ day() {  # the coordinator: reads the palette and the perception services, drive
   [ -n "${EVERY:-}" ] && args="${args} --every ${EVERY}"
   [ "${FAKE:-0}" = 1 ] && args="${args} --people fake --palette fake"
   [ "${PAUSED:-0}" = 1 ] && args="${args} --start-paused"
+  [ -n "${NAV:-}" ] && args="${args} --nav ${NAV}"                  # hound: the robot's nav stack (HoundNav)
   [ "${CANDY_RUNNER:-0}" = 1 ] && args="${args} --candy-runner http://127.0.0.1:${PORT}"
   need_dds
   ${DOCKER} run ${DETACH} --rm --name "${DAY_NAME}" --network host \

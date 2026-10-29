@@ -376,9 +376,18 @@ On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh da
 | `PAUSED` | nothing: the operator's `POST /api/pause`, or the e-stop | the operator's `POST /api/resume` only |
 
 **What is real and what is a stub (2026-10-27):**
-- **The nav is a stub** (`StubNav`): it logs what it would do and moves nothing, until the Thor stack
-  lane's nav stack is here. The real one goes behind the same four calls (`patrol`, `approach`,
-  `stop`, `still`), claims the base lease (`docs/interfaces/navigation.md`) and releases it on `stop`.
+- **The nav is a stub by default** (`StubNav`): it logs what it would do and moves nothing.
+  `NAV=hound` (`--nav hound`, `HoundNav`) drives the robot's nav stack instead: hound_nav's
+  `robot_bridge.py`, in `opendubs-gates-sim`, which holds the base as `nav` and patrols a looping
+  mission set on its own page (port 8081). The coordinator tells it to hold and carry on over
+  **`/hound_nav/hold`** (`std_msgs/Bool`, transient local): True stops the mission, sends one zero
+  Twist and releases the base; False claims it again and carries on. **The bridge does not have that
+  topic yet (2026-10-29), so it is a request to its owner.** Until it does, `still()` stays false while
+  the nav holds the base, so no candy and no show is ever granted: the safe failure, and why the boot
+  unit keeps the stub. `still()` is the nav having let go of the base (`/base/owner`) and `/odom` at
+  rest, both fresh. `approach()` holds the base for now (the bridge takes goals only from its page),
+  so a visitor is engaged by walking up. The coordinator never claims the base itself, so a show's
+  dance tracker can.
 - **Who is near** comes from the perception services (`/perception/locate "person"`, in the chassis
   frame) until the skeleton feed has a message type.
 - **The shows** are the real palette, started as the Shows page starts them, with `start: deadman`.
