@@ -16,7 +16,7 @@ commands. Full walkthrough: [docs/openarm-setup.md](../../docs/openarm-setup.md)
 | `arm` | `/usr/local/bin/` | the operator's command for the service: `arm start`, `arm status`, `arm activate`, `arm follow`, `arm viewer`, `arm doctor` (below) |
 | `opendubs-arm.env.example` | `/etc/opendubs/arm-service.env` | this robot's settings for the unit (the checkout, the driver's config); per robot, never overwritten |
 | `opendubs-arm.sudoers` | `/etc/sudoers.d/opendubs-arm` | lets `kiosk` start, stop and restart the arm units, and nothing else of systemd |
-| `provision-arm-service.sh` | — | installs the four files above; run by `provision-openarm.sh`, or alone |
+| `provision-arm-service.sh` | `/opt/opendubs/ws` | installs the four files above and builds `interfaces/` into the workspace the wrapper sources; run by `provision-openarm.sh`, or alone |
 
 Deployed to `/opt/opendubs/openarm` by `deploy-all.sh`. Not called from `provision-all.sh`,
 because the arms are an optional payload.
