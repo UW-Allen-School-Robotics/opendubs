@@ -52,10 +52,11 @@ A content code skin for the Halloween demo: a ghost with ten expressions (DOZE, 
 SMILE, PEEK, EEK!, FOCUS, HAPPY, PUZZLED for THINK, and the flame mouth that never stops). Which one
 shows follows the demo day's coordinator (`demo_day.py`: patrolling, going to someone, a show, the
 candy), the face tracker (someone in view) and the ARCHITECT demo runner. While a palette show plays,
-the ghost dances with it: each of the show's FACE cues picks a dance look on the show's tempo, and the
-show wears one costume throughout (pumpkin, cat, monster or the classic black and white), all in this
-one skin, so a show needs no SKIN cue (`DANCES` in `ghost.js`). **The state machine, with every expression
-animated** (tabs: V1, the design; V2, as built): [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
+the ghost dances with it. Each short show has its own timeline of the ghost's expressions and dance
+looks, at the show's time and on its beats, in costumes that change within the show (pumpkin, cat,
+monster or the classic black and white); another show's FACE cues pick its looks. All of it is this one
+skin, so a show needs no SKIN cue (`DANCES` in `ghost.js`). **The state machine, with every expression
+animated** (tabs: V1, the design; V2, as built; V3, the demo day, with the short shows danced whole): [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
 (download it and open it in a browser; it needs nothing else).
 
 | | |

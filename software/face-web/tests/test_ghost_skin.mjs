@@ -73,10 +73,14 @@ for (const [day, runner, want, what] of dayRows) {
 // A show's id, whichever way it is written, finds its dance; its costume and looks exist.
 ok(ghost.danceKey("wave_and_nod") === "wave-and-nod" && ghost.danceKey("Monster-Mash") === "monster_mash",
    "show ids from the palette or ENCORE find their dance");
-const LOOKS = ["groove", "beatpop", "tick", "nod", "wavelook", "bow", "sway", "creep", "rise", "drowsy", "cheer"];
+const LOOKS = ["groove", "beatpop", "tick", "nod", "wavelook", "wave-r", "wave-l", "bow", "sway", "creep", "rise", "drowsy",
+               "cheer", "smile", "focus", "puzzled", "lookout", "peek", "eek", "happy", "doze"];
 for (const [id, d] of Object.entries(ghost.DANCES)) {
   const bad = Object.values(d.looks || {}).flat().filter((l) => !LOOKS.includes(l));
   ok(d.costume in ghost.COSTUMES && !bad.length, `${id}: costume ${d.costume}, every look drawn`, bad.join(" "));
+  // a timeline's typo would hold the last look silently: every step a known look and costume, in order
+  const steps = d.steps || [], wrong = steps.filter(([t, l, c], i) => !LOOKS.includes(l) || (c && !(c in ghost.COSTUMES)) || (i && t <= steps[i - 1][0]));
+  if (steps.length) ok(!wrong.length && steps[0][0] === 0, `${id}: ${steps.length} steps from 0 s, each a look and costume, in order`, JSON.stringify(wrong));
 }
 ok(Object.values(ghost.EMOTE_LOOKS).every((l) => LOOKS.includes(l)), "every emote has a look");
 

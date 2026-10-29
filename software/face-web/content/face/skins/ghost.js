@@ -12,10 +12,11 @@
 // coordinator, the demo runner and the face tracker; the drawing above it is the prototype's, unchanged
 // but for the joins.
 //
-// WHILE A SHOW DANCES (the coordinator's CHOREO) the ghost dances with it: each of the show's own FACE
-// cues picks a dance look (BEAT POP, TICK, NOD, WAVE LOOK, BOW, SWAY, CREEP, RISE, DROWSY, CHEER, or the
-// GROOVE), on the show's tempo, and the show wears one costume throughout (pumpkin, cat, monster, or the
-// classic black and white). Costumes are this one skin's: a show never needs a SKIN cue for them.
+// WHILE A SHOW DANCES (the coordinator's CHOREO) the ghost dances with it. A short show has its own
+// timeline here (DANCES): any of the ghost's expressions, or a dance look (NOD, WAVE, BOW, BEAT POP,
+// TICK...), in any costume (pumpkin, cat, monster, or the classic black and white), changed on the
+// show's beats at the show's time. Another show's FACE cues pick its looks, in one costume. Costumes
+// are this one skin's: a show never needs a SKIN cue for them.
 //
 // Shapes are morphed point to point between keyframes, so every keyframe of a part keeps its structure.
 // The artwork is 617 x 368, the tablet's 1340 x 800 at 5:3, and is scaled to cover the whole screen.
@@ -738,12 +739,16 @@ function groove(e, loop = false) {           // loop: a show's groove, which las
   return { pose: mixPose(POSE[GROOVE_STEPS[from]], POSE[GROOVE_STEPS[to]], u), wiggle, bob: Math.exp(-inBeat / B * 6), local };
 }
 
-// ---- DANCE: a palette show is playing (the coordinator's CHOREO). Each FACE cue the show sends picks
-// the look for that stretch (DANCES, at the end of this file), and its arrival is the beat's anchor, so
-// the look stays on the music however late the coordinator's state is read. The costume is worn for the
-// whole show and the colours come off with it.
+// ---- DANCE: a palette show is playing (the coordinator's CHOREO). A show with its own timeline
+// (DANCES[show].steps, at the end of this file) is danced from it at the show's time: any of the
+// ghost's looks, in any costume, changed on the beat (the eyes blink shut over a costume change). A
+// show without one takes its look from each FACE cue it sends, whose arrival anchors the beat, and
+// wears one costume throughout. The colours come off when the show ends.
 let danceOn = false, danceT0 = 0, danceSpec = null, danceAmt = 0, costume = "classic", patrolling = false;
 let cueName = "NEUTRAL", cueT0 = 0, cueSeen = {};
+let showT0 = null;                                     // now_s() at the show's 0 s, from the coordinator
+// what a step may name, as the look that draws it: the ghost's own expressions, danced
+const LOOK_AS = { peek: "creep", eek: "rise", happy: "cheer", doze: "drowsy" };
 const BASE_BPM = ctl.bpm;
 const GROOVY = ["groove", "beatpop", "tick"];          // the looks danced over the groove's own frames
 const startDance = (spec, emote) => {
@@ -754,19 +759,33 @@ const startDance = (spec, emote) => {
   ctl.bpm = (spec && spec.bpm) || BASE_BPM;
   if (emote) cueName = emote;
   cueT0 = danceT0; cueSeen = { [cueName]: 1 };         // the emote already on counts as the show's first
+  showT0 = null;
 };
-const stopDance = () => { danceOn = false; danceSpec = null; costume = "classic"; ctl.bpm = BASE_BPM; };
+const stopDance = () => { danceOn = false; danceSpec = null; costume = "classic"; ctl.bpm = BASE_BPM; showT0 = null; };
+// the show's time, s: kept running here between the coordinator's reports, and moved only when one
+// disagrees by more than a quarter second (a scrub in a preview, or the show starting late)
+const showAt = (since) => { const t0 = now_s() - since; if (showT0 === null || Math.abs(t0 - showT0) > 0.25) showT0 = t0; };
 const takeCue = (emote, at) => {
   if (emote === cueName) return;
   cueName = emote; cueT0 = Math.min(at, now_s());
   if (danceOn) cueSeen[emote] = (cueSeen[emote] || 0) + 1;
 };
 // -> { look, e (s since the cue), B (a beat, s), beats (since the cue), frac (within this beat) }
+//    name (as the show names it), g (s into the groove), costume, swaps (show s of costume changes near by)
 function danceLook(t) {
+  const B = 60 / ctl.bpm, every = (danceSpec && danceSpec.every) || 8, steps = danceSpec && danceSpec.steps;
+  if (steps && steps.length && showT0 !== null) {
+    const s = t - showT0, off = danceSpec.offset || 0, wear = (k) => danceSpec.force || steps[k][2] || danceSpec.costume;
+    let i = 0; while (i + 1 < steps.length && steps[i + 1][0] <= s) i++;
+    const name = steps[i][1], e = Math.max(0, s - steps[i][0]), g = Math.max(0, s - off);
+    const swaps = [i, i + 1].filter((k) => k > 0 && k < steps.length && wear(k) !== wear(k - 1)).map((k) => steps[k][0] - s);
+    return { look: LOOK_AS[name] || name, name, e, B, beats: e / B, frac: (g / B) % 1, every, g, costume: wear(i), swaps };
+  }
   const list = danceSpec && danceSpec.looks && danceSpec.looks[cueName];
-  const look = list ? list[Math.min(cueSeen[cueName] || 1, list.length) - 1] : (EMOTE_LOOKS[cueName] || "groove");
-  const B = 60 / ctl.bpm, e = Math.max(0, t - cueT0), beats = e / B;
-  return { look, e, B, beats, frac: beats % 1, every: (danceSpec && danceSpec.every) || 8 };
+  const name = list ? list[Math.min(cueSeen[cueName] || 1, list.length) - 1] : (EMOTE_LOOKS[cueName] || "groove");
+  const e = Math.max(0, t - cueT0), beats = e / B;
+  return { look: LOOK_AS[name] || name, name, e, B, beats, frac: beats % 1, every,
+           g: e + Math.floor(Math.max(0, cueT0 - danceT0) / B) * B, costume: (danceSpec && danceSpec.force) || costume, swaps: [] };
 }
 
 // ---- costumes: what each one adds behind the face, drawn in the art's own coordinates ---------------
@@ -859,8 +878,9 @@ function frame(nowMs) {
   // alone for long enough (and not mid-lookout or mid-nod): groove
   if (!near && !busyNow() && lookT0 < 0 && nodT0 < 0 && grooveT0 < 0 && t - aloneSince >= ctl.grooveAfter) grooveT0 = t;
   const DL = danceOn ? danceLook(t) : null;
-  // a show's groove keeps going, its beats where the last cue put them
-  const G = DL ? (GROOVY.includes(DL.look) ? groove(DL.e + Math.floor(Math.max(0, cueT0 - danceT0) / DL.B) * DL.B, true) : null)
+  if (DL && COSTUMES[DL.costume]) costume = DL.costume;
+  // a show's groove keeps going, on the show's beat (or where the last cue put it)
+  const G = DL ? (GROOVY.includes(DL.look) ? groove(DL.g, true) : null)
     : grooveT0 >= 0 ? groove(t - grooveT0) : null;
   danceAmt = clamp01(danceAmt + (DL && !GROOVY.includes(DL.look) ? 1 : -1) * dt / 0.35);
   if (grooveT0 >= 0 && !G) { grooveT0 = -1; aloneSince = t; nodCount = 0; nextNod = t + 2; if (reviewState) reviewNext = t + 1; }
@@ -874,10 +894,13 @@ function frame(nowMs) {
     nextNod = t + ctl.aloneEvery * (0.6 + Math.random() * 0.4); lookAfter = patrolling ? t + 1.5 + Math.random() * 1.5 : Infinity;
     if (reviewState) reviewNext = t + 1;
   }
-  if (L) { side = L.side; blink = L.blink; phase = "lookout"; }
+  const LK = DL && DL.look === "lookout" ? lookout(DL.e % (2 * ctl.turn + 2 * ctl.hold + ctl.sweep)) : null;
+  if (L || LK) { side = (L || LK).side; blink = (L || LK).blink; phase = "lookout"; }
   else {
     // WAVE LOOK: the eyes follow the waving arm, one side for `every` beats, then the other
-    const to = DL && DL.look === "wavelook" ? (Math.floor(DL.beats / DL.every) % 2 ? -0.9 : 0.9) : 0;
+    // (wave-r and wave-l: one arm, the right or the left)
+    const to = !DL ? 0 : DL.look === "wavelook" ? (Math.floor(DL.beats / DL.every) % 2 ? -0.9 : 0.9)
+      : DL.look === "wave-r" ? 0.9 : DL.look === "wave-l" ? -0.9 : 0;
     side += (to - side) * Math.min(1, dt * (DL ? 4 : 6)); phase = near ? "attentive" : "doze";
   }
 
@@ -904,7 +927,7 @@ function frame(nowMs) {
   happyAmt = clamp01(happyAmt + (happyOn || cheer ? 1 : -1) * dt / 0.4);
   if (focusAmt > 0) phase = "focus";
   if (happyAmt > 0) phase = "happy";
-  if (DL) phase = `dance · ${DL.look} · ${costume}`;
+  if (DL) phase = `dance · ${DL.name} · ${costume}`;
   const EK = eekT0 >= 0 ? eek(t - eekT0) : null;
   if (eekT0 >= 0 && !EK) { eekT0 = -1; if (taskStage === "accepted") { taskStage = "selected";  } if (reviewState) reviewNext = t + 1; }
   if (EK) { phase = "EEK!"; blinkT0 = -1; nextBlink = Math.max(nextBlink, t + 1); }
@@ -944,6 +967,7 @@ function frame(nowMs) {
   }
   // the dance's own looks, over the groove (DANCE, above)
   let danceScale = 1, danceFloat = 0;
+  if (DL) for (const dt2 of DL.swaps) blink = Math.max(blink, blinkAt(QUICK.close - dt2));
   if (DL) {
     const pop = Math.exp(-DL.frac * 5), a = ease(danceAmt), L2 = DL.look;
     if (L2 === "beatpop") { danceScale = 1 + 0.12 * pop; pose = mixPose(pose, POSE.eek, 0.22 * pop); }   // ALERT: pop on every beat
@@ -956,7 +980,14 @@ function frame(nowMs) {
         if (DL.e > 1.6) blink = Math.max(blink, blinkAt((DL.e - 1.6) % 2.4));
       }
       if (L2 === "sway") giggle += 1.2 * a * Math.sin(Math.PI * DL.beats);             // SOFT: rock with the beat
-      if (L2 === "wavelook") danceScale = 1 + 0.05 * a;                               // wide open; the side does the looking
+      if (L2 === "wavelook" || L2 === "wave-r" || L2 === "wave-l") danceScale = 1 + 0.05 * a;   // wide open; the side does the looking
+      if (L2 === "smile") {                                                           // SMILE's own eyes and giggle, danced
+        const se = smileEyes(DL.e);
+        pose = mixPose(pose, se.pose, a); giggle += ctl.giggle * se.both * a * giggleAt(se.since);
+      }
+      const sway2 = 0.5 - 0.5 * Math.cos(Math.PI * DL.beats / 2);                    // there and back, two beats each way
+      if (L2 === "focus") pose = mixPose(pose, mixPose(POSE.focus1, POSE.focus2, sway2), a);     // the glance at the basket
+      if (L2 === "puzzled") pose = mixPose(pose, mixPose(POSE.think1, POSE.think2, sway2), a);   // the puzzled tilt, rocking
       if (L2 === "creep") {                                                           // SQUINT: the fierce faces, two beats each
         const i = Math.floor(DL.beats / 2), u = ease(clamp01((DL.beats / 2 - i) * 2));
         pose = mixPose(pose, mixPose(POSE[i % 2 ? "peek2" : "peek3"], POSE[i % 2 ? "peek3" : "peek2"], u), a);
@@ -1057,7 +1088,10 @@ function frame(nowMs) {
         if (P.pupil) { ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(cx + 8 * gx, cy + 6, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
         if (P.glow) {
           ctx.save(); ctx.clip(path); ctx.globalAlpha = 0.8 + 0.15 * Math.sin(t * 9 + cx);
-          ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
+          ctx.save(); ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
+          // and a rim of the socket's ink all round inside it, so the glow never touches the edge (a smile's
+          // crescent included)
+          ctx.globalAlpha = 1; ctx.strokeStyle = ink; ctx.lineWidth = 2 * P.rim; ctx.lineJoin = "round"; ctx.stroke(path); ctx.restore();
         }
       }
       ctx.restore();
@@ -1161,6 +1195,8 @@ return {
   dance(spec, emote, now) { clock = now; reviewState = null; startDance(spec, emote); },
   // one of the show's FACE cues, seen on the face at `at` ms (it may be a little before now)
   cue(emote, at, now) { clock = now; takeCue(emote, at / 1000); },
+  // how far into the show it is, s, as the coordinator says (its since_s in CHOREO)
+  showAt(since, now) { clock = now; showAt(since); },
   patrol(on, now) { clock = now; if (on && !patrolling) lookAfter = Math.min(lookAfter, now_s() + 0.5); patrolling = !!on; },
   robot(state, now) { clock = now; reviewState = null; applyRobotState(state); },
   gaze(x,y,now) { clock = now; mouse = {x,y}; },
@@ -1168,7 +1204,7 @@ return {
   preview(state,now=0) { clock = now; configureReview(state); },
   snapshot() { return { phase:lastPhase, taskStage, faultActive, visitorId:currentVisitorId,
     visitorIds:[...observedVisitorIds], peekDone, peekActive:peekT0>=0, grooveActive:grooveT0>=0,
-    dance: danceOn ? danceLook(now_s()).look : null, costume, patrolling }; },
+    dance: danceOn ? danceLook(now_s()).name : null, costume, patrolling }; },
 };
 }
 
@@ -1247,15 +1283,31 @@ export function personInView(follow) {
   return !!(follow && follow.target && Number.isFinite(follow.target_age_s) && follow.target_age_s < PERSON_FRESH_S);
 }
 
-// THE DANCES: a palette show's id -> its tempo, its costume and the look for each of its FACE cues.
-// `looks[EMOTE]` lists the looks for that emote's first, second... cue in the show (the last repeats);
-// an emote it does not list, and a show not listed, get EMOTE_LOOKS. Tempos and cues are read from the
-// show files (software/choreo/shows/); the three full dances live in the private content repository,
-// so they wear their costume over EMOTE_LOOKS until their cues are read into here.
+// THE DANCES: a palette show's id -> its tempo, its costume and its looks.
+// `steps` is the show's own timeline, the face's choreography: [show s, look, costume (else the
+// show's)], each held until the next. Its looks are the ghost's own expressions (smile, peek, eek,
+// happy, focus, puzzled, doze, lookout, groove) and the dance's (nod, bow, sway, wave-r, wave-l,
+// wavelook, beatpop, tick, creep, rise, drowsy, cheer). The times are on the show's beats, from its
+// file in software/choreo/shows/ (`offset` is its first beat, s); the show's FACE cues don't change it.
+// Without steps, or without the show's time, `looks[EMOTE]` lists the looks for that emote's first,
+// second... FACE cue in the show (the last repeats); an emote it does not list, and a show not listed,
+// get EMOTE_LOOKS. The three full dances live in the private content repository, so they wear their
+// costume over EMOTE_LOOKS until their timelines are written here.
 export const DANCES = {
-  "wave-and-nod":  { bpm: 120, costume: "pumpkin", looks: { SOFT: ["nod", "bow"], ALERT: ["wavelook"] }, every: 8 },
-  "robotic-smile": { bpm: 123, costume: "cat", looks: { ALERT: ["beatpop"], SLEEPY: ["tick"] } },
-  "celebrate":     { bpm: 120, costume: "monster", looks: { SOFT: ["cheer"] } },
+  // bars 1-2 nod with the head; 3-4 watch the right hand wave, 5-6 the left; 7-8 reach out; the chord
+  "wave-and-nod":  { bpm: 120, offset: 0.5, costume: "pumpkin", every: 8,
+                     looks: { SOFT: ["nod", "bow"], ALERT: ["wavelook"] },
+                     steps: [[0, "smile"], [0.5, "nod"], [4.5, "wave-r", "cat"], [8.5, "wave-l"], [12.5, "happy"], [16.5, "bow"]] },
+  // the intro wakes and looks round (bars 1-4); the right hand waves, then the left (5-8); the pumps
+  // (9-12); raise the roof (13-14); reach out, and a happy chirp (15-16)
+  "robotic-smile": { bpm: 123, offset: 1.625, costume: "cat",
+                     looks: { ALERT: ["beatpop"], SLEEPY: ["tick"] },
+                     steps: [[0, "doze"], [1.625, "lookout"], [5.527, "peek"], [9.429, "wave-r"], [13.331, "wave-l", "pumpkin"],
+                             [17.233, "beatpop"], [21.135, "tick", "pumpkin"], [25.037, "eek"], [28.939, "happy", "pumpkin"]] },
+  // a grab that worked: startled, then delighted; arms up at 4 s, home at 9 s
+  "celebrate":     { bpm: 120, costume: "monster",
+                     looks: { SOFT: ["cheer"] },
+                     steps: [[0, "eek"], [1.5, "smile"], [4, "happy", "pumpkin"], [7, "beatpop", "cat"], [9, "bow"]] },
   "halloween":     { costume: "classic", looks: { SQUINT: ["creep"], ALERT: ["rise"], SLEEPY: ["drowsy"] } },
   "monster_mash":  { costume: "monster" },
   "ghostbusters":  { costume: "classic" },
@@ -1266,7 +1318,7 @@ export const EMOTE_LOOKS = { NEUTRAL: "groove", ALERT: "beatpop", SQUINT: "creep
 // Black and white is the ghost's own; only a dance puts a costume on.
 export const COSTUMES = {
   classic: { bg: "#fff", ink: "#0b0b0b" },
-  pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e" },
+  pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 11 },
   cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", pupil: "#0d0c10",
              ear: "#1a181e", earIn: "#ff8fb3", whisker: "#d9d6e0", line: "#d9d6e0" },
   monster: { bg: "#8ccf5e", ink: "#13200c", hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
@@ -1296,7 +1348,7 @@ const CUE_STEADY_MS = 100;          // a reading held this long is the emote, no
 const CUE_LAG_MS = 150;             // the lids' spring takes about this long to get there from the cue
 
 let renderer = null, canvas = null, timer = null, stage = null, stageShow = null;
-let cueRead = { name: null, t: 0 }, cueTaken = null;
+let cueRead = { name: null, t: 0 }, cueTaken = null, dayRead = null;
 const polled = { runner: null, follow: null, day: null };
 
 function offline() {          // an offline render (index.html?render=1) has no dashboard to ask
@@ -1353,10 +1405,12 @@ export function draw(ctx, e, t) {
   if (next !== stage || show !== stageShow) {
     stage = next; stageShow = show;
     if (next === "dance") {
-      const spec = { ...(DANCES[show] || {}), ...(given && given.costume ? { costume: given.costume } : {}) };
+      const spec = { ...(DANCES[show] || {}), ...(given && given.costume ? { costume: given.costume, force: given.costume } : {}) };
       renderer.dance(spec, cueTaken, ms);
     } else renderer.task(next, ms);
   }
+  // the show's time, each time the coordinator reports it
+  if (stage === "dance" && day !== dayRead) { dayRead = day; if (Number.isFinite(day.since_s)) renderer.showAt(day.since_s, ms); }
   renderer.patrol(!!(day && day.available && day.state === "IDLE_NAV" && day.nav === "patrol"), ms);
   // someone in view, or the base on its way to someone: one tracked person (the tracker gives no identities)
   renderer.visitors(person || coming ? ["in-view"] : [], ms);
@@ -1375,7 +1429,7 @@ export function snapshot() { return renderer ? renderer.snapshot() : null; }
 
 export function stop() {
   if (timer) clearInterval(timer);
-  timer = null; renderer = null; stage = null; stageShow = null;
+  timer = null; renderer = null; stage = null; stageShow = null; dayRead = null;
   cueRead = { name: null, t: 0 }; cueTaken = null;
   polled.runner = polled.follow = polled.day = null;
 }
