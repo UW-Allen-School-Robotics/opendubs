@@ -87,6 +87,7 @@ def test_a_page_reports_its_screen_sound_and_power_and_only_those():
     assert len(info) == 1 and info[0]["audio_output"] == "usb" and info[0]["under_voltage_since_boot"] is True
     assert info[0]["viewport"] == [3840, 1080] and info[0]["screen_mode"] == "3840x1080@60"
     assert "secret" not in info[0] and "under_voltage_now" not in info[0]      # unknown, or the wrong type: dropped
+    assert info[0]["role"] == "both"                                            # none said: as every page before roles
     assert c.get("/api/stage").json()["pages_info"] == []                        # the page has gone
 
 
@@ -103,8 +104,9 @@ def test_each_pages_head_start_and_stall_are_kept_for_the_runner():
         b.receive_text()
         v = c.get("/api/stage").json()
     assert sorted(v["preload"], key=lambda p: p is None) == [
-        {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4, "need_s": 25.0}, None]   # b: not reported
-    assert v["stalls"] == [{"id": "s1", "at_s": 31.5}]
+        {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4, "need_s": 25.0, "role": "both"},
+        None]                                                                     # b: not reported
+    assert v["stalls"] == [{"id": "s1", "at_s": 31.5, "role": "both"}]
 
 
 def test_mute_silences_the_pages_of_the_loaded_show_only():
