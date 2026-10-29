@@ -375,6 +375,39 @@ orientation (V2.2), `--jaws-steps` reaches in eight `reach_pose` steps instead o
 treat, `--treat-s` sets the wait. If the driver says "CAN bus 'arm_right' is not healthy" after the old stack ran, cycle
 the e-stop, restart the link, and `$A up` again.
 
+### As ROS 2 services (branch `archit/treat-follow-ros`)
+
+The same steps as separate services, `robot_api_interfaces` like the rest of `/perception`: `RobotCommand` with a JSON
+`req`, a result code and JSON `data`; each returns when its step has ended (done, failed, interrupted). One node serves
+them (`tools/treat_services.py`); `tools/treat_sequence.py` is the program: plain calls in order, each one's data into
+the next. Nothing else passes between them (the services read the tracker and the arm's joints themselves).
+
+| `/perception/treat/...` | Request | Does |
+|---|---|---|
+| `ready` | `{}` | the arm to ready |
+| `move_pose` | `{"position": [x,y,z], "orientation"?: [w,x,y,z], "speed"?}` | the hand to a pose (`reach_pose`) |
+| `move_joints` | `{"joints": [7 rad]}` or `{"joints_deg": [7]}`, `"speed"?` | one continuous, collision-checked joint move |
+| `centre_person` | `{"timeout_s"?: 20}` | the head centres the person and holds |
+| `get_hand` | `{"timeout_s"?: 10}` | a hand held out and still: `side`, `palm` (arm_mount) |
+| `find_hand` | `{"find_s"?: 20, "wait_s"?: 10}` | `centre_person`, then `get_hand` |
+| `plan_treat` | `{"palm": [x,y,z], "jaws_level"?: true}` | no motion: `joints`, `pose` toward that palm |
+| `hold` | `{"seconds"?: 5}` | wait at the treat |
+| `stop`, `rearm` | `{}` | cancel any move (the arm holds); clear a latched stop |
+| `status` | `RobotQuery` | mode, permit, stopped, busy, the arm's joints, the head |
+
+```sh
+./treat_follow.sh services --dummy            # simulation, a scripted person (no camera, no head)
+./treat_follow.sh services                    # simulation, the camera and the head
+./treat_follow.sh services --real --head --left-stowed   # THE REAL ARM (arm service up, supervised, activated)
+./treat_follow.sh sequence                    # ready -> find_hand -> plan_treat -> move_joints -> hold -> ready
+./treat_follow.sh call find_hand '{}'         # any one service (sent once: never resent)
+./treat_follow.sh services-down
+```
+
+One step at a time (a second call is refused while one runs); the head and the arm never move together. With `--real`
+the deadman must be held before the sequence starts: a move is refused unless it is held, and releasing it during a run
+cancels the move and latches a stop that refuses every later move until `rearm`.
+
 ## Measured on opendubs2 (2026-10-24)
 
 From a terminal on the Thor: `status` 51 ms; `locate` 130–250 ms; `detect` / `segment` 150–900 ms;
@@ -397,4 +430,5 @@ clients: all answered. The units came back on their own after a reboot.
 | `tools/treat_follow.sh` | trick or treat: every mode (`up`/`start` V0, `reach`, `reach-real`) |
 | `tools/treat_follow.py`, `tools/treat_reach.py`, `tools/treat_brain.py` | the live follower, the one-shot reach, the decisions |
 | `tools/treat_arm_service.sh` | the real arm's service by hand from this branch |
+| `tools/treat_services.py`, `tools/treat_sequence.py` | the treat steps as ROS 2 services, and the program that calls them |
 | `tests/test_treat_brain.py` | the decisions that, wrong, move the arm or head when they should not |
