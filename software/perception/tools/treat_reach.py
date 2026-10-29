@@ -175,6 +175,9 @@ def main():
                     help="the jaws level and pointing forward at the treat (via the candy posture), whatever the hand's "
                          "own orientation; on by default with --real")
     ap.add_argument("--no-jaws-level", dest="jaws", action="store_false")
+    ap.add_argument("--jaws-steps", action="store_true",
+                    help="--jaws-level by CANDY_STEPS + 2 reach_pose steps (the first version) instead of one continuous "
+                         "joint trajectory")
     ap.add_argument("--max-up", type=float, default=0.35, help="m: the reach goal at most this above the arm's shoulder")
     ap.add_argument("--head-pan", action="store_true", help="pan as well as tilt to centre the torso")
     ap.add_argument("--neck-host", default=None)
@@ -349,6 +352,18 @@ def main():
             sim_node = Node("treat_reach_client", context=sim_ctx)
             g2s.spin_in_thread(rclpy, sim_node, sim_ctx)
             client = ActionClient(sim_node, ArmCommand, "/right_arm/command")
+            from control_msgs.action import FollowJointTrajectory
+            from sensor_msgs.msg import JointState as _JointState
+            traj_client = ActionClient(sim_node, FollowJointTrajectory, "/right_controller/follow_joint_trajectory")
+            arm_joints = {"q": None, "at": 0.0}
+
+            def on_arm_joints(msg):
+                got = dict(zip(msg.name, msg.position))
+                names = [f"openarm_right_joint{i}" for i in range(1, 8)]
+                if all(n in got for n in names):
+                    arm_joints["q"], arm_joints["at"] = np.array([got[n] for n in names]), time.monotonic()
+
+            sim_node.create_subscription(_JointState, "/joint_states", on_arm_joints, 10)
             if not client.wait_for_server(timeout_sec=10.0):
                 print(f"no /right_arm/command on domain {action_domain}: is the "
                       + ("real arm service up, on a checkout with the command action and opendubs_arm_interfaces built "
@@ -474,10 +489,81 @@ def main():
                 out["speed"] = args.speed
             return out
 
+        def play_joints(q_target):
+            """ONE continuous move to the arm joints `q_target`: a straight joint-space line from where the arm is now
+            (its /joint_states), checked for self-collision first (engage.PathCheck, the service's own check for its
+            joint moves), timed minimum-jerk with the fastest joint peaking at --speed, played by the arm service's
+            follow_joint_trajectory (gated as every move: supervised, CH5, the e-stop, the deadman). Losing the permit or
+            Ctrl-C cancels it (the arm holds). Returns (accepted, reached)."""
+            from builtin_interfaces.msg import Duration
+            from trajectory_msgs.msg import JointTrajectoryPoint
+            sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
+            import engage
+            names = [f"openarm_right_joint{i}" for i in range(1, 8)]
+            deadline = time.monotonic() + 3.0
+            while (arm_joints["q"] is None or time.monotonic() - arm_joints["at"] > 0.5) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if arm_joints["q"] is None or time.monotonic() - arm_joints["at"] > 0.5:
+                print("no current joints from the arm (/joint_states): nothing sent", flush=True)
+                return False, False
+            q0, q1 = arm_joints["q"].copy(), np.asarray(q_target, float)
+            refusal = engage.PathCheck(args.model, names).refusal(q0, q1)
+            if refusal:
+                print(f"the straight path collides ({refusal}): nothing sent", flush=True)
+                return False, False
+            vmax = args.speed or 0.4
+            span = float(np.abs(q1 - q0).max())
+            T = max(1.5, 1.875 * span / vmax)                           # min-jerk peak = 1.875 x the mean speed
+            goal = FollowJointTrajectory.Goal()
+            goal.trajectory.joint_names = names
+            n = max(20, int(T * 20))
+            for i in range(n + 1):
+                s_, t = i / n, T * i / n
+                b = 10 * s_ ** 3 - 15 * s_ ** 4 + 6 * s_ ** 5
+                db = (30 * s_ ** 2 - 60 * s_ ** 3 + 30 * s_ ** 4) / T
+                pt = JointTrajectoryPoint()
+                pt.positions = [float(v) for v in q0 + (q1 - q0) * b]
+                pt.velocities = [float(v) for v in (q1 - q0) * db]
+                pt.time_from_start = Duration(sec=int(t), nanosec=int((t - int(t)) * 1e9))
+                goal.trajectory.points.append(pt)
+            if not traj_client.wait_for_server(timeout_sec=5.0):
+                print("no /right_controller/follow_joint_trajectory: nothing sent", flush=True)
+                return False, False
+            check_permit()
+            print(f"one move to the hand: {math.degrees(span):.0f} deg at most, {T:.1f} s, peak {vmax:.2f} rad/s", flush=True)
+            sent = traj_client.send_goal_async(goal)
+            wait = time.monotonic() + 10.0
+            while not sent.done() and time.monotonic() < wait:
+                time.sleep(0.05)
+            handle = sent.result() if sent.done() else None
+            if handle is None or not handle.accepted:
+                print("the trajectory was rejected (another move running, or the path is invalid: see the service's log)",
+                      flush=True)
+                return False, False
+            result = handle.get_result_async()
+            wait = time.monotonic() + T + args.result_s
+            try:
+                while not result.done() and time.monotonic() < wait:
+                    check_permit()
+                    time.sleep(0.05)
+            except (PermitLost, KeyboardInterrupt):
+                print("stopping the move (the arm holds where it is)", flush=True)
+                handle.cancel_goal_async()
+                time.sleep(0.5)
+                raise
+            if not result.done():
+                print("no result: cancelling the move (the arm holds where it is)", flush=True)
+                handle.cancel_goal_async()
+                return True, False
+            r = result.result().result
+            print(f"move: {'done' if r.error_code == 0 else f'error {r.error_code}'} {r.error_string}", flush=True)
+            return True, r.error_code == 0
+
         if args.jaws:
-            # JAWS LEVEL: ready -> the candy posture along its joint line, in CANDY_STEPS reach_pose steps (the planner
-            # cannot change the arm's configuration in one), then on to the hand in two. Any step that fails ends the
-            # reach there (the arm holds); home follows as usual.
+            # JAWS LEVEL: the hand pose solved jaws-level from the candy posture, then ONE continuous joint move there
+            # (play_joints), or with --jaws-steps ready -> the candy posture in CANDY_STEPS reach_pose steps and on to the
+            # hand in two (the planner cannot change the arm's configuration in one). A failed move ends the reach there
+            # (the arm holds); home follows as usual.
             ik = PositionIk(args.model, "right")
             ready_q, candy_q = ik.d.qpos[ik.qadr].copy(), np.radians(CANDY_Q_DEG)
             found = plan_jaws(ik, goal, candy_q)
@@ -488,9 +574,12 @@ def main():
                 p_t, R_t, q_t, off = found
                 print(f"jaws level: the hand at {fmt(p_t)}, {off * 1000:.0f} mm from the goal"
                       + (" (as near as the jaws-level arm gets)" if off > 0.02 else ""), flush=True)
+                if not args.jaws_steps:
+                    accepted, ok = play_joints(q_t)
+                    reached = 0 if ok else 1
                 steps = [ready_q + (candy_q - ready_q) * k / CANDY_STEPS for k in range(1, CANDY_STEPS + 1)]
                 steps += [candy_q + (q_t - candy_q) * k / 2 for k in (1, 2)]
-                for i, q in enumerate(steps, 1):
+                for i, q in enumerate(steps if args.jaws_steps else [], 1):
                     p, R = ik.fk(q)
                     print(f"step {i}/{len(steps)}" + (" (the candy posture)" if i == CANDY_STEPS else
                                                       " (the hand)" if i == len(steps) else ""), flush=True)
