@@ -210,8 +210,9 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
           head: str | None = None, projection: bool = False, crawler=None, tools: dict | None = None,
           candy_bucket=None, bucket_variant=None):
     """`head`: galaxy_tablet, the head the robot description carries (the default). `candy_bucket`:
-    None, or True for the candy bucket on its stand where props.py puts it, or (x, y, h): its candy at
-    base_link x, y and h above the floor, in metres. It COLLIDES (props.py), so the clearance sweep and
+    None, or True for the candy bucket at its home (on the bucket stage, riding the lift, when the robot
+    description has one; else on a floor stand where props.py puts it), or (x, y, h): its candy at
+    base_link x, y and h above the floor, in metres, on a floor stand. It COLLIDES (props.py), so the clearance sweep and
     pick planning see it. `bucket_variant`: handle_up (the default) or handle_down (props.BUCKET_VARIANTS).
     `projection`: the projection screen behind the robot, built hidden (geom alpha 0). `crawler`: a
     crawling hand's tool type (effectors.Tool) to add, posed by sim_preview.apply_crawler. `tools`:
@@ -248,8 +249,14 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
         hand.add_crawler(ours, crawler)
     if candy_bucket is not None and candy_bucket is not False:
         import props
+        on = None
+        if candy_bucket is True and any(st.name == props.STAGE_SITE for st in ours.sites):
+            home = ours.compile()                       # where the stage's top is, with the lift down
+            hd = mujoco.MjData(home)
+            mujoco.mj_kinematics(home, hd)
+            on = hd.site(props.STAGE_SITE).xpos.copy()
         props.add_candy_bucket(ours, None if candy_bucket is True else tuple(candy_bucket),
-                               variant=bucket_variant)
+                               variant=bucket_variant, on=on)
 
     model = ours.compile()
     for side, tool in sorted((tools or {}).items()):
@@ -391,6 +398,9 @@ def main():
     data.qpos[model.jnt_qposadr[zaxis]] = a.lift / 1000.0
     if a.joints:
         set_joints(model, data, a.joints)
+    if a.candy_bucket:
+        import props
+        props.follow_stage(model, data)             # a bucket on the stage rides the lift
     if a.drive:
         try:
             fwd, rot, str_ = (float(v) for v in a.drive.split(","))

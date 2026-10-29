@@ -133,6 +133,8 @@ def set_pose(model, data, joints: str = "", lift_mm: float = 0.0,
         data.qpos[model.jnt_qposadr[j]] = val
     if joints:
         scene.set_joints(model, data, joints)
+    import props
+    props.follow_stage(model, data)                 # a bucket on the stage rides the lift
     mujoco.mj_forward(model, data)
 
 
