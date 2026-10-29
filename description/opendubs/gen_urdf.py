@@ -111,7 +111,9 @@ def build(d, femto_variant=None):
     u.link("base_footprint")
     u.joint("base_footprint_joint", "fixed", "base_link", "base_footprint",
             (0, 0, bl["footprint_z_mm"] - base[2]))
-    u.link("datum", box(d["meshes"]["chassis"]["span_mm"], "frame"))
+    stage = d.get("bucket_stage") or {}
+    u.link("datum", [box(d["meshes"]["chassis"]["span_mm"], "frame")]
+           + ([box(stage["span_mm"], "plate")] if stage.get("fitted") and stage.get("rides") == "chassis" else []))
     u.joint("datum_joint", "fixed", "base_link", "datum", [-c for c in base])
 
     w = d["meshes"]["wheels"]

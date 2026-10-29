@@ -85,6 +85,7 @@
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
+    <material name="stage" rgba="0.72 0.58 0.40 1"/>
   </asset>
 
   <worldbody>
@@ -113,6 +114,16 @@
             material="frame"/>
       <geom class="collision" type="box" pos="0.290 0 0.154" size="0.322 0.3245 0.202"
             name="chassis_collision"/>
+
+      <!-- THE BUCKET STAGE, in front of the robot over the front lidar (dimensions.yaml
+           bucket_stage, which says how it was registered on the lift plate). A plain box in the
+           CAD it came from, so a box here: x 597..829, y -190..234, z 296.6..348.1 mm. Its top is
+           flush with the lift plate's underside with the lift down; its underside is 55 mm above
+           the front lidar's scan plane. Fixed to the chassis (TODO_CONFIRM). -->
+      <geom class="visual"    type="box" pos="0.713 0.022 0.322305" size="0.116 0.212 0.02575"
+            material="stage" name="bucket_stage_visual"/>
+      <geom class="collision" type="box" pos="0.713 0.022 0.322305" size="0.116 0.212 0.02575"
+            name="bucket_stage_collision"/>
 
 
       <!-- THE WHEELS. Mecanum, so they are not cylinders with sideways grip: each is a hub that
