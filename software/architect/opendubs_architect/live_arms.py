@@ -32,7 +32,8 @@ NOT BUILT YET, and why live motion is not yet allowed on the robot:
     on a second motion source first.
   * The head's pan/tilt and the lift height are not in the robot state the dashboard serves. So the
     clearance check assumes the config's head poses (default: centred) and lift (default: down).
-  * Orientation. The twin's IK places the gripper's tool point; it does not hold an orientation.
+  * Orientation. The twin's IK places the gripper's tool point and, when asked, the direction its
+    fingers point (axis_ik.py, e.g. straight down into a bucket); the roll about that axis is free.
   * The twin is about 6 degrees optimistic at the shoulder (sim/clearance.py). The shoulder rules in
     cue.py, from measured constants, are what keep the arm off the head, and the IK keeps to them.
 """
@@ -54,6 +55,8 @@ for _p in (_REPO / "software" / "choreo", _REPO / "sim"):
 import arm_output  # noqa: E402  the runner's arm output: the only code that sends arm goals
 import cue  # noqa: E402
 import runner  # noqa: E402  its gates: preflight and monitor
+
+from opendubs_architect import axis_ik  # noqa: E402
 
 #: What every move needs, beyond what runner.preflight checks for any run.
 REQUIRES = {"rc_authority": "AUTO", "arms": "active"}
@@ -212,18 +215,31 @@ class Planner:
                 raise Refused("JOINT_LIMIT", f"{side} J{j} would be {v:.1f} deg, outside its usable "
                                              f"{lo_d:.1f}..{hi_d:.1f}")
 
-    def plan(self, side: str, pose: dict, point=None, goal_signed=None, margin_deg=cue.MARGIN_DEG) -> Move:
+    def plan(self, side: str, pose: dict, point=None, goal_signed=None, margin_deg=cue.MARGIN_DEG,
+             approach=None) -> Move:
         """A move of `side` from `pose` to a chassis-frame `point` (solved) or to `goal_signed`. The goal
         keeps `margin_deg` inside each joint's limits: the validator's margin, except for rest, which
-        the validator takes exactly (cue.rest_pose)."""
+        the validator takes exactly (cue.rest_pose). `approach`, with a point: the direction the fingers
+        point at the goal (the tool's +z, chassis frame), held within axis_ik.AXIS_TOL_DEG."""
         np = self.kin.np
         start = [float(v) for v in pose[ARM_SLOT[side]]]
         if point is not None:
             self._pose(pose, self.config.head[0])
-            sol, err, _ = self.kin.solve(side, "reach", self.kin.point([float(v) for v in point], side))
+            goal = self.kin.point([float(v) for v in point], side)
+            if approach is None:
+                sol, err, _ = self.kin.solve(side, "reach", goal)
+            else:
+                mj = self.kin.mj
+                chassis = self.kin.d.xmat[mj.mj_name2id(self.kin.m, mj.mjtObj.mjOBJ_BODY, "chassis")].reshape(3, 3)
+                sol, err, miss_deg = axis_ik.solve(self.kin, side, goal, chassis @ np.array(axis_ik.unit(approach)),
+                                                   self.ik.REACH_TOL_M)
+                if err <= self.ik.REACH_TOL_M and miss_deg > axis_ik.AXIS_TOL_DEG:
+                    raise Refused("OUT_OF_REACH", f"the {side} arm reaches {list(point)} but not with its fingers "
+                                                  f"along {list(approach)}: its best is {miss_deg:.1f} deg off")
             if err > self.ik.REACH_TOL_M:
-                raise Refused("OUT_OF_REACH", f"the {side} arm cannot reach {list(point)}: "
-                                              f"its best is {err * 100:.1f} cm off")
+                raise Refused("OUT_OF_REACH", f"the {side} arm cannot reach {list(point)}"
+                                              + (f" with its fingers along {list(approach)}" if approach is not None else "")
+                                              + f": its best is {err * 100:.1f} cm off")
             goal_signed = to_signed(side, [sol[j] for j in range(1, 8)])
         goal = [round(float(v), 2) for v in goal_signed]
         self._usable(side, goal, margin_deg)
@@ -337,9 +353,13 @@ class _Arms:
         return move
 
     # ---- the requests ---------------------------------------------------------------------------
-    def move_to_point(self, side: str, point) -> Move:
+    def move_to_point(self, side: str, point, approach=None) -> Move:
+        """`approach`: the direction the fingers point at the goal (chassis frame), or None for any."""
         point = [float(v) for v in point]
         self._in_workspace(_check_side(side), point)
+        if approach is not None:
+            approach = [float(v) for v in approach]
+            return self._run(side, point=point, approach=approach)
         return self._run(side, point=point)
 
     def move_by(self, side: str, delta) -> Move:
@@ -546,6 +566,10 @@ class ShowRecorder(_Arms):
             self.cues[-1] = {"t": self.cues[-1]["t"], "slot": ARM_SLOT[side], "pose": "rest"}
             self.write()
         return move
+
+    def wait(self, seconds: float) -> None:
+        """Nothing moves for `seconds`: the next cue starts that much later."""
+        self.t = round(self.t + float(seconds), 2)
 
     def _grip(self, side: str, opening: float) -> None:
         self.cues.append({"t": round(self.t, 2), "slot": GRIP_SLOT[side], "open": round(opening, 2)})

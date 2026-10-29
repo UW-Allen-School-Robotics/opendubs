@@ -99,6 +99,10 @@ class DryRunRobot:
         self._log("reset_robot")
         return True
 
+    def wait(self, seconds):
+        self._log("wait", api.check_wait(seconds))
+        return True
+
     def place_in_hand(self, arm, timeout_s=15.0):
         self._log("place_in_hand", api.check_arm(arm), timeout_s=timeout_s)
         self._opening[arm] = 1.0

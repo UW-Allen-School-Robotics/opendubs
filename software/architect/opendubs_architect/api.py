@@ -41,6 +41,7 @@ PRIMITIVES = (
     ("set_gripper_width",         "control/set_gripper_width",         "command"),
     ("reset_robot",               "control/reset_robot",               "command"),
     ("place_in_hand",             "control/place_in_hand",             "command"),
+    ("wait",                      "control/wait",                      "command"),
     ("set_head_pose",             "head/set_head_pose",                "command"),
     ("say",                       "head/say",                          "command"),
     ("set_expression",            "head/set_expression",               "command"),
@@ -111,11 +112,31 @@ def check_pose(pose: dict, name: str = "target_pose") -> dict:
         p, q = pose["position"], pose["orientation"]
         [float(p[k]) for k in "xyz"]
         [float(q[k]) for k in "xyzw"]
+        if pose.get("approach") is not None:
+            a = [float(pose["approach"][k]) for k in "xyz"]
+            if sum(v * v for v in a) < 1e-6:
+                raise ValueError
     except (KeyError, TypeError, ValueError):
         raise ValueError(
-            f"{name} must be {{'position': {{x, y, z}}, 'orientation': {{x, y, z, w}}}}, got {pose!r}"
+            f"{name} must be {{'position': {{x, y, z}}, 'orientation': {{x, y, z, w}}}} and optionally "
+            f"'approach': {{x, y, z}} (not zero), got {pose!r}"
         ) from None
     return pose
+
+
+def approach_of(pose: dict):
+    """A checked pose's "approach" as [x, y, z], or None when it names none."""
+    a = pose.get("approach")
+    return None if a is None else [float(a[k]) for k in "xyz"]
+
+
+WAIT_MAX_S = 10.0
+
+
+def check_wait(seconds: float) -> float:
+    if not isinstance(seconds, (int, float)) or not 0.0 <= seconds <= WAIT_MAX_S:
+        raise ValueError(f"wait takes 0 to {WAIT_MAX_S:g} seconds, got {seconds!r}")
+    return float(seconds)
 
 
 def check_delta(delta: dict) -> dict:
@@ -212,9 +233,11 @@ get_named_poses()
 
 move_ee_to_pose(arm: str, target_pose: dict)
     Move `arm`'s gripper tool point to target_pose["position"] in the chassis frame, checked by the robot.
-    target_pose: {"position": {x, y, z}, "orientation": {x, y, z, w}}
+    target_pose: {"position": {x, y, z}, "orientation": {x, y, z, w}, "approach": {x, y, z}?}
     The orientation is not yet controlled: the arm reaches the position in the posture nearest
-    its current one. Returns True.
+    its current one. "approach", if given, is the direction the fingers point at the goal, held
+    within 2 degrees (e.g. {"x": 0, "y": 0, "z": -1}: straight down, into a container from above);
+    the gripper's roll about it is free. Returns True.
 
 move_ee_to_rel_pose(arm: str, delta: dict)
     Move `arm`'s gripper tool point by {"x": dx, "y": dy, "z": dz} meters in the chassis frame
@@ -236,6 +259,10 @@ place_in_hand(arm: str, timeout_s: float = 15.0)
     tracks the hand, moves the gripper into it, opens, and retracts. Waits up to `timeout_s`
     for a stable hand. Returns {"released": bool, "reason": str}; released is False when no
     stable hand appeared in time (the gripper is still closed and the arm has retracted).
+
+wait(seconds: float)
+    Hold still for `seconds` (0 to 10) before the next call, e.g. a pause before letting go.
+    Returns True.
 
 ## Head and expression (no arm or base motion)
 
@@ -280,10 +307,10 @@ PROFILES = {
     "full": PRIMITIVE_NAMES,
     "arms_see": ("detect_objects", "locate_object", "get_current_joints", "get_current_ee_pose",
                  "get_current_gripper_width", "get_workspace", "get_named_poses", "move_ee_to_pose",
-                 "move_ee_to_rel_pose", "move_arm_to_named_pose", "set_gripper_width", "reset_robot"),
+                 "move_ee_to_rel_pose", "move_arm_to_named_pose", "set_gripper_width", "reset_robot", "wait"),
     "arms": ("get_current_joints", "get_current_ee_pose", "get_current_gripper_width", "get_workspace",
              "get_named_poses", "move_ee_to_pose", "move_ee_to_rel_pose", "move_arm_to_named_pose",
-             "set_gripper_width", "reset_robot"),
+             "set_gripper_width", "reset_robot", "wait"),
 }
 
 _ENTRY = re.compile(r"^([a-z_]+)\(")

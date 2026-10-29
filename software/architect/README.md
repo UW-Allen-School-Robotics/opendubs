@@ -288,6 +288,22 @@ and lets go. 17.4 s, swept at 38.9 mm. What it took, learned at the robot:
 - **Every move in it is straight.** CBiRRT routes a move the straight-line planner refuses (below); the
   hand-off needed a hand-designed route instead.
 
+**Re-aimed for the bucket stage (2026-10-28).** The bucket now stands on the stage mounted to the
+lift (#602; the handle-down bucket, #601): its base at chassis (0.713, 0.022, 0.348) with the lift
+down, its rim at z 0.553. The show of 2026-10-24 put a finger 16 mm into its wall. The program now
+goes up and out to the right first and last, comes over the bucket 11 cm above the rim, and goes
+straight down and back up with the fingers held 25 degrees off vertical (`move_ee_to_pose`'s
+`approach`, solved by `axis_ik.py`), then pauses 1.5 s at the offer before letting go (`wait`).
+
+- **Fingers down cannot go deep here.** Exactly vertical is out of reach (the wrist, J6 and J7, runs
+  out); within 20-30 degrees of it the hand reaches no lower than about z 0.52, the shoulder (J2) at
+  its limit. Raising the lift does not help: the arms and the stage both ride it. So the candy sits
+  on a false bottom about 2 cm below the rim, where the hand grabs at (0.68, -0.01, 0.535).
+- **Checked on the twin with the stage and the bucket** (the description's branches merged in a
+  scratch tree): closest 22.8 mm to the bucket, at the bottom with the gripper 40% open (fully open,
+  a finger met the wall); the descent stays within 1 mm of the vertical and the fingers 25.0-25.2
+  degrees off it; 38.9 mm to the robot's own body. Recorded as `architect-7e8c712324b3`, 30.2 s.
+
 ## The demo day: one coordinator, one thing at a time
 
 On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh day`, on

@@ -20,6 +20,7 @@ quiet loses its lease and the arm holds where it is.
 from __future__ import annotations
 
 import json
+import time
 
 from opendubs_architect import api
 
@@ -237,6 +238,11 @@ class OpenDubsRobotClient:
 
     def reset_robot(self) -> bool:
         self._call("reset_robot")
+        return True
+
+    def wait(self, seconds: float) -> bool:
+        """Here, not a service: the program holds still before its next call."""
+        time.sleep(api.check_wait(seconds))
         return True
 
     def place_in_hand(self, arm: str, timeout_s: float = 15.0) -> dict:

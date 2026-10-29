@@ -149,7 +149,11 @@ class ShowRobot:
     @_refused
     def move_ee_to_pose(self, arm: str, target_pose: dict) -> bool:
         p = api.check_pose(target_pose)["position"]
-        self.recorder.move_to_point(api.check_arm(arm), [p["x"], p["y"], p["z"]])
+        self.recorder.move_to_point(api.check_arm(arm), [p["x"], p["y"], p["z"]], api.approach_of(target_pose))
+        return True
+
+    def wait(self, seconds: float) -> bool:
+        self.recorder.wait(api.check_wait(seconds))
         return True
 
     @_refused

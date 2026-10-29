@@ -41,7 +41,8 @@ def handlers(arms: live_arms.LiveArms) -> dict:
     """{primitive: fn(payload dict) -> reply dict}."""
     return {
         "move_ee_to_pose": lambda p: _moved(arms.move_to_point(
-            api.check_arm(p["arm"]), _xyz(api.check_pose(p["target_pose"])["position"]))),
+            api.check_arm(p["arm"]), _xyz(api.check_pose(p["target_pose"])["position"]),
+            api.approach_of(p["target_pose"]))),
         "move_ee_to_rel_pose": lambda p: _moved(arms.move_by(
             api.check_arm(p["arm"]), _xyz(api.check_delta(p["delta"])))),
         "move_arm_to_named_pose": lambda p: _moved(arms.move_to_named(api.check_arm(p["arm"]), str(p["name"]))),
