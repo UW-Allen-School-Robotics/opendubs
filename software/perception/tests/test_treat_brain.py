@@ -146,3 +146,15 @@ def test_capture_starts_over_when_the_hand_drops():
     assert c.update({"right": HANGING}, SH) is None                  # dropped on the 5th
     assert all(c.update({"right": HELD_OUT}, SH) is None for _ in range(4))
     assert c.update({"right": HELD_OUT}, SH) is not None
+
+
+def test_head_aim_looks_lower_and_settles_with_the_shoulders_above_centre():
+    h = HeadLaw(HeadParams(aim_deg=15.0))
+    h.start(0.0, 90.0, 90.0)
+    pan, tilt = h.step(0.1, {"below_deg": 0.0, "right_deg": 0.0}, 0.1)   # shoulders at the centre: too low a view
+    assert tilt < 90                                                    # tilt down (smaller): the head looks lower
+    h.sent(pan, tilt)
+    for i in range(6):                                                  # shoulders 15 deg above the centre: settled
+        t = 1.0 + i * 0.1
+        assert h.step(t, {"below_deg": -15.0, "right_deg": 0.0}, t) is None
+    assert h.acquired

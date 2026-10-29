@@ -46,6 +46,8 @@ class HeadParams:
     search_after_s: float = 2.0  # s with nobody seen before the head sweeps
     search_dps: float = 8.0
     period: float = 0.1
+    aim_deg: float = 0.0        # the torso held this far ABOVE the picture's centre (deg, + up): the head looks lower,
+                                # so hands held out at the waist stay in frame (the top of the head may leave it)
 
 
 class HeadLaw:
@@ -90,7 +92,7 @@ class HeadLaw:
         if mid is not None and now - mid_at <= 0.5:
             self.seen_at = now
         if fresh:
-            e_t = float(mid["below_deg"])
+            e_t = float(mid["below_deg"]) + p.aim_deg              # 0 when the shoulders sit aim_deg above the centre
             e_p = float(mid.get("right_deg") or 0.0) if p.pan else 0.0
             err = math.hypot(e_t, e_p)
             if self.mode == "search":

@@ -13,8 +13,9 @@ THE SERVICES, /perception/treat/<name>; each returns when its step has ended (do
                                                          ONE continuous move: a straight joint line from where the arm is,
                                                          self-collision checked (engage.PathCheck), minimum-jerk, played
                                                          by follow_joint_trajectory
-  centre_person  {"timeout_s"?: 20}                      the head centres the nearest person's torso, settles and HOLDS
-                                                         there; data: the head's tilt and pan
+  centre_person  {"timeout_s"?: 20}                      the head centres the nearest person, settles and HOLDS there:
+                                                         the shoulders --head-aim-deg (15) above the picture's centre,
+                                                         so the body and the hands are in frame; data: tilt and pan
   get_hand       {"timeout_s"?: 10, "stable_frames"?: 5, "still_m"?: 0.05}
                                                          waits for a hand held out and still; data: side, palm in arm_mount
   find_hand      {"find_s"?: 20, "wait_s"?: 10, ...}     centre_person, then get_hand: one call
@@ -403,6 +404,9 @@ def main():
     ap.add_argument("--left-stowed", action="store_true", help="--real --head: the left arm is not run and is at stow")
     ap.add_argument("--no-head", dest="head", action="store_false", help="no head")
     ap.add_argument("--head-pan", action="store_true")
+    ap.add_argument("--head-aim-deg", type=float, default=15.0,
+                    help="hold the person's shoulders this far ABOVE the picture's centre (deg): the head looks lower, so "
+                         "a hand held out at the waist is in frame (the top of the head need not be)")
     ap.add_argument("--arm-check", action="store_true", help="the real arms' clearance rule for the head (on with --real)")
     ap.add_argument("--arm-j2-max", type=float, default=142.0)
     ap.add_argument("--neck-host", default=None)
@@ -470,7 +474,7 @@ def main():
         host = args.neck_host or neck_host_from_env()
         if not host:
             raise SystemExit("no neck host: set OPENDUBS_HEAD_NECK_HOST or --neck-host, or run with --no-head")
-        t.head = Head(HeadTilt(host, None, args, t.arms_clear), HeadLaw(HeadParams(pan=args.head_pan)), lambda: "watch")
+        t.head = Head(HeadTilt(host, None, args, t.arms_clear), HeadLaw(HeadParams(pan=args.head_pan, aim_deg=args.head_aim_deg)), lambda: "watch")
         threading.Thread(target=t.head.run, daemon=True).start()
 
     group = ReentrantCallbackGroup()
