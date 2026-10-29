@@ -101,7 +101,8 @@ PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "a
                "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool,
                # the box's own estimate of its sound output's delay, and the audio lead the page is using
                "audio_latency_ms": (int, float), "audio_lead_ms": (int, float), "audio_lead_from": str,
-               "audio_setting": str}   # the output CHOSEN on the box (auto, hdmi, jack, usb, bt); audio_output is the one playing
+               "audio_setting": str,   # the output CHOSEN on the box (auto, hdmi, jack, usb, bt); audio_output is the one playing
+               "audio_why": str}       # with audio_output "none": why the box has no sound (#591)
 
 
 def page_info(raw: dict) -> dict:
@@ -110,6 +111,8 @@ def page_info(raw: dict) -> dict:
     for k in ("device", "name", "model", "audio_output", "audio_name", "screen_mode", "sound", "audio_lead_from", "audio_setting"):
         if k in out:
             out[k] = out[k][:80]
+    if "audio_why" in out:
+        out["audio_why"] = out["audio_why"][:160]
     if "viewport" in out:
         vp = out["viewport"][:2]
         out["viewport"] = [int(x) for x in vp if isinstance(x, (int, float)) and not isinstance(x, bool)]

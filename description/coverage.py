@@ -240,7 +240,8 @@ def reach_grid(lift_mm: float, heights, cache: Path):
     xs = np.round(np.arange(0.0, 0.80 + 1e-9, REACH_CELL), 3)          # base_link x
     ys = np.round(np.arange(-0.75, 0.75 + 1e-9, REACH_CELL), 3)
     key = hashlib.sha256(json.dumps([lift_mm, list(heights), xs.tolist(), ys.tolist(),
-                                     (OURS / "opendubs.xml").read_text()]).encode()).hexdigest()[:12]
+                                     (OURS / "opendubs.xml").read_text(),
+                                     Path(__file__).read_text()]).encode()).hexdigest()[:12]   # a code fix re-runs it
     f = cache / f"reach-{key}.json"
     if f.exists():
         raw = json.loads(f.read_text())
@@ -249,7 +250,7 @@ def reach_grid(lift_mm: float, heights, cache: Path):
     cloud = {s: r.hand_cloud(s, HAND_SAMPLES) for s in ("left", "right")}
     out = {}
     for h in heights:
-        z = h - (-0.094)                                           # chassis frame: the floor is at -0.094
+        z = h - 0.094                                              # chassis frame: the floor is at z -0.094
         for side in ("left", "right"):
             near = cloud[side][np.abs(cloud[side][:, 2] - z) <= REACH_CELL]
             cand = set()

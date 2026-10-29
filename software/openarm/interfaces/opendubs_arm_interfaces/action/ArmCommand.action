@@ -1,0 +1,21 @@
+# One action on /<side>_arm/command for what the arm service does on request beyond the show runner's trajectory and gripper actions, one at a time: a goal is REJECTED while another
+# command, a trajectory or any other move is running. Params and data are JSON text, as robot_api_interfaces' RobotCommand has them.
+#
+#   name              params (JSON)
+#   reach_pose        {"position": [x, y, z], "orientation": [w, x, y, z]?, "speed"?, "duration"?, "tolerance_mm"?, "tolerance_deg"?}   the arm model's frame, metres
+#   ready             {}                      the model's `ready` pose, where hand tracking (follow) starts
+#   candy_grasp       {"basket": {"position": [x, y, z], "orientation"?}?, "approach"?, "lift"?, "speed"?, "then": "ready" or "stay"}
+#
+# Cancelling the goal holds the arm where it is.
+string name
+string params
+---
+uint8 SUCCESS = 0                # the values of robot_api_interfaces/ResultCode
+uint8 FAILURE = 1                # the command was valid and ran, and could not do it (the message says why)
+uint8 INVALID_INPUT = 2          # unknown name, bad JSON, a missing or impossible field, or a candy basket that is not taught
+uint8 NOT_FOUND = 5              # reach_pose: the pose is outside the arm's reach
+uint8 result_code
+string message
+string data                      # JSON: what was measured (errors, the finger, the time)
+---
+string stage                     # what it is doing now, e.g. "above the basket"

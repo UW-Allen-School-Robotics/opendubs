@@ -40,8 +40,12 @@ EnvironmentFile=-/etc/opendubs/robot.env
 # to the Thor's base tracker (/dance/*), which follows them on /odom and stops for people (the LIDARs).
 # No tracker running: shows run without their dance steps, saying so. CH5 AUTO and the deadman still gate it.
 Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
-Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs-fastdds-udp-only.xml
+# The robot's FastDDS profile (provision-ros.sh): UDP on 127.0.0.1 only, no shared memory, no
+# multicast, so the runner's discovery stays off the robot's Wi-Fi. It still reaches the arm
+# container, whose profile differs. Not ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST: in Jazzy that adds
+# shared memory, which doesn't cross from this user to the container.
+Environment=FASTDDS_DEFAULT_PROFILES_FILE=/etc/opendubs/fastdds-robot.xml
+Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/opendubs/fastdds-robot.xml
 ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec /usr/bin/python3 runner.py palette --robot dashboard --audio dashboard --arms ros --face auto --gaze auto --earcons off --lift dashboard --light dashboard --video cast,stage --base ros --port 8092 --log /var/log/opendubs-runner/runner.jsonl'
 LogsDirectory=opendubs-runner
 # The projector's per-robot settings (projector.json: the audio and video offsets set by ear, how it

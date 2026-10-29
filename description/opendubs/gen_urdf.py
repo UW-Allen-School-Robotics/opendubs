@@ -133,7 +133,11 @@ def build(d, femto_variant=None):
     ex = d["head"]["export"]
     cover = {a: [v + ex["to_robot_mm"][i] for v in ex["extents_export_mm"]["chest_cover"][a]]
              for i, a in enumerate("xyz")}
-    u.link("lift_platform", [box(d["meshes"]["lift_platform"]["span_mm"], "plate"), box(cover, "frame")])
+    # The bucket stage is mounted to the lift too, in CAD coordinates with the lift down.
+    stage = d.get("bucket_stage") or {}
+    assert not stage.get("fitted") or stage.get("rides") == "lift_platform", "bucket_stage rides the lift"
+    u.link("lift_platform", [box(d["meshes"]["lift_platform"]["span_mm"], "plate"), box(cover, "frame")]
+           + ([box(stage["span_mm"], "plate")] if stage.get("fitted") else []))
     u.joint("zaxis", "prismatic", "datum", "lift_platform", axis=(0, 0, 1),
             limit=(0, m(lift["stroke_mm"])))
 

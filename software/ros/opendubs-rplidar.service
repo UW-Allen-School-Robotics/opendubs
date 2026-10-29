@@ -8,6 +8,9 @@ Type=simple
 User=@OPENDUBS_USER@
 # ROS writes logs under $HOME/.ros — systemd gives a minimal env, so set it.
 Environment=HOME=@OPENDUBS_HOME@
+# The robot's DDS settings (ros-dds.env, installed by provision-ros.sh): UDP over loopback only, so
+# no shared memory (a long-lived subscriber on it can go deaf, workplan L.10) and no multicast.
+EnvironmentFile=/etc/opendubs/ros-dds.env
 ExecStart=/opt/opendubs/ros/rplidar.sh
 # Recover if the LIDAR is unplugged/replugged or the driver dies, and keep
 # retrying if the device isn't present yet at boot.

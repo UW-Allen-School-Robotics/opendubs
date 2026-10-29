@@ -412,6 +412,46 @@ r, end, items, calls = run_audio("music", so, key="stage", lose=True)
 check("... every stage page gone: the tablet takes the music over at the same point (unhold), the show goes on",
       end[0] == "COMPLETED" and any(c.get("op") == "unhold" for c in calls) and r.music_on == "tablet",
       (end, [c.get("op") for c in calls]))
+
+
+class SoundStage(Captured):
+    """A stage page that reports its box's sound output (the Tablet lane's device.json → page report)."""
+    def __init__(self, audio_output="bt", why=None):
+        super().__init__()
+        self.page = {"name": "stage-pi", "audio_output": audio_output, "audio_why": why, "audio_name": "Boom 2"}
+
+    def _get(self):
+        return {"pages": self.n, "pages_info": [self.page]}
+
+
+def run_chosen(out, choice):
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=LIB)
+    tmp.write("id: a\nslots: [FACE]\nrequires: {tab5: true}\nmusic: { file: song.wav, bpm: 120 }\ncues:\n"
+              "  - { t: 4.0, slot: FACE, do: emote, name: SOFT }\n")
+    tmp.close()
+    clk = {"t": 1000.0}
+    audio = R.NullAudio(outputs={"tablet": "tablet", "speakerphone": "Jabra"})
+    r = R.Runner(tmp.name, LIMITS, R.FakeRobotState(), log=io.StringIO(), clock=lambda: clk["t"],
+                 sleep=lambda s: clk.__setitem__("t", clk["t"] + s), start_lead=0.5, audio=audio,
+                 video={"stage": out}, video_default="cast", audio_output=choice)
+    end = r.run()
+    load = next((c for c in audio.calls if c.get("op") == "load"), {})
+    return r, end, load.get("items", [])
+
+
+print("\nvideo: the music played on the device the operator CHOSE (choreo-audio-output.md)")
+so = SoundStage()
+r, end, items = run_chosen(so, "stage")
+so.wait_for("load")
+v = so.sent[0]["videos"][0] if so.sent else {}
+check("music chosen for the stage box goes to the stage page — even with the video elsewhere — and no hub device "
+      "holds a copy (no quiet second speaker)",
+      end[0] == "COMPLETED" and r.audio_device == "stage" and v.get("audio") is True and items == []
+      and so.made.mute_on_stall is False, (end, v, items))
+so = SoundStage(audio_output="none", why="the Bluetooth speaker Boom 2 is not connected")
+r, end, items = run_chosen(so, "stage")
+check("... a stage box that can't make sound refuses the run with the box's own reason",
+      end[:2] == ("REFUSED", "SHOW_AUDIO_OUTPUT_MISSING") and "Boom 2 is not connected" in end[2] and not so.sent, end)
 print("\nvideo: the stage's audio lead PER SOUND OUTPUT, and the skeleton layer only where a show asks (choreo-stage.md)")
 got = V.save_settings({"stage_audio_leads_s": {"bt": 0.2, "usb": 0.02}})
 check("each sound output the box can select keeps its own audio lead, set by ear",
@@ -489,6 +529,20 @@ time.sleep(2.4)
 check("a page that runs dry mid-show: logged, the pages muted, and the tablet takes the music — never an abort",
       sh.stalled and lost and "ran out of video at 31.5 s" in lost[-1] and any(m["op"] == "mute" for m in so.sent),
       (sh.stalled, lost, [m["op"] for m in so.sent]))
+sh.end("COMPLETED")
+so = PreStage(local=True)
+so.pre["ready"] = True
+sh = so.make_show([{"t": 0.0, "end_t": 40.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,
+                  on_lost=lost.append)
+sh.mute_on_stall = False                     # the runner's word: the stage box is the only device with the music
+sh.begin()
+so.wait_for("load")
+sh.go(lambda: 0.0)
+so.stalls = [{"at_s": -0.2}]
+time.sleep(2.4)
+check("... but with no other device holding the music, a stall never mutes the pages (2026-10-28: a stall 0.2 s "
+      "before the start silenced the Boom for the whole show)",
+      sh.stalled and not any(m["op"] == "mute" for m in so.sent), [m["op"] for m in so.sent])
 sh.end("COMPLETED")
 so = PreStage(buffered=10.0)
 sh = so.make_show([{"t": 0.0, "end_t": 4.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,

@@ -285,6 +285,12 @@ Three things about this file:
 number of angles does not match the number of joints. Travel time defaults to 4 s
 (`$OPENARM_PARK_SECS`).
 
+### Park before leaving the robot, on the gafro path too
+
+The arm layer that runs on gafro with no ROS (`software/openarm/gafro/`, `notes/design/arm-gafro.md`) has a **ready** pose, with the elbow bent, that it works from. It is not a
+resting pose: an e-stop or a power drop there lets the forearm fall, as with any extended arm. **Park before leaving the robot** (`engage.py --park`, which goes to the same stow
+pose as above), and never leave the arms at ready. It runs only with the existing stack down, CH5 in MANUAL or AUTO, and `--supervised`.
+
 To work inside the container: `sudo docker exec -it openarm bash`, then
 `source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash`.
 
