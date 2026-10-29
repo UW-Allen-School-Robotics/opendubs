@@ -168,6 +168,7 @@ class RosArms:
             self._GC, self.grip_clients = None, {}
         self.lock = threading.Lock()
         self._js, self._js_at = {}, 0.0
+        self._js_t = {}                      # joint name -> when its newest value arrived (monotonic): the table is by joint, not by message
         self._jv, self._je = {}, {}          # velocity and effort, when the arm stack publishes them
         self.results = {}                    # slot -> the last goal's final status (4 ok, 5 cancelled, 6 aborted)
         self.goal_status = {}                # goal id -> that goal's OWN final status, whatever was sent since
@@ -182,36 +183,51 @@ class RosArms:
         threading.Thread(target=ex.spin, daemon=True).start()
 
     def _on_js(self, m):
+        """Keep the newest value of every joint the message names. The table is by joint name, never by message: the old stack's one broadcaster put every joint of both arms in each
+        message, but the arm services are one process per arm and each publishes its own seven joints, and its fingers apart. Replacing the table with each message left it holding
+        one arm at a time, so a live run, which needs both, was refused for whichever arm the last message was not about (UNKNOWN_STATE, opendubs2, 2026-10-29)."""
+        now = time.monotonic()
         with self.lock:
-            self._js, self._js_at = dict(zip(m.name, m.position)), time.monotonic()
-            self._jv = dict(zip(m.name, m.velocity)) if len(m.velocity) == len(m.name) else {}
-            self._je = dict(zip(m.name, m.effort)) if len(m.effort) == len(m.name) else {}
+            self._js.update(zip(m.name, m.position))
+            self._js_at = now
+            for name in m.name:
+                self._js_t[name] = now
+            for table, values in ((self._jv, m.velocity), (self._je, m.effort)):
+                if len(values) == len(m.name):
+                    table.update(zip(m.name, values))
+                else:
+                    for name in m.name:
+                        table.pop(name, None)             # this message says nothing about them: an older value must not pass for current
+
+    def _fresh(self, names, now):
+        """Whether every joint in `names` has a value no older than JOINT_STATE_MAX_AGE_S. A joint with no stamp of its own (a table filled by hand) is as old as the newest message."""
+        return all(n in self._js and now - self._js_t.get(n, self._js_at) <= JOINT_STATE_MAX_AGE_S for n in names)
 
     def sample(self, side):
         """(monotonic time, [7 deg], [7 deg/s] or None, [7 N·m] or None) for one arm, or None if stale.
         Controller sense (signed), the same sense `send` takes."""
         names = joint_names(side)
         with self.lock:
-            if time.monotonic() - self._js_at > JOINT_STATE_MAX_AGE_S or not all(n in self._js for n in names):
+            if not self._fresh(names, time.monotonic()):
                 return None
             pos = [math.degrees(self._js[n]) for n in names]
             vel = [math.degrees(self._jv[n]) for n in names] if all(n in self._jv for n in names) else None
             eff = [float(self._je[n]) for n in names] if all(n in self._je for n in names) else None
-            return self._js_at, pos, vel, eff
+            return max(self._js_t.get(n, self._js_at) for n in names), pos, vel, eff
 
     def measured(self):
         """{"ARM_L": [7 signed degrees], "ARM_R": [...]} — or None if /joint_states is stale. An arm
         /joint_states does not carry all seven joints of is left out (it may be down, and a run may
         skip it); the runner refuses a run that needs an arm missing here."""
+        now = time.monotonic()
         with self.lock:
-            if time.monotonic() - self._js_at > JOINT_STATE_MAX_AGE_S:
+            if now - self._js_at > JOINT_STATE_MAX_AGE_S:
                 return None
-            js = dict(self._js)
-        out = {}
-        for slot, side in ARM_SIDES.items():
-            names = joint_names(side)
-            if all(n in js for n in names):
-                out[slot] = [math.degrees(js[n]) for n in names]
+            out = {}
+            for slot, side in ARM_SIDES.items():
+                names = joint_names(side)
+                if self._fresh(names, now):
+                    out[slot] = [math.degrees(self._js[n]) for n in names]
         return out
 
     def send(self, slot, points):
@@ -340,7 +356,7 @@ class RosArms:
         a close that stopped on an object as SUCCEEDED (Arms, 2026-10-12)."""
         name = f"openarm_{side}_finger_joint1"
         with self.lock:
-            if time.monotonic() - self._js_at > JOINT_STATE_MAX_AGE_S or name not in self._js:
+            if not self._fresh([name], time.monotonic()):
                 return None
             return float(self._js[name])
 

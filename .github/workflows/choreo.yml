@@ -50,6 +50,7 @@ jobs:
       - run: python3 software/choreo/tests/test_bridge.py
       - run: python3 software/choreo/tests/test_runner.py
       - run: python3 software/choreo/tests/test_arm_goals.py   # a rejected or unanswered arm goal ends the show
+      - run: python3 software/choreo/tests/test_joint_state_merge.py   # each arm service publishes its own joints: the runner's table is by joint, not by message
       - run: python3 software/choreo/tests/test_hand_box.py   # hand_tcp against the arm controllers' workspace box
       - run: python3 software/choreo/tests/test_face_frames.py
       - run: python3 software/choreo/tests/test_twin_grips.py
