@@ -9,6 +9,7 @@ import math
 import os
 import sys
 import unittest
+import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
@@ -26,6 +27,13 @@ except ImportError:
     HAVE_TWIN = False
 
 
+def mount_pitch_deg():
+    """The camera's pitch on its mount, from the robot description (36 degrees down with the fitted 30-degree
+    Femto mount, #589; it was 6)."""
+    joint = ET.parse(str(cf.URDF)).getroot().find("joint[@name='camera_link_joint']")
+    return math.degrees(float(joint.find("origin").get("rpy").split()[1]))
+
+
 class Conversion(unittest.TestCase):
     def setUp(self):
         self.p = Perception()                       # the head centred, the lift down
@@ -34,8 +42,9 @@ class Conversion(unittest.TestCase):
         cam = self.p.T[:3, 3]
         here = self.p.locate_reply({"position": {"x": 0.0, "y": 0.0, "z": 1.0}})["position"]
         ahead = np.array([here[k] for k in "xyz"]) - cam
-        self.assertGreater(ahead[0], 0.98)          # forward, the camera tilted 6 degrees down
-        self.assertAlmostEqual(math.degrees(math.atan2(-ahead[2], ahead[0])), 6.0, delta=0.1)
+        pitch = mount_pitch_deg()
+        self.assertGreater(ahead[0], math.cos(math.radians(pitch)) - 0.01)   # forward, tilted down by the mount
+        self.assertAlmostEqual(math.degrees(math.atan2(-ahead[2], ahead[0])), pitch, delta=0.1)
         right = self.p.locate_reply({"position": {"x": 1.0, "y": 0.0, "z": 0.0}})["position"]
         self.assertLess(right["y"] - cam[1], -0.99)  # the image's right is the robot's right (-y)
 
@@ -56,7 +65,7 @@ class Conversion(unittest.TestCase):
         self.assertEqual((req["label"], req["camera"]), ("candy bowl", "femto"))
         up = np.array(req["up_cam"])
         self.assertAlmostEqual(float(np.linalg.norm(up)), 1.0, 4)
-        self.assertLess(up[1], -0.99)               # up is the image's -y with the head level
+        self.assertLess(up[1], -math.cos(math.radians(mount_pitch_deg())) + 0.01)   # up is mostly the image's -y
         with self.assertRaises(RuntimeError):
             self.p.locate_request("bowl", "wrist_left")   # no wrist camera fitted
 
