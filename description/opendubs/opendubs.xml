@@ -124,6 +124,8 @@
             material="stage" name="bucket_stage_visual"/>
       <geom class="collision" type="box" pos="0.713 0.022 0.322305" size="0.116 0.212 0.02575"
             name="bucket_stage_collision"/>
+      <!-- The centre of the stage's top face, axes as the chassis': where a bucket's base sits. -->
+      <site name="bucket_stage_top" pos="0.713 0.022 0.348055" size="0.008" rgba="0.95 0.75 0.2 1"/>
 
 
       <!-- THE WHEELS. Mecanum, so they are not cylinders with sideways grip: each is a hub that
