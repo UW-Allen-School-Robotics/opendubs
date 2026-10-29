@@ -381,6 +381,7 @@ The same steps as separate services, `robot_api_interfaces` like the rest of `/p
 `req`, a result code and JSON `data`; each returns when its step has ended (done, failed, interrupted). One node serves
 them (`tools/treat_services.py`); `tools/treat_sequence.py` is the program: plain calls in order, each one's data into
 the next. Nothing else passes between them (the services read the tracker and the arm's joints themselves).
+**Every service, its type, request fields and response data: [TREAT_SERVICES.md](TREAT_SERVICES.md).**
 
 | `/perception/treat/...` | Request | Does |
 |---|---|---|
@@ -448,4 +449,5 @@ clients: all answered. The units came back on their own after a reboot.
 | `tools/treat_follow.py`, `tools/treat_reach.py`, `tools/treat_brain.py` | the live follower, the one-shot reach, the decisions |
 | `tools/treat_arm_service.sh` | the real arm's service by hand from this branch |
 | `tools/treat_services.py`, `tools/treat_sequence.py` | the treat steps as ROS 2 services, and the program that calls them |
+| `TREAT_SERVICES.md` | those services' API: types, requests, responses, result codes |
 | `tests/test_treat_brain.py` | the decisions that, wrong, move the arm or head when they should not |
