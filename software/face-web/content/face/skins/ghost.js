@@ -819,13 +819,38 @@ function costumeBack(P) {
     ctx.stroke(); ctx.restore();
   }
 }
-function costumeNose(P) {                       // the cat's whiskers, which move with its nose
-  if (!P.whisker) return;
+function costumeNose(P, noses) {                // the cat's whiskers: from either side of its nose, wherever it is
+  if (!P.whisker || !noses || !noses.length) return;
+  let x0 = Infinity, x1 = -Infinity, y = 0, k = 0;
+  for (const n of noses) for (let i = 0; i < n.length; i += 6) { x0 = Math.min(x0, n[i+4]); x1 = Math.max(x1, n[i+4]); y += n[i+5]; k++; }
+  y /= k;
   ctx.save(); ctx.strokeStyle = P.whisker; ctx.lineWidth = 3; ctx.lineCap = "round";
   for (const m of [1, -1]) for (const dy of [-6, 8, 22]) {
-    ctx.beginPath(); ctx.moveTo(NOSE_X + m * 46, NOSE_Y + dy); ctx.quadraticCurveTo(NOSE_X + m * 110, NOSE_Y + dy * 1.6 - 6, NOSE_X + m * 170, NOSE_Y + dy * 2.4 - 4); ctx.stroke();
+    const x = m > 0 ? x1 + 16 : x0 - 16;              // clear of the nose
+    ctx.beginPath(); ctx.moveTo(x, y + dy); ctx.quadraticCurveTo(x + m * 64, y + dy * 1.6 - 6, x + m * 124, y + dy * 2.4 - 4); ctx.stroke();
   }
   ctx.restore();
+}
+// The dents in an eye's outline below its middle: in black and white, where the white of the eye shows
+// (PEEK's fierce faces). Each as a Path2D, along the outline and back across the dent's mouth.
+function eyeDents(e, cy) {
+  const n = e.length / 6, P = [];
+  for (let i = 0; i < n; i++) P.push([e[6*i+4], e[6*i+5], i]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const S = [...P].sort((a, b) => a[0] - b[0] || a[1] - b[1]), lo = [], hi = [];
+  for (const q of S) { while (lo.length > 1 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (const q of S.reverse()) { while (hi.length > 1 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop(); hi.push(q); }
+  const H = [...new Set([...lo, ...hi].map((q) => q[2]))].sort((a, b) => a - b), out = [];
+  H.forEach((a, j) => {
+    const b = j + 1 < H.length ? H[j + 1] : H[0] + n, len = b - a;
+    if (len < 2) return;
+    let deep = -Infinity; for (let i = a + 1; i < b; i++) deep = Math.max(deep, P[i % n][1]);
+    if (deep <= cy) return;                            // a dent wholly above the middle is the brow's shape: keep it
+    const d = new Path2D(); d.moveTo(P[a % n][0], P[a % n][1]);
+    for (let i = a + 1; i <= b; i++) { const k = 6 * (i % n); d.bezierCurveTo(e[k], e[k+1], e[k+2], e[k+3], e[k+4], e[k+5]); }
+    d.closePath(); out.push(d);
+  });
+  return out;
 }
 
 // ---- draw ---------------------------------------------------------------------------------------
@@ -1057,7 +1082,9 @@ function frame(nowMs) {
     paintMouth(pose.mouth, t, ctl.thinkDrop * ease(thinkAmt), thinkSide);
   });
   // Keep the nose aligned with the eyes as the smile fades in and out.
-  layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P); });
+  layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P, pose.noses); });
+  // PEEK's fierce faces, in the idle peek or danced (CREEP)
+  const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DL && DL.look === "creep" && danceAmt > 0.5);
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
     for (const e of pose.eyes) {
@@ -1084,6 +1111,8 @@ function frame(nowMs) {
       } else {
         const path = loopPath(e);
         ctx.fill(path);
+        // the cat has no white of the eye: its fierce faces' dents filled in, for one whole cat's eye
+        if (P.pupil && fierce) for (const d of eyeDents(e, cy)) ctx.fill(d);
         // inside the eye, clipped to it: the cat's slit pupil, and the pumpkin's candle glow
         if (P.pupil) { ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(cx + 8 * gx, cy + 6, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
         if (P.glow) {
