@@ -195,10 +195,13 @@ Fusion model, flipped right way up and in metres; it is drawn only, and the buck
 base, wall panels and a handle, so its inside stays free for a hand. The bucket is a free body
 (2.2 kg, half a load of candy) resting on its stand by contact, with its target site as a child, so
 it can be moved, knocked or picked up; `scene.py --check --candy-bucket` drops it 5 mm onto the
-stand and fails unless it settles seated and upright. Details in `props.py`.
+stand and fails unless it settles seated and upright. `--bucket-variant handle_down` swaps in the
+same bucket with its handle folded down onto the rim (`handle_up` is the default). Details in
+`props.py`.
 
 ```bash
 python3 scene.py --candy-bucket --render /tmp/bucket.png --az 200 --el -15 --dist 2.2
+python3 scene.py --candy-bucket --bucket-variant handle_down --check
 python3 clearance.py --candy-bucket --joints "right:2=40,right:4=90"   # the wrist ends up inside the wall
 ```
 

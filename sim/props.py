@@ -23,6 +23,12 @@ and upright: a bad contact or mass would send it flying in every render.
 
 Geometry: base r 92.5 mm, rim r 126 mm at 205 mm, a 5 mm floor, the handle 15 mm wide and up to 285 mm,
 all read off the mesh.
+
+TWO VARIANTS, the same bucket: `handle_up` (the default, props/candy_bucket.stl) and `handle_down`
+(props/candy_bucket_handle_down.stl, the handle folded down onto the rim, 205 mm tall overall). The
+second came from the same Fusion export frame and is flipped the same way. Its folded handle lies
+along the rim, within the wall's own radius (r 120-126 mm, z 185-205 mm), so it collides as the base
+and wall panels alone: no handle capsules. Mass, centre of mass, pose and target are the same.
 """
 from __future__ import annotations
 
@@ -31,6 +37,10 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CANDY_BUCKET_MESH = os.path.join(HERE, "props", "candy_bucket.stl")
+# variant: (its mesh, whether its handle stands up and collides)
+BUCKET_VARIANTS = {"handle_up": (CANDY_BUCKET_MESH, True),
+                   "handle_down": (os.path.join(HERE, "props", "candy_bucket_handle_down.stl"), False)}
+BUCKET_VARIANT = "handle_up"
 BASE_LINK = (0.324, 0.0, -0.024)       # the model's world is the CAD datum; base_link sits here in it
 FLOOR_Z = -0.094                       # the floor in the CAD datum (opendubs.xml)
 
@@ -59,13 +69,18 @@ def candy_bucket_pose(at=None) -> tuple:
     return base, math.degrees(away) + 90.0, target   # the handle across the line of approach
 
 
-def add_candy_bucket(spec, at=None, stand=True) -> None:
+def add_candy_bucket(spec, at=None, stand=True, variant=None) -> None:
     """The bucket (and its stand) in the world of an MjSpec: drawn from the mesh, colliding as
-    primitives (group 3, names prefixed candy_bucket_), with a site candy_bucket_target at the candy."""
+    primitives (group 3, names prefixed candy_bucket_), with a site candy_bucket_target at the candy.
+    `variant`: a BUCKET_VARIANTS key, handle_up by default."""
     import mujoco
+    variant = variant or BUCKET_VARIANT
+    if variant not in BUCKET_VARIANTS:
+        raise ValueError(f"bucket variant {variant!r}: one of {', '.join(BUCKET_VARIANTS)}")
+    mesh, handle = BUCKET_VARIANTS[variant]
     base, yaw, target = candy_bucket_pose(at)
     vis = dict(group=2, contype=0, conaffinity=0)
-    spec.add_mesh(name="candy_bucket", file=CANDY_BUCKET_MESH)
+    spec.add_mesh(name="candy_bucket", file=mesh)
     half = math.radians(yaw) / 2
     b = spec.worldbody.add_body(name="candy_bucket", pos=list(base), quat=[math.cos(half), 0, 0, math.sin(half)])
     b.add_freejoint(name="candy_bucket_free")
@@ -92,7 +107,7 @@ def add_candy_bucket(spec, at=None, stand=True) -> None:
         b.add_geom(name=f"candy_bucket_wall{i:02d}", type=mujoco.mjtGeom.mjGEOM_BOX,
                    size=[WALL_T / 2, half_w, slant / 2], pos=[rm * math.cos(a), rm * math.sin(a), RIM_Z / 2],
                    quat=list(q), **col)
-    for i, ((x0, z0), (x1, z1)) in enumerate(zip(HANDLE, HANDLE[1:])):
+    for i, ((x0, z0), (x1, z1)) in enumerate(zip(HANDLE, HANDLE[1:]) if handle else ()):
         b.add_geom(name=f"candy_bucket_handle{i}", type=mujoco.mjtGeom.mjGEOM_CAPSULE, size=[HANDLE_R, 0, 0],
                    fromto=[x0, 0, z0, x1, 0, z1], **col)
     c, sn = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))

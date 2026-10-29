@@ -208,11 +208,11 @@ def fitted_head() -> str:
 
 def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False,
           head: str | None = None, projection: bool = False, crawler=None, tools: dict | None = None,
-          candy_bucket=None):
+          candy_bucket=None, bucket_variant=None):
     """`head`: galaxy_tablet, the head the robot description carries (the default). `candy_bucket`:
     None, or True for the candy bucket on its stand where props.py puts it, or (x, y, h): its candy at
     base_link x, y and h above the floor, in metres. It COLLIDES (props.py), so the clearance sweep and
-    pick planning see it.
+    pick planning see it. `bucket_variant`: handle_up (the default) or handle_down (props.BUCKET_VARIANTS).
     `projection`: the projection screen behind the robot, built hidden (geom alpha 0). `crawler`: a
     crawling hand's tool type (effectors.Tool) to add, posed by sim_preview.apply_crawler. `tools`:
     {"left"|"right": effectors.Tool} fitted at a flange in place of the OpenArm gripper, posed by
@@ -248,7 +248,8 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
         hand.add_crawler(ours, crawler)
     if candy_bucket is not None and candy_bucket is not False:
         import props
-        props.add_candy_bucket(ours, None if candy_bucket is True else tuple(candy_bucket))
+        props.add_candy_bucket(ours, None if candy_bucket is True else tuple(candy_bucket),
+                               variant=bucket_variant)
 
     model = ours.compile()
     for side, tool in sorted((tools or {}).items()):
@@ -341,6 +342,9 @@ def set_joints(model, data, spec: str):
         data.qpos[model.jnt_qposadr[i]] = math.radians(float(val) * sign)
 
 
+BUCKET_VARIANTS = ("handle_up", "handle_down")   # props.BUCKET_VARIANTS, without importing it for argparse
+
+
 def candy_bucket_arg(text: str) -> tuple:
     try:
         x, y, h = (float(v) for v in text.split(","))
@@ -364,6 +368,8 @@ def main():
     ap.add_argument("--candy-bucket", nargs="?", const=True, default=None, type=candy_bucket_arg, metavar="X,Y,H",
                     help="add the candy bucket on its stand (props.py); X,Y,H: its candy at base_link x, y and "
                          "h above the floor, metres")
+    ap.add_argument("--bucket-variant", choices=BUCKET_VARIANTS, default=None,
+                    help="which candy bucket: handle_up (the default) or handle_down, the handle folded onto the rim")
     ap.add_argument("--drive", metavar="FWD,ROT,STR",
                     help="drive command, each -1..1, same meaning as the robot's DRIVE")
     ap.add_argument("--settle", type=float, default=0.0,
@@ -375,7 +381,10 @@ def main():
 
     import mujoco
 
-    model = build(a.assets, a.chest_cover, head=a.head, candy_bucket=a.candy_bucket)
+    if a.bucket_variant and not a.candy_bucket:
+        sys.exit("--bucket-variant needs --candy-bucket")
+    model = build(a.assets, a.chest_cover, head=a.head, candy_bucket=a.candy_bucket,
+                  bucket_variant=a.bucket_variant)
     data = mujoco.MjData(model)
     # NOT qpos[0] any more: the chassis freejoint owns the first seven coordinates.
     zaxis = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "zaxis")
