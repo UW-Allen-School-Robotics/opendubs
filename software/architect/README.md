@@ -26,7 +26,7 @@ handout triggered by "trick or treat".
 | `opendubs_architect/routing.py` | For a recorded show: a move the straight-line planner refuses as too close is routed around the body by the arm motion planner (CBiRRT, `sim/planner` on `feat/arm-motion-planner-ui`); every leg is checked as a straight move is |
 | `opendubs_architect/robot_node.py` | The ROS 2 node serving the arm primitives under `/robot/` over `live_arms` |
 | `opendubs_architect/demo_runner.py` | The Halloween runner: instruction, spoken yes, frozen program, "trick or treat" runs; a browser page shows the code |
-| `opendubs_architect/demo_day.py` | The demo day's coordinator: patrol, approach a visitor, candy, and the preprogrammed shows, one at a time, so the base and the arms never move at once |
+| `opendubs_architect/demo_day.py` | The demo day's coordinator: patrol, approach a visitor, candy, and the preprogrammed shows, one at a time, so the base and a show's arms never move at once (the rest show alone plays while it patrols) |
 | `opendubs_architect/listener.py` | The runner's ears and voice on the Jabra speakerphone: "OpenDubs", "trick or treat", yes and stop, each checked by Parakeet before it is posted |
 | `opendubs_architect/chat.py` | What the robot says to visitors, from its own local model (the voice service's Qwen on vLLM): a varied greeting as each run starts, short answers while armed; words only, never posted to the runner |
 | `opendubs_architect/camera_feed.py` | The Orbbec's colour image as a small JPEG on 127.0.0.1:8097 for the dashboard's ARCHITECT tab; subscribed only while asked (`dev.sh camera`) |
@@ -372,6 +372,7 @@ On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh da
 | `ENGAGED` | stopped in front of them, waiting | "trick or treat" (`CANDY`); nobody for 20 s (`IDLE_NAV`) |
 | `CANDY` | the candy show (the listener's `--show`) | it ends (`ENGAGED`) |
 | `CHOREO` | a palette show (arms, music, the face): a random pick from the SHORT shows (wave-and-nod, robotic-smile, celebrate, 9–33 s), or a full dance when asked ("OpenDubs, dance", or by name) | it ends (`IDLE_NAV`); "trick or treat" cancels it if it is still waiting for its go |
+| `REST` | an arm is away from rest while patrolling (more than 10 degrees at any joint, on `/joint_states`): the base patrols on while the rest show (`--rest`, `architect-78d41e435106`, from `examples/arms_rest.py`) brings both arms home, started at once while the deadman is held; the one show the base may move during | it ends (`IDLE_NAV`); the arm controllers hold rest from then on |
 | `PAUSED` | nothing: the operator's `POST /api/pause`, or the e-stop | the operator's `POST /api/resume` only |
 
 **What is real and what is a stub (2026-10-27):**
@@ -382,6 +383,16 @@ On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh da
   frame) until the skeleton feed has a message type.
 - **The shows** are the real palette, started as the Shows page starts them, with `start: deadman`.
 
+**The arms stay at rest while the base drives** (2026-10-29). Every patrol tick reads the arms. One
+away from rest (a show stopped part-way, an arm pushed) is put back by the rest show, through the show
+runner like any show, so the arms keep one commander; nothing streams to them. The base keeps
+patrolling meanwhile: the only show the base may move during, since it only folds the arms home at
+the runner's slow start-pose speed (any other show still stops the base). It starts with
+`countdown` (no fresh press) and is refused while the deadman is let go, then tried again every 15 s.
+**One exception:** after a candy show that stopped part-way, an arm away from rest PAUSES the day
+instead, since the hand may be in the bucket and a straight move to rest from there hits its wall.
+Clear it, park the arm, then resume.
+
 **The rules it keeps.** The base moves only in `IDLE_NAV` and `APPROACH`, and only while the palette
 can be read and runs nothing; a show started from the Shows page stops it too. No show starts and no
 candy is granted until the base is stopped and still. A show that never appears on the palette is
@@ -391,7 +402,10 @@ show and passes on "OpenDubs, dance" (or a show's name) as a request.
 
 **The supervisor's deadman is held all day.** The robot moves its base for software only in CH5 AUTO
 with the deadman held, and every show's go is a fresh press of it: a random pick arms a show, and
-the supervisor starts it. Nothing moves on a child's word or a timer alone.
+the supervisor starts it. The candy show is the exception (`START=held` in the listener's unit,
+2026-10-29): with the deadman already held it counts down 5 s and starts, without the release and
+press; with it let go it waits for the press, as the others do. So while the deadman is held, a
+"trick or treat" starts the arm: letting go stops it, and the supervisor keeps that thumb ready.
 
 ```sh
 SHOW=architect-93cbf2aabeca tools/dev.sh day                       # the coordinator

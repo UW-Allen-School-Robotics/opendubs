@@ -1,5 +1,6 @@
 """The Halloween demo day: one coordinator decides what the robot is doing, so that two things that
-must never overlap (the base driving and the arms moving) never do.
+must never overlap (the base driving and a show moving the arms) never do. The one overlap allowed is
+the rest show (REST), which only brings the arms home while the base patrols.
 
     python3 -m opendubs_architect.demo_day --choreo monster_mash ghostbusters them_bones
     python3 -m opendubs_architect.demo_day --people fake --palette fake    # a desk: nothing is read or moved
@@ -12,6 +13,13 @@ THE STATES. One at a time, IDLE_NAV the default:
     ENGAGED    stopped in front of them, waiting for "trick or treat". Nobody for ENGAGED_S: IDLE_NAV
     CANDY      the candy show (the listener's --show routine): asked for by the listener on "trick or
                treat" (POST /api/request {"want": "candy"}), granted only once the base is still
+    REST       an arm away from rest while patrolling: the rest show (--rest) takes each arm back to rest
+               (the runner's slow start-pose move, started at once while the deadman is held) while the
+               base keeps patrolling (2026-10-29: the base and the arms may move at once for this show
+               alone); the arm controllers hold rest from then on. Checked on every tick of
+               IDLE_NAV, so an arm pushed away is put back. After a candy show that stopped part-way, with
+               an arm still away, it PAUSES instead: the hand may be in the bucket, and a straight move to
+               rest from there hits its wall (found 2026-10-28), so a person clears it first
     CHOREO     a preprogrammed palette show (arms, music, the face). A random pick every CHOREO_EVERY_S
                of patrolling, from the SHORT shows (--random: wave-and-nod, robotic-smile, celebrate,
                9-33 s), so a visitor never waits out a long dance; the full dances (--choreo:
@@ -28,7 +36,9 @@ THE RULES, each kept here and tested (tests/test_demo_day.py):
     nothing on it runs: a show started from the Shows page stops the base too (an EXTERNAL show).
   * Anything unknown stops the base: the palette or the robot's state unreadable, a driver's error.
   * Every show starts the way the Shows page starts it, with `start: deadman`: the supervisor's fresh
-    press is the go. A random pick never moves an arm by itself.
+    press is the go. A random pick never moves an arm by itself. The rest show is the exception: it
+    starts with `countdown` while the deadman is held (refused when it is not), since it only brings the
+    arms home at the runner's warning-free speed.
   * "Trick or treat" wins over a show still waiting for its go (armed, or being checked: nothing has
     moved): that show is cancelled and the candy granted. A show past its go (COUNTDOWN on) is never
     cancelled for candy: stopping a dance part-way leaves the arms where they are.
@@ -72,10 +82,13 @@ SHOW_START_S = 15.0          # a show granted or posted must show on the palette
 STILL_WAIT_S = 3.0           # how long a request waits for the base to come to rest
 CHOREO_EVERY_S = (240.0, 480.0)   # a random pick after this long patrolling (uniform), reset by any show
 TICK_S = 0.2
+REST_TOL_DEG = 10.0          # a joint further than this from rest (0, signed degrees) is away: the runner's own
+                             # at-rest tolerance (SKIPPED_ARM_TOL_DEG); a resting arm sags about 4 degrees at J4
+REST_RETRY_S = 15.0          # a rest that did not happen (the deadman let go, a refusal) is tried again after this
 BASE_LINK_IN_CHASSIS = (0.324, 0.0, -0.024)   # description/opendubs/opendubs.urdf: datum is 0.324 m behind
 
-STATES = ("IDLE_NAV", "APPROACH", "ENGAGED", "CANDY", "CHOREO", "PAUSED")
-MOVING = ("IDLE_NAV", "APPROACH")                # the only states in which the base may move
+STATES = ("IDLE_NAV", "APPROACH", "ENGAGED", "CANDY", "CHOREO", "REST", "PAUSED")
+MOVING = ("IDLE_NAV", "APPROACH", "REST")        # the only states in which the base may move
 NOT_STARTED = ("VALIDATING", "PREFLIGHT", "ARMED_WAITING")   # the runner's, before the deadman's GO
 
 _SHOW_WORDS = re.compile(r"\b(dance|dancing|show|song|music|perform)\b", re.I)
@@ -129,10 +142,11 @@ class Coordinator:
       palette  running() -> routine id or None (raises when it cannot be read),
                run(routine) -> (ok, why), stop()
       safety   ok() -> (bool, why): False on an e-stop or when the robot's state cannot be read
+      arms     away() -> [the arms away from rest] (raises when they cannot be read); None: not checked
     """
 
     def __init__(self, nav, people, palette, safety, candy: str, choreo: list, clock=time.monotonic,
-                 rng=None, log=None, choreo_every=CHOREO_EVERY_S, shorts=None):
+                 rng=None, log=None, choreo_every=CHOREO_EVERY_S, shorts=None, arms=None, rest=None):
         self.nav, self.people, self.palette, self.safety = nav, people, palette, safety
         self.candy, self.choreo = candy, list(choreo)
         self.shorts = list(shorts) if shorts else list(choreo)   # the random picks: short, so a visitor waits little
@@ -146,6 +160,10 @@ class Coordinator:
         self.next_choreo = None
         self.nav_doing = None
         self._people_err = None
+        self.arms, self.rest = arms, rest          # the arms' measured pose, and the show that rests them
+        self.rest_after = 0.0                      # no rest tried before this (a retry's wait)
+        self.rest_blocked = None                   # why the arms must not be rested by a show (a person must)
+        self._arms_err = None
         self._enter("IDLE_NAV", "start")
 
     # ---- the states -------------------------------------------------------------------------------
@@ -165,7 +183,7 @@ class Coordinator:
                 self.next_choreo = self.clock() + self.rng.uniform(*self.choreo_every)
         if state in ("CANDY", "CHOREO"):
             self.next_choreo = None              # a show resets the random pick's clock
-        if state not in ("CANDY", "CHOREO"):
+        if state not in ("CANDY", "CHOREO", "REST"):
             self.show, self.show_seen = None, False
         self._log("state", state=state, was=old, why=why)
 
@@ -219,7 +237,8 @@ class Coordinator:
             if self.state == "PAUSED":
                 return
             readable, running = self._running()
-            if self.state in MOVING and (not readable or running):
+            ours = self.rest if self.state == "REST" else None   # the rest show plays while the base patrols
+            if self.state in MOVING and (not readable or (running and running != ours)):
                 if running:                          # started elsewhere (the Shows page): it owns the robot now
                     self._enter("CHOREO", f"external show {running}")
                     self.show, self.show_seen = running, True
@@ -255,7 +274,45 @@ class Coordinator:
         else:
             self.near_since = None
 
+    def _arms_away(self):
+        """The arms away from rest, [] when none is, or None when it is not known (not checked, or
+        unreadable: then patrol goes on as before, and the runner's own checks still hold every show)."""
+        if self.arms is None or self.rest is None:
+            return None
+        try:
+            away = self.arms.away()
+        except Exception as e:  # noqa: BLE001
+            if str(e) != self._arms_err:
+                self._arms_err = str(e)
+                self._log("arms_error", error=str(e))
+            return None
+        self._arms_err = None
+        return away
+
+    def _rest_arms(self, now, away) -> bool:
+        """An arm is away from rest: stop the base and play the rest show (True), or pause when a
+        person must clear the arm first (True), or nothing yet, a retry still to wait for (False)."""
+        if self.rest_blocked:
+            self._enter("PAUSED", f"{', '.join(away)} away from rest: {self.rest_blocked}")
+            return True
+        if now < self.rest_after:
+            return False
+        self.rest_after = now + REST_RETRY_S
+        self._enter("REST", f"{', '.join(away)} away from rest")
+        self.show = self.rest
+        try:
+            ok, how = self.palette.run(self.rest, start="countdown")
+        except Exception as e:  # noqa: BLE001
+            ok, how = False, str(e)
+        self._log("rest", routine=self.rest, away=away, ok=ok, why=how)
+        if not ok:
+            self._enter("IDLE_NAV", f"{self.rest} refused: {how}")
+        return True
+
     def _tick_idle_nav(self, now, running) -> None:
+        away = self._arms_away()
+        if away and self._rest_arms(now, away):
+            return
         if self.near_since is not None and now - self.near_since >= SEEN_FOR_S:
             self._enter("APPROACH", f"a person {self.person.distance_m:.1f} m away")
             return self._tick_approach(now, running)
@@ -302,6 +359,9 @@ class Coordinator:
         except Exception as e:  # noqa: BLE001
             self._log("palette_error", what="last", error=str(e))
         if isinstance(last, dict) and last.get("id") == self.show and last.get("status") not in (None, "COMPLETED"):
+            if self.show == self.candy and last.get("status") in ("ABORTED", "ESTOPPED"):
+                self.rest_blocked = (f"the candy show stopped part-way ({last.get('code') or last.get('status')}); "
+                                     "the hand may be in the bucket: clear it and park the arm, then resume")
             why = f"{self.show} {str(last.get('status')).lower()}: {last.get('code') or ''} {last.get('cause') or ''}".strip()
             self._log("show_failed", routine=self.show, status=last.get("status"), code=last.get("code"),
                       cause=last.get("cause"))
@@ -310,6 +370,10 @@ class Coordinator:
 
     _tick_candy = _tick_show
     _tick_choreo = _tick_show
+    def _tick_rest(self, now, running) -> None:
+        if self.nav_doing != "patrol":           # the base patrols on while the arms come home
+            self._drive("patrol")
+        self._tick_show(now, running)
 
     def _start_choreo(self, routine, why: str):
         if routine is None:
@@ -338,7 +402,7 @@ class Coordinator:
                 return False, "paused"
             if want == "candy" and self.state == "CHOREO" and self._waiting_for_go():
                 self._preempt()                      # nothing has moved yet: the visitor comes first
-            if self.state in ("CANDY", "CHOREO"):
+            if self.state in ("CANDY", "CHOREO", "REST"):
                 return False, f"busy: {self.show or self.state}"
             readable, running = self._running()
             if not readable or running:
@@ -384,7 +448,7 @@ class Coordinator:
 
     def pause(self, why: str = "the operator") -> None:
         with self.lock:
-            if self.state in ("CANDY", "CHOREO"):
+            if self.state in ("CANDY", "CHOREO", "REST"):
                 try:
                     self.palette.stop()
                 except Exception as e:  # noqa: BLE001
@@ -398,6 +462,7 @@ class Coordinator:
             ok, why = self._safe()
             if not ok:
                 return False, why
+            self.rest_blocked = None             # the operator has looked: a rest show may bring the arms home
             self._enter("IDLE_NAV", "the operator resumed")
             return True, "resumed"
 
@@ -502,8 +567,8 @@ class Palette:
         code, st = self.http("GET", "/api/choreo/palette", None)
         return st.get("last") if code == 200 and isinstance(st, dict) else None
 
-    def run(self, routine: str):
-        code, got = self.http("POST", f"/api/choreo/run/{routine}", {"start": self.start})
+    def run(self, routine: str, start: str | None = None):
+        code, got = self.http("POST", f"/api/choreo/run/{routine}", {"start": start or self.start})
         if code == 200:
             return True, "armed"
         return False, (got or {}).get("error") if isinstance(got, dict) else f"status {code}"
@@ -559,8 +624,8 @@ class CandyRunner:
         return {"id": self.candy, "status": status, "code": (last.get("result") or "").upper(),
                 "cause": (last.get("error") or "")[:200]}
 
-    def run(self, routine: str):
-        return self.palette.run(routine)
+    def run(self, routine: str, start: str | None = None):
+        return self.palette.run(routine, start)
 
     def stop(self) -> None:
         if self._runner().get("state") == "RUNNING":
@@ -570,6 +635,53 @@ class CandyRunner:
 
     def routines(self) -> dict:
         return self.palette.routines()
+
+
+class RosArms:
+    """The arms' measured pose from /joint_states (the arm stack's, in radians), on a ROS context of its
+    own. away() names each arm with a joint more than REST_TOL_DEG from rest (0: the shows' rest, in
+    the controller's signed sense), and raises when /joint_states is stale or lacks an arm."""
+
+    STALE_S = 1.0
+    SIDES = {"ARM_L": "left", "ARM_R": "right"}
+
+    def __init__(self):
+        import rclpy
+        from rclpy.executors import SingleThreadedExecutor
+        from sensor_msgs.msg import JointState
+        self.lock, self.pos, self.at = threading.Lock(), {}, 0.0
+        ctx = rclpy.Context()
+        rclpy.init(context=ctx)
+        node = rclpy.create_node("architect_demo_day_arms", context=ctx)
+        node.create_subscription(JointState, "/joint_states", self._on, 20)
+        ex = SingleThreadedExecutor(context=ctx)
+        ex.add_node(node)
+        threading.Thread(target=ex.spin, daemon=True).start()
+
+    def _on(self, m) -> None:
+        with self.lock:
+            self.pos.update(zip(m.name, m.position))
+            self.at = time.monotonic()
+
+    def away(self) -> list:
+        with self.lock:
+            if time.monotonic() - self.at > self.STALE_S:
+                raise RuntimeError(f"nothing on /joint_states within {self.STALE_S:.0f} s")
+            pos = dict(self.pos)
+        return arms_away(pos, self.SIDES)
+
+
+def arms_away(pos: dict, sides: dict, tol_deg: float = REST_TOL_DEG) -> list:
+    """The arms (of `sides`, slot -> side) with a joint more than tol_deg from rest; raises for an arm
+    whose seven joints are not all in `pos` (joint name -> radians)."""
+    out = []
+    for slot, side in sides.items():
+        names = [f"openarm_{side}_joint{j}" for j in range(1, 8)]
+        if not all(n in pos for n in names):
+            raise RuntimeError(f"/joint_states has no {side} arm")
+        if any(abs(math.degrees(pos[n])) > tol_deg for n in names):
+            out.append(side)
+    return out
 
 
 class Safety:
@@ -598,7 +710,7 @@ class FakePalette:
     def running(self):
         return self.now
 
-    def run(self, routine):
+    def run(self, routine, start=None):
         self.now = routine
         return True, "armed (fake)"
 
@@ -632,6 +744,9 @@ def main(argv=None) -> int:
     ap.add_argument("--candy-runner", metavar="URL",
                     help="the candy run is the ARCHITECT runner's program (e.g. http://127.0.0.1:8098, the gafro "
                          "backend), not a show: --candy is then only its name")
+    ap.add_argument("--rest", default="architect-78d41e435106", metavar="ROUTINE",
+                    help="the show that brings both arms to rest, played when one is away from rest while "
+                         "patrolling (examples/arms_rest.py); '' to leave the arms alone")
     ap.add_argument("--start-paused", action="store_true",
                     help="start PAUSED (the boot unit's way): nothing is armed until POST /api/resume")
     ap.add_argument("--host", default="127.0.0.1")
@@ -647,6 +762,7 @@ def main(argv=None) -> int:
         palette, safety = Palette(args.dashboard), Safety(args.dashboard)
         have = palette.routines()
         shows = [*args.choreo, *args.random] if args.candy_runner else [args.candy, *args.choreo, *args.random]
+        shows += [args.rest] if args.rest else []
         if args.candy_runner:
             palette = CandyRunner(palette, args.candy_runner, args.candy)
         for r in shows:
@@ -655,8 +771,9 @@ def main(argv=None) -> int:
             if not have[r].get("valid"):
                 raise SystemExit(f"demo_day: {r!r} does not validate: {'; '.join(have[r].get('problems') or [])}")
     people = PerceptionPeople() if args.people == "perception" else Nobody()
+    arms = RosArms() if args.rest and args.palette != "fake" else None
     co = Coordinator(StubNav(log), people, palette, safety, args.candy, args.choreo, log=log,
-                     choreo_every=tuple(args.every), shorts=args.random)
+                     choreo_every=tuple(args.every), shorts=args.random, arms=arms, rest=args.rest or None)
     if args.start_paused:
         co.pause("started paused: POST /api/resume to begin the demo day")
 

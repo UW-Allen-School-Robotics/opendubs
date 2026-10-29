@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The demo day's promises: the base and the arms never move at once, anything unknown stops the
+"""The demo day's promises: the base and a show's arms never move at once (the rest show alone may), anything unknown stops the
 base, a show that never starts is disarmed before the base drives again, and an e-stop stays a
 pause until the operator resumes.
 
@@ -67,8 +67,9 @@ class Palette:
             raise RuntimeError("the palette answered 503")
         return self.now
 
-    def run(self, routine):
+    def run(self, routine, start=None):
         self.runs.append(routine)
+        self.starts = getattr(self, "starts", []) + [start]
         if self.refuse:
             return False, self.refuse
         self.now = routine
@@ -85,6 +86,103 @@ class Safety:
 
     def ok(self):
         return (False, "e-stop: button") if self.estop else (True, "")
+
+
+class Arms:
+    def __init__(self):
+        self.out = []
+
+    def away(self):
+        if isinstance(self.out, Exception):
+            raise self.out
+        return list(self.out)
+
+
+class Rest(unittest.TestCase):
+    """2026-10-29: an arm away from rest while patrolling is brought back by the rest show, with the base
+    patrolling on; after a candy show stopped part-way it is a person's to clear (the bucket)."""
+
+    def setUp(self):
+        self.clock, self.nav, self.pal, self.arms = Clock(), Nav(), Palette(), Arms()
+        self.co = dd.Coordinator(self.nav, People(), self.pal, Safety(), "candy_show", ["monster_mash"],
+                                 clock=self.clock, rng=random.Random(0), choreo_every=(300.0, 300.0),
+                                 arms=self.arms, rest="arms_rest")
+        self.co.still_wait_s = 0.05
+
+    def run_for(self, seconds):
+        end = self.clock.t + seconds
+        while self.clock.t < end:
+            self.clock.t += dd.TICK_S
+            self.co.tick()
+
+    def test_an_arm_away_from_rest_is_rested_while_the_base_patrols_on(self):
+        self.co.tick()
+        self.assertEqual((self.co.state, self.nav.moving), ("IDLE_NAV", True))
+        self.arms.out = ["right"]
+        self.co.tick()
+        self.assertEqual((self.co.state, self.nav.moving), ("REST", True))
+        self.assertEqual((self.pal.runs, self.pal.starts), (["arms_rest"], ["countdown"]))
+        self.run_for(1.0)                                   # the rest show plays: not an external show
+        self.assertEqual((self.co.state, self.nav.moving), ("REST", True))
+        self.assertNotIn("stop", self.nav.calls)
+        self.arms.out, self.pal.now = [], None              # ... and ends, the arm at rest
+        self.run_for(1.0)
+        self.assertEqual((self.co.state, self.nav.moving), ("IDLE_NAV", True))
+        self.run_for(30.0)
+        self.assertEqual(self.pal.runs, ["arms_rest"])      # at rest: nothing more is played
+
+    def test_a_refused_rest_is_tried_again_later_and_patrol_goes_on_meanwhile(self):
+        self.co.tick()
+        self.arms.out, self.pal.refuse = ["left"], "PRECONDITION_FAILED: the deadman must be held"
+        self.co.tick()
+        self.assertEqual(self.co.state, "IDLE_NAV")
+        self.run_for(dd.REST_RETRY_S - 1)
+        self.assertEqual(len(self.pal.runs), 1)
+        self.assertTrue(self.nav.moving)
+        self.run_for(2.0)
+        self.assertEqual(len(self.pal.runs), 2)
+
+    def test_after_a_candy_show_stopped_part_way_an_arm_away_pauses_until_resumed(self):
+        self.co.tick()
+        self.assertTrue(self.co.request("candy")[0])
+        self.pal.now = "candy_show"
+        self.co.tick()
+        self.pal.now, self.arms.out = None, ["right"]
+        self.pal.last = lambda: {"id": "candy_show", "status": "ABORTED", "code": "DEADMAN"}
+        self.run_for(dd.ENGAGED_S + 1)                      # ENGAGED, then nobody: IDLE_NAV
+        self.assertEqual((self.co.state, self.nav.moving), ("PAUSED", False))
+        self.assertIn("bucket", self.co.why)
+        self.assertTrue(self.co.resume()[0])                # the operator has cleared it
+        self.co.tick()
+        self.assertEqual((self.co.state, self.pal.runs[-1]), ("REST", "arms_rest"))
+
+    def test_another_show_during_rest_still_stops_the_base(self):
+        self.co.tick()
+        self.arms.out = ["right"]
+        self.co.tick()
+        self.pal.now = "monster_mash"                       # started from the Shows page
+        self.co.tick()
+        self.assertEqual((self.co.state, self.nav.moving), ("CHOREO", False))
+
+    def test_candy_waits_for_the_rest_show(self):
+        self.co.tick()
+        self.arms.out = ["right"]
+        self.co.tick()
+        self.assertFalse(self.co.request("candy")[0])       # busy for its few seconds: the listener holds on
+
+    def test_unknown_arms_leave_patrol_as_it_was(self):
+        self.arms.out = RuntimeError("nothing on /joint_states")
+        self.run_for(1.0)
+        self.assertEqual((self.co.state, self.nav.moving, self.pal.runs), ("IDLE_NAV", True, []))
+
+    def test_away_is_any_joint_past_the_tolerance_and_a_missing_arm_is_unknown(self):
+        pos = {f"openarm_{s}_joint{j}": 0.0 for s in ("left", "right") for j in range(1, 8)}
+        self.assertEqual(dd.arms_away(pos, dd.RosArms.SIDES), [])
+        pos["openarm_right_joint4"] = 0.2                   # 11.5 degrees
+        self.assertEqual(dd.arms_away(pos, dd.RosArms.SIDES), ["right"])
+        del pos["openarm_left_joint1"]
+        with self.assertRaises(RuntimeError):
+            dd.arms_away(pos, dd.RosArms.SIDES)
 
 
 class Day(unittest.TestCase):

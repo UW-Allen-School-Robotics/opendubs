@@ -296,6 +296,24 @@ class Shows(unittest.TestCase):
         sh.call = lambda m, p, b: next(palettes) if p == "/api/choreo/palette" else (200, {"started": "monster_mash"})
         self.assertEqual(sh.post("trigger", "trick or treat"), "RUNNING")
 
+    def test_held_counts_down_when_the_deadman_is_held_and_waits_for_the_press_when_not(self):
+        """The demo day's start (2026-10-29): the supervisor holds the deadman through patrol."""
+        refused = {"id": "monster_mash", "status": "REFUSED", "code": "PRECONDITION_FAILED",
+                   "cause": "deadman is False — the deadman must be held"}
+        palettes = iter([(200, {"running": None, "last": None}),               # countdown: refused
+                         (200, {"running": None, "last": refused}),
+                         (200, {"running": None, "last": refused}),            # deadman: armed
+                         (200, {"running": "monster_mash", "status": "ARMED_WAITING"})])
+        sh = self.shows({})
+        sh.start, posts = "held", []
+        sh.call = lambda m, p, b: next(palettes) if p == "/api/choreo/palette" else posts.append(b) or (200, {})
+        self.assertEqual(sh.post("trigger", "trick or treat"), "RUNNING")
+        self.assertEqual([b["start"] for b in posts], ["countdown", "deadman"])
+        sh = self.shows({"/api/choreo/run/monster_mash": (200, {})})
+        sh.start = "held"
+        self.assertEqual(sh.post("trigger", "trick or treat"), "RUNNING")      # held: one countdown run
+        self.assertEqual([c[2]["start"] for c in self.calls if c[0] == "POST"], ["countdown"])
+
     def test_a_refusal_is_ready_again_and_nothing_else_is_posted(self):
         sh = self.shows({"/api/choreo/run/monster_mash": (409, {"error": "'reach' is still running"}),
                          "/api/choreo/stop": (200, {"stopped": True})})

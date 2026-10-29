@@ -517,6 +517,7 @@ class Day:
 CONFIRM_S = 4.0                                   # how long a started show is watched for a refusal
 CHECKING = ("VALIDATING", "PREFLIGHT")             # the runner's checks, before a run is on (runner.py)
 ENDED_BADLY = ("REFUSED", "ABORTED", "ESTOPPED")
+DEADMAN_NOT_HELD = "the deadman must be held"     # the runner's preflight refusal (runner.py preflight)
 
 
 class Shows:
@@ -529,6 +530,10 @@ class Shows:
     ARMS the run (nothing moves, the music loads) and the supervisor's FRESH press of the deadman is
     the go, so a child alone never starts motion and a deadman held down never starts a show.
     `countdown` starts at once while the deadman is held: hands-free, without the fresh-press rule.
+    `held` (the demo day's, 2026-10-29: the supervisor holds the deadman all day, through patrol) is
+    `countdown` when the deadman is already held and `deadman` when it is not: the runner's own
+    preflight decides, so a countdown refused for "the deadman must be held" is asked again as an
+    ARMED run that waits for the press.
 
     The listener sees the same two calls it makes of the demo runner: state() is RUNNING while a show
     runs (a "trick or treat" then gets a HOLD_ON line) and ARMED otherwise; a refused run comes back
@@ -612,15 +617,21 @@ class Shows:
                 self._log("show_refused", routine=self.routine, status=None, why=f"demo day: {why}")
                 return "ARMED"
         if kind == "trigger":
-            before = self._palette_last()
-            body = {"start": self.start, **({"countdown_s": self.countdown_s} if self.countdown_s is not None else {})}
-            code, got = self.call("POST", f"/api/choreo/run/{self.routine}", body)
-            if code == 200:
+            start = "countdown" if self.start == "held" else self.start
+            while True:
+                before = self._palette_last()
+                body = {"start": start, **({"countdown_s": self.countdown_s} if self.countdown_s is not None else {})}
+                code, got = self.call("POST", f"/api/choreo/run/{self.routine}", body)
+                if code != 200:
+                    break
                 refused = self._confirm(before)
+                if refused and self.start == "held" and start == "countdown" and DEADMAN_NOT_HELD in refused:
+                    start = "deadman"                   # not held now: arm it for the supervisor's press
+                    continue
                 if refused:                             # accepted, then refused at preflight: no greeting
                     self._log("show_refused", routine=self.routine, status=code, why=refused)
                     return "ARMED"
-                self._log("show_started", routine=self.routine, start=self.start, reply=got)
+                self._log("show_started", routine=self.routine, start=start, reply=got)
                 return "RUNNING"
             self._log("show_refused", routine=self.routine, status=code,
                       why=(got or {}).get("error") if isinstance(got, dict) else None)
@@ -638,8 +649,9 @@ def main(argv=None) -> int:
     ap.add_argument("--show", metavar="ROUTINE", help="trick or treat plays this show-palette routine "
                     "through the dashboard (Shows), instead of the demo runner's program")
     ap.add_argument("--dashboard", default="http://127.0.0.1:8080")
-    ap.add_argument("--start", choices=("deadman", "countdown"), default="deadman",
-                    help="deadman (the default): the supervisor's fresh deadman press is the go")
+    ap.add_argument("--start", choices=("deadman", "countdown", "held"), default="deadman",
+                    help="deadman (the default): the supervisor's fresh deadman press is the go; held: a "
+                    "countdown if the deadman is already held, else the fresh press")
     ap.add_argument("--countdown-s", type=float, default=None)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8099, help="POST /api/say {text}: the robot speaks it")

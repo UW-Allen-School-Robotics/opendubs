@@ -25,7 +25,8 @@
 #   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner;
 #                                  SHOW=<routine>: "trick or treat" plays that show-palette routine through
 #                                  the dashboard instead (the Shows page's gates; START=deadman, the default,
-#                                  makes the supervisor's fresh deadman press the go; or countdown)
+#                                  makes the supervisor's fresh deadman press the go; or countdown;
+#                                  or held: a countdown if the deadman is already held, else the press)
 #   dev.sh day                     the demo day's coordinator (archit-architect-day, demo_day.py) on 127.0.0.1:8096:
 #                                  patrol, approach a visitor, candy, and the preprogrammed shows, one at a time.
 #                                  SHOW=<the candy routine>, CHOREO="monster_mash ghostbusters them_bones" (3-5),
