@@ -19,7 +19,7 @@ Nothing is copied by hand. The tools are read from the checkout, so a pull is th
 
 Arm supported, e-stop in hand, head tracking OFF and the neck centred, the other arm and anything near the path clear, CH5 on MANUAL, nothing driving the base.
 In the shell: `export ARM_CODING=~/coding; source software/openarm/gafro/env.sh; export ARM_HW_CONFIG=/etc/opendubs/openarm-gafro-right-only.yaml; export ARM_ASSETS=~/coding/src/openarm_assets`
-(the right-only config makes the left arm a `fake` bus: the left arm is out until its shoulder motors are looked at).
+(the right-only config makes the left arm a `fake` bus: the left arm is out until its shoulder motors are looked at; on 2026-10-29 it ran from its own config with tolerant settings, see [docs/openarm-arm-service.md](../../../../docs/openarm-arm-service.md)).
 
 ## The tools
 
@@ -38,6 +38,10 @@ All are run as `python software/openarm/gafro/tools/<tool>.py ...` with `--side 
 | `limits.py` (library, used by `goto_hand`, `track_hand`, `play_show`) | the joint limits are the model's own: the `range` of each joint in the MJCF, which is also what the controllers' joint-limit stages and the simulator read. What this robot's surroundings allow beyond the arm (cables behind it, a rest, a mount) is written into the model's joint ranges, not a second file; `of_model(system)` gives the `{joint: (lower, upper)}` a show is validated against | | yes: a fake system |
 | `make_config.py --base --out --set g.k=v` | a COPY of the hardware config with keys changed, checked against the driver's real key list; never writes the base | | yes |
 | `move_probe.py` | `bringup.py` unchanged plus a status line every 0.5 s (joints, torques, permit, deadman, driver status) | as the tool | yes |
+| `check_stack.sh` | read-only: is the whole gafro stack on the robot current and does it import (wheels against their remotes, `ssik` native, the driver's features, the ROS 2 bridge's age, services, CAN state) | | yes |
+| `can_reply_rates.py rates\|registers` | read-only: how often each motor answers status requests at several rates, and what its registers say; with the arm's service stopped | | yes |
+| `can_sniff.py [arm_left\|arm_right] [s]` | read-only: decodes the MIT commands and the replies on the link, flags a joint far from its command (a register-write acknowledgement decodes as -714 deg: not a state) | | yes |
+| `move_summary.py [dir]` | reads the `--record-dir` CSVs of the arm service: deviation per joint, how old its feedback was, and a freeze of the whole arm mid-move | | no |
 
 **Arguments.** `--model` defaults to this repository's `description/openarm/gafro/openarm_bimanual.xml`, `--hardware-config` to `$ARM_HW_CONFIG` (what `env.sh`'s `arm_*` functions use) and `--assets` to the repository's own `description/openarm/mjcf`, so `python goto_stow.py --side right --supervised` is a whole command. Give them to use another model, config or checkout.
 
