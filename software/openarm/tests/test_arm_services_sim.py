@@ -139,6 +139,24 @@ def test_candy_grasp(side="right"):
         robot.shutdown()
 
 
+def test_gripper_commands(side="right"):
+    robot, service = service_for(side)
+    try:
+        service.grip = Fingers(candy=0.012)
+        out = commands.run(service, "close_gripper", "")
+        assert out.ok and out.data["holding"] and abs(out.data["position"] - 0.012) < 1e-9, out.message
+        assert service.grip.calls == [0.0] and service.running is None
+        out = commands.run(service, "open_gripper", "")
+        assert out.ok and not out.data["holding"] and service.grip.calls[-1] == gripper.TRAVEL, out.message
+
+        service.grip = Fingers(candy=None)       # nothing between the fingers: shut
+        out = commands.run(service, "close_gripper", "")
+        assert not out.ok and "nothing" in out.message and not out.data["holding"], out.message
+        assert service.running is None
+    finally:
+        robot.shutdown()
+
+
 if __name__ == "__main__":
     test_reach_pose_goes_there_and_back()
     print("ok reach_pose")
@@ -148,3 +166,5 @@ if __name__ == "__main__":
     print("ok cancel")
     test_candy_grasp()
     print("ok candy_grasp")
+    test_gripper_commands()
+    print("ok gripper commands")
