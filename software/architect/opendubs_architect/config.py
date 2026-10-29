@@ -12,6 +12,8 @@ ssa loads it by name when ``SSA_ROBOT_PLUGINS`` names it:
     live  (default)  the robot's live arm services (robot_node.py over live_arms.LiveArms), one
                      checked move per call, as the program runs
     show             recorded into a show for the runner to play (show_backend.py), the fallback
+    gafro            tobi's arm service (software/openarm/gafro), one action goal per call, as the
+                     program runs (gafro_robot.py); the demo runner builds it
 
 ``OPENDUBS_ARCHITECT_PROFILE`` says which primitives the model is offered (api.PROFILES):
 ``full`` (default), or ``arms``: no perception, handoff, speech or navigation, the first profile
@@ -32,10 +34,11 @@ from opendubs_architect import api
 from opendubs_architect.dryrun import DryRunRobot, namespace_for
 
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills"
-BACKENDS = ("live", "show")
+BACKENDS = ("live", "show", "gafro")
 #: The skill docs each profile loads; None is all of them.
 PROFILE_SKILLS = {"full": None, "arms": ("motion.md", "program.md"),
-                  "arms_see": ("motion.md", "program.md", "grasping.md")}
+                  "arms_see": ("motion.md", "program.md", "grasping.md"),
+                  "gafro": ("motion.md", "program.md")}
 
 
 def profile() -> str:

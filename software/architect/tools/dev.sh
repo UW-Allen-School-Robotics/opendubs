@@ -12,6 +12,14 @@
 #                                  armed by voice, run on each "trick or treat" through the arm service
 #                                  (archit-architect-arms, robot_node.py). FAKE ARMS by default: nothing
 #                                  moves. ARMS=ros for the real arms (see below)
+#   dev.sh gafro                   the runner on TOBI'S ARM SERVICE (the gafro backend, gafro_robot.py): a fixed
+#                                  program (PROGRAM, default examples/candy_gafro.py), approved on its page or by
+#                                  voice ("yes"), run on each "trick or treat", one action goal per call. The arm
+#                                  service (arm_service.py run, supervised and activated) must be up on the
+#                                  robot's domain, and nothing else drive that arm meanwhile. THE ARM AND THE HEAD
+#                                  MOVE. SIM=1 GAFRO_DOMAIN=<n>: a simulated arm service on its own domain (its
+#                                  gripper and the head logged, the deadman counted as held). Start the listener
+#                                  without SHOW and with DAY=1, and the coordinator with CANDY_RUNNER=1
 #   dev.sh kws                     fetch the listener's keyword-spotter model into $DATA/models, once
 #   dev.sh butler                  fetch the butler's voice (bm_george, British English) into $DATA/models, once
 #   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner;
@@ -129,9 +137,11 @@ run() {  # $1: show or live; then the runner's arguments
   local say=""
   [ "${LISTEN:-0}" = 1 ] && say="--say-url http://127.0.0.1:8099/api/say"
   local profile="${PROFILE:-arms}" domain=77
+  [ "${backend}" = gafro ] && profile=gafro
   case "${profile}" in
     arms) ;;
     arms_see) domain=0 ;;
+    gafro) domain="${GAFRO_DOMAIN:-0}" ;;
     *) echo "dev.sh: PROFILE must be arms or arms_see, not ${profile}" >&2; exit 1 ;;
   esac
   if [ -n "${PLANNER:-}" ]; then
@@ -141,6 +151,7 @@ run() {  # $1: show or live; then the runner's arguments
     args+=(-v "${PLANNER_ROOT}:/planner:ro")
   fi
   local publish="--publish /data/shows"
+  [ "${backend}" = gafro ] && publish=""
   if [ "${backend}" = live ]; then
     publish=""
     [ "${ARMS:-fake}" = ros ] && domain=0
@@ -209,6 +220,9 @@ camera() {  # the colour image for the dashboard tab, from the perception stack'
 }
 
 day() {  # the coordinator: reads the palette and the perception services, drives nothing until the nav is real
+  # CANDY_RUNNER=1: the candy run is the ARCHITECT runner's program on 127.0.0.1:${PORT} (dev.sh gafro), not
+  # a show; SHOW is then only its name. The choreo shows stay the show runner's.
+  [ "${CANDY_RUNNER:-0}" = 1 ] && SHOW="${SHOW:-architect-gafro}"
   [ -n "${SHOW:-}" ] || { echo "dev.sh: SHOW=<the candy routine> is needed (the listener's)" >&2; exit 1; }
   if ${DOCKER} inspect "${DAY_NAME}" >/dev/null 2>&1; then
     echo "dev.sh: ${DAY_NAME} is already running; 'dev.sh down' first" >&2; exit 1
@@ -218,6 +232,7 @@ day() {  # the coordinator: reads the palette and the perception services, drive
   [ -n "${EVERY:-}" ] && args="${args} --every ${EVERY}"
   [ "${FAKE:-0}" = 1 ] && args="${args} --people fake --palette fake"
   [ "${PAUSED:-0}" = 1 ] && args="${args} --start-paused"
+  [ "${CANDY_RUNNER:-0}" = 1 ] && args="${args} --candy-runner http://127.0.0.1:${PORT}"
   need_dds
   ${DOCKER} run ${DETACH} --rm --name "${DAY_NAME}" --network host \
     -e ROS_DOMAIN_ID=0 "${DDS[@]}" -e PYTHONPATH=/work/software/architect \
@@ -292,7 +307,7 @@ case "${1:-}" in
   build)
     ${DOCKER} build -f "${REPO}/software/architect/image/Dockerfile" -t "${IMAGE}" \
       --build-arg BASE_IMAGE="${BASE_IMAGE}" --build-context voice="${REPO}/software/voice" \
-      "${REPO}/software/architect"
+      --build-context arms="${REPO}/software/openarm/interfaces" "${REPO}/software/architect"
     ;;
   kws)
     mkdir -p "${DATA}/models"
@@ -326,6 +341,18 @@ case "${1:-}" in
     [ -n "${PROGRAM:-}" ] || echo "dev.sh: PROGRAM not set; the fixed program is examples/arms_wave.py" >&2
     run live --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
     arms
+    ;;
+  gafro)
+    # tobi's arm service must already be up, supervised and active for the right arm (software/openarm/gafro).
+    # SIM=1: a SIMULATED arm service on GAFRO_DOMAIN (not 0): the deadman counts as held, and the head and
+    # the gripper, which a simulation does not have, are logged instead of moved.
+    if [ "${SIM:-0}" = 1 ]; then
+      [ "${GAFRO_DOMAIN:-0}" != 0 ] || { echo "dev.sh: SIM=1 needs GAFRO_DOMAIN, the simulation's own ROS domain (not 0)" >&2; exit 1; }
+      sim="--sim-deadman --sim-head --sim-gripper"
+    else
+      sim=""
+    fi
+    run gafro --agent program --program "/work/${PROGRAM:-software/architect/examples/candy_gafro.py}" ${sim}
     ;;
   dry)
     run show --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"

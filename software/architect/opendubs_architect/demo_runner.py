@@ -183,7 +183,7 @@ class DemoRunner:
 
     def __init__(self, agent, make_namespace, speak, deadman_held, clock=time.monotonic,
                  log=None, background=True, primitives=api.PRIMITIVE_NAMES, publish=None,
-                 rearm_on_failure=False):
+                 rearm_on_failure=False, after_run=None):
         """`publish`, when given, is called with each approved Program instead of arming it for
         "trick or treat": the show path, where the Shows page runs it (show_backend.publish). It
         returns what to report (a dict), or raises ValueError, and the program is not approved."""
@@ -196,6 +196,8 @@ class DemoRunner:
         #: A failed run goes back to ARMED, not CHECK_FAILED: for a fixed program, which a spoken
         #: correction cannot change, so the next "trick or treat" simply tries again.
         self.rearm_on_failure = rearm_on_failure
+        #: Called after every run, however it ended (the gafro backend releases the head's hold).
+        self.after_run = after_run
         self.lock = threading.RLock()
         self.state = IDLE
         self.offered: Program | None = None       # awaiting approval
@@ -280,6 +282,17 @@ class DemoRunner:
             self._stop.clear()
             self._to(RUNNING, "run_started", source=source, sha=program.sha)
             self._spawn(self._run, program)
+            return True
+
+    def cancel(self, why: str = "cancel") -> bool:
+        """End the run under way at its next primitive call (the gafro backend also cancels a goal in
+        flight), and keep the program ARMED: the demo day's pause. The state stays RUNNING until the run
+        has ended, so no "trick or treat" can start a second one beside it. False if nothing was running."""
+        with self.lock:
+            if self.state != RUNNING:
+                return False
+            self._stop.set()
+            self._log("cancel_requested", why=why)
             return True
 
     def stop(self, why: str = "stop") -> None:
@@ -394,12 +407,20 @@ class DemoRunner:
         except Exception as e:  # noqa: BLE001  a failed check: the robot says why
             outcome.update(result="failed", error=f"{type(e).__name__}: {e}",
                            trace=traceback.format_exc(limit=4))
+        finally:
+            if self.after_run is not None:
+                try:
+                    self.after_run()
+                except Exception as e:  # noqa: BLE001  cleanup trouble never changes the outcome
+                    self._log("after_run_failed", error=str(e))
         with self.lock:
             self.last = outcome
             if self.state != RUNNING:            # stopped meanwhile
                 self._log("run_ended", **outcome)
                 return
-            if outcome["result"] in ("done", "refused"):
+            if outcome["result"] == "stopped" or (outcome["result"] == "refused" and self._stop.is_set()):
+                self._to(ARMED, "run_cancelled", **{k: v for k, v in outcome.items() if k != "trace"})
+            elif outcome["result"] in ("done", "refused"):
                 self.runs += outcome["result"] == "done"
                 self._to(ARMED, "run_ended", **{k: v for k, v in outcome.items() if k != "trace"})
             elif self.rearm_on_failure:              # the error is in the log and on the page, not said aloud
@@ -513,6 +534,8 @@ def serve(runner: DemoRunner, host: str, port: int):
             if self.path == "/api/stop":
                 runner.stop("dashboard")
                 return self._send(200, {"state": runner.state})
+            if self.path == "/api/cancel":
+                return self._send(200, {"cancelled": runner.cancel("dashboard"), "state": runner.state})
             return self._send(404, {"error": "not found"})
 
     return ThreadingHTTPServer((host, port), H)
@@ -524,6 +547,12 @@ def main(argv=None) -> int:
                     help="ssa: ARCHITECT writes the program; program: always offer --program")
     ap.add_argument("--program", help="the program file --agent program offers")
     ap.add_argument("--dry-run", action="store_true", help="the dry-run robot, with the deadman held")
+    ap.add_argument("--sim-deadman", action="store_true",
+                    help="the gafro backend on a SIMULATED arm service: the deadman counts as held")
+    ap.add_argument("--sim-gripper", action="store_true",
+                    help="the gafro backend on a simulation, whose gripper does not run: gripper calls are logged")
+    ap.add_argument("--sim-head", action="store_true",
+                    help="the gafro backend on a simulation: set_head_pose is logged and moves nothing")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8098)
     ap.add_argument("--log", help="append every event to this file, one JSON line each")
@@ -543,9 +572,24 @@ def main(argv=None) -> int:
         from opendubs_architect.show_backend import PerceptionDryRun
         sees = "detect_objects" in primitives            # the arms_see profile: perception at approval
         publish = Publisher(a.publish, primitives, base=PerceptionDryRun if sees else None)
+    after_run, holder = None, {}
     if a.dry_run or a.publish:
         namespace = cfg.make_dry_run_namespace(_Quiet())
         deadman_held = lambda: True  # noqa: E731
+    elif config_mod.backend() == "gafro":
+        from opendubs_architect import gafro_robot, live_arms
+        from opendubs_architect.dryrun import namespace_for
+        robot_state = live_arms.runner.DashboardRobotState()
+        if a.sim_deadman:                         # a simulated arm service, which has no deadman to read
+            deadman_held = lambda: True  # noqa: E731
+        else:
+            deadman_held = lambda: robot_state.read().get("deadman") is True  # noqa: E731
+        robot = gafro_robot.make(live_arms.ArmConfig.load(), deadman_held,
+                                 stopped=lambda: holder["runner"]._stop.is_set(),
+                                 head="log" if a.sim_head else "dashboard", sim_gripper=a.sim_gripper,
+                                 log=lambda ev: print(json.dumps(ev), flush=True))
+        namespace = {k: v for k, v in namespace_for(robot).items() if k in primitives}
+        after_run = robot.release_head
     else:
         from opendubs_architect import live_arms
         namespace, _client = cfg.make_live_namespace()
@@ -582,7 +626,9 @@ def main(argv=None) -> int:
         (namespace["say"] if "say" in namespace else lambda t: log({"said": t}))(text)
 
     runner = DemoRunner(agent, lambda: namespace, speak, deadman_held, log=log,
-                        primitives=primitives, publish=publish, rearm_on_failure=a.agent == "program")
+                        primitives=primitives, publish=publish, rearm_on_failure=a.agent == "program",
+                        after_run=after_run)
+    holder["runner"] = runner
 
     def ticks():
         while True:

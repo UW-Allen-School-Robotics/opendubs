@@ -311,6 +311,10 @@ PROFILES = {
     "arms": ("get_current_joints", "get_current_ee_pose", "get_current_gripper_width", "get_workspace",
              "get_named_poses", "move_ee_to_pose", "move_ee_to_rel_pose", "move_arm_to_named_pose",
              "set_gripper_width", "reset_robot", "wait"),
+    # The gafro backend (gafro_robot.py, tobi's arm service): the arms, the head, and the hand tracker.
+    "gafro": ("get_current_joints", "get_current_ee_pose", "get_current_gripper_width", "get_workspace",
+              "get_named_poses", "move_ee_to_pose", "move_ee_to_rel_pose", "move_arm_to_named_pose",
+              "set_gripper_width", "reset_robot", "wait", "set_head_pose", "get_hand_pose", "place_in_hand"),
 }
 
 _ENTRY = re.compile(r"^([a-z_]+)\(")

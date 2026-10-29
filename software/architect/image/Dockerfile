@@ -2,9 +2,11 @@
 # the Jetson AGX Thor (JetPack 7.1, L4T R38.4). Built and run the way archit-perception is:
 # tools/dev.sh, under the archit account, nothing on the host changed.
 # Build context is software/architect, plus the voice service's directory as a second context, for
-# its speech requirements and its GPL check (BuildKit; dev.sh build passes both):
+# its speech requirements and its GPL check, and the arm service's interfaces as a third (BuildKit;
+# dev.sh build passes them):
 #   docker build -f image/Dockerfile -t archit-architect:dev \
-#     --build-arg BASE_IMAGE=archit-perception:dev --build-context voice=software/voice software/architect
+#     --build-arg BASE_IMAGE=archit-perception:dev --build-context voice=software/voice \
+#     --build-context arms=software/openarm/interfaces software/architect
 # dev.sh builds FROM archit-perception:dev (software/perception/image/Dockerfile on
 # archit/perception-grasp), so Kokoro uses perception's PyTorch rather than a second copy, and the
 # two images share its layers. Its PyTorch stack is kept exactly as it is (perception's code needs
@@ -50,8 +52,13 @@ RUN pip list --format=freeze 2>/dev/null | cut -d= -f1 > /opt/speech/before.txt 
 RUN PIP_CONSTRAINT= pip install --no-deps sscbirrt==3.13.0 && pip install sstsr==3.5.0 toppra==0.6.3
 
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-# The /robot/ service types, for the live backend's client and the arm node.
+# The /robot/ service types, for the live backend's client and the arm node; and for the gafro backend
+# (gafro_robot.py), tobi's arm service's ArmCommand action (software/openarm/interfaces, the `arms`
+# build context) and control_msgs' GripperCommand.
+RUN apt-get update && apt-get install -y --no-install-recommends ros-jazzy-control-msgs \
+    && rm -rf /var/lib/apt/lists/*
 COPY ros/robot_api_interfaces /opt/architect_ws/src/robot_api_interfaces
+COPY --from=arms opendubs_arm_interfaces /opt/architect_ws/src/opendubs_arm_interfaces
 RUN bash -c "source /opt/ros/jazzy/setup.bash && cd /opt/architect_ws && colcon build --event-handlers console_direct-" \
  && rm -rf /opt/architect_ws/build /opt/architect_ws/log
 # The code is not in the image: dev.sh mounts this repository at /work and ssa at /ssa, read-only.

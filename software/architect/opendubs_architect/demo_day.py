@@ -518,6 +518,60 @@ class Palette:
         return {r.get("id"): r for r in rs}
 
 
+class CandyRunner:
+    """The palette, with the candy run carried by the ARCHITECT demo runner (demo_runner.py, the gafro
+    backend) instead of a show: while the runner is RUNNING the candy routine is what runs; anything
+    else (the choreo shows) is the dashboard palette's. stop() cancels a candy run and keeps its program
+    armed (POST /api/cancel); last() is the runner's last outcome, in the palette's words."""
+
+    def __init__(self, palette, runner_url: str, candy: str):
+        self.palette, self.url, self.candy = palette, runner_url.rstrip("/"), candy
+
+    def _call(self, method: str, path: str):
+        req = urllib.request.Request(self.url + path, data=b"{}" if method == "POST" else None, method=method,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=2.0) as r:
+            return json.load(r)
+
+    def _runner(self) -> dict:
+        try:
+            return self._call("GET", "/api/state")
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"the ARCHITECT runner does not answer ({e})") from None
+
+    def running(self):
+        if self._runner().get("state") == "RUNNING":
+            return self.candy
+        return self.palette.running()
+
+    def status(self):
+        if self._runner().get("state") == "RUNNING":
+            return {"running": self.candy, "status": "RUNNING"}
+        return self.palette.status()
+
+    def last(self):
+        last = self._runner().get("last") or {}
+        if not last:
+            return self.palette.last()
+        status = {"done": "COMPLETED", "stopped": "ABORTED", "refused": "REFUSED"}.get(last.get("result"), "ABORTED")
+        if "the run was stopped" in (last.get("error") or ""):   # cancelled (stop()), not refused
+            status = "ABORTED"
+        return {"id": self.candy, "status": status, "code": (last.get("result") or "").upper(),
+                "cause": (last.get("error") or "")[:200]}
+
+    def run(self, routine: str):
+        return self.palette.run(routine)
+
+    def stop(self) -> None:
+        if self._runner().get("state") == "RUNNING":
+            self._call("POST", "/api/cancel")
+        else:
+            self.palette.stop()
+
+    def routines(self) -> dict:
+        return self.palette.routines()
+
+
 class Safety:
     """The e-stop, from the dashboard's StamPLC state: estopped, or the state stale, is not ok."""
 
@@ -575,6 +629,9 @@ def main(argv=None) -> int:
                     help="a random choreo pick after this long patrolling")
     ap.add_argument("--people", choices=("perception", "fake"), default="perception")
     ap.add_argument("--palette", choices=("dashboard", "fake"), default="dashboard")
+    ap.add_argument("--candy-runner", metavar="URL",
+                    help="the candy run is the ARCHITECT runner's program (e.g. http://127.0.0.1:8098, the gafro "
+                         "backend), not a show: --candy is then only its name")
     ap.add_argument("--start-paused", action="store_true",
                     help="start PAUSED (the boot unit's way): nothing is armed until POST /api/resume")
     ap.add_argument("--host", default="127.0.0.1")
@@ -589,7 +646,10 @@ def main(argv=None) -> int:
     else:
         palette, safety = Palette(args.dashboard), Safety(args.dashboard)
         have = palette.routines()
-        for r in [args.candy, *args.choreo, *args.random]:
+        shows = [*args.choreo, *args.random] if args.candy_runner else [args.candy, *args.choreo, *args.random]
+        if args.candy_runner:
+            palette = CandyRunner(palette, args.candy_runner, args.candy)
+        for r in shows:
             if r not in have:
                 raise SystemExit(f"demo_day: no routine {r!r}; the robot has {', '.join(sorted(have))}")
             if not have[r].get("valid"):

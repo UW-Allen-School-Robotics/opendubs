@@ -435,8 +435,12 @@ class Listener:
 
 # ---- the robot side: the Jabra, the models, the runner ------------------------------------------------
 class Runner:
-    def __init__(self, url: str):
+    """The ARCHITECT demo runner (demo_runner.py): "trick or treat" runs its armed program. With `day`
+    (the coordinator), a trigger is asked of it first, as Shows does, and nothing is posted on a no."""
+
+    def __init__(self, url: str, day=None, log=None):
         self.url = url.rstrip("/")
+        self.day, self._log_fn = day, log
 
     def state(self) -> str | None:
         try:
@@ -446,6 +450,12 @@ class Runner:
             return None
 
     def post(self, kind: str, text: str) -> str | None:
+        if kind == "trigger" and self.day is not None:
+            ok, why = self.day.request("candy")
+            if not ok:
+                if self._log_fn:
+                    self._log_fn({"t": round(time.time(), 3), "event": "run_refused", "why": f"demo day: {why}"})
+                return "ARMED"
         req = urllib.request.Request(self.url + "/api/heard", data=json.dumps({"kind": kind, "text": text}).encode(),
                                      headers={"Content-Type": "application/json"}, method="POST")
         try:
@@ -684,7 +694,7 @@ def main(argv=None) -> int:
         runner = Shows(a.dashboard, a.show, a.start, a.countdown_s, log=log, day=Day(a.day) if a.day else None)
         runner.check()
     else:
-        runner = Runner(a.runner)
+        runner = Runner(a.runner, day=Day(a.day) if a.day else None, log=log)
     lines: queue.Queue = queue.Queue()
     listener = Listener(kws.Spotter(a.kws_models or a.models), lambda pcm: asyncio.run(stt.transcribe(pcm)).text,
                         runner.post, make_vad=lambda: vad.make_vad(a.models), log=log,

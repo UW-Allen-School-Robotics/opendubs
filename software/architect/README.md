@@ -310,6 +310,56 @@ before letting go (`wait`).
   1 mm of the vertical and the fingers 19.9-20.1 degrees off it; 38.9 mm to the robot's own body.
   Recorded as `architect-93cbf2aabeca`, 34.6 s.
 
+## On tobi's arm service: a program run step by step (the gafro backend)
+
+The candy show above is a placeholder on the old arm stack. The way forward is tobi's arm service
+(`software/openarm/gafro`, one `arm_service.py run` per arm), with ARCHITECT's program run as it
+stands, one call at a time: `OPENDUBS_ARCHITECT_BACKEND=gafro` (`gafro_robot.py`), `tools/dev.sh
+gafro`. `examples/candy_gafro.py` is the hand-off on it: ready; the head tipped 25 degrees down at
+the bucket; the pick above, move for move; the head 15 degrees down, where a held-out hand is in the
+picture; then `place_in_hand`: a still hand, the gripper 20 cm short of it with the fingers pointing
+down, a pause, open, ready.
+
+| Call | On the arm service |
+|---|---|
+| `move_ee_to_pose` | planned on the twin from the arm's measured joints (`live_arms.Planner`: IK, the fingers' `approach` by `axis_ik.py`, the joint margins, 30 mm from the robot's body and from the head where `set_head_pose` put it), sent as one smoothed `FollowJointTrajectory` on `/<side>_controller/follow_joint_trajectory`, its arrival measured |
+| `set_gripper_width` | `GripperCommand` on `/<side>_gripper_controller/gripper_cmd`, the opening times 0.044 m; a close that stalls is a grip |
+| `move_arm_to_named_pose("ready")`, `reset_robot` | the service's `ready` (`ArmCommand` on `/<side>_arm/command`); stow is the operator's park |
+| `set_head_pose` | the dashboard's head hold (`POST /api/head/hold`), settled on `/head/joint_states`; released after every run |
+| `get_hand_pose`, `place_in_hand` | Archit's hand tracker (`/perception/hand/state`), placed with the head's live angles |
+
+- **Not `reach_pose`.** Without `ssik`, which the robot's gafro environment lacks, the service's own
+  planner has no posture to start from: a move from `ready` out to the side "leaves a joint's range"
+  (the simulation, 2026-10-28). Planned on the twin, the moves are the recorded show's. The twin and
+  tobi's model are one arm: his arm frame is the chassis frame moved (0.423, 0, 0.3575) m, his tool
+  frame is the twin's `ee_site`, fitted to 0.0 mm and 0.0 degrees over five poses.
+- **The gates.** The service gates every goal (CH5, the e-stop, the deadman; `supervised` on a real
+  bus). Here, a goal is sent only with the deadman held, and the moment it is released, or the run is
+  stopped, the goal is cancelled, the arm holds, and nothing more is sent. "Trick or treat" starts a
+  run only with the deadman held, as the runner always has. The coordinator's pause cancels a run and
+  keeps its program armed (`POST /api/cancel`).
+- **The head.** Tipped 30 degrees down, the right shoulder link passes 29.5 mm from it on the way over
+  the bucket: refused. 25 degrees keeps 36.2 mm, and the bucket in view (the camera is already 36
+  degrees down on its mount). The service's README asks for the neck centred under `supervised`; this
+  program moves it while the arm is still, and checks every move with the head where it is.
+- **Simulated end to end** (2026-10-28) on a simulated arm service on its own ROS domain, with a
+  scripted head angle and palm: done, 19 moves, the closest planned 36.2 mm; the palm found where it
+  was put. Its joints replayed on the twin with the stage and the bucket where it was measured: 36.2 mm
+  to the body and the head, and 12.5 mm (rim at the edge) or 26.3 mm (base) to the bucket. The
+  simulation trails its plan by up to 2 cm at the bottom (MuJoCo's servo has no gravity feed-forward),
+  so the plan's own figures are the show's, 19.1 and 24.5 mm.
+- **Not yet run on the real arm.** It needs the right gripper on in the service's config
+  (`use_gripper: false` in `/etc/opendubs/openarm-gafro-right-only.yaml` today, its open and closed
+  angles measured with the gripper moving freely), the service up, supervised and activated, and
+  nothing else on that arm. The dances do not pass its 1.0 rad/s cap.
+
+```sh
+tools/dev.sh gafro                                   # the runner; approve the program on its page, or "yes"
+DAY=1 tools/dev.sh listen                            # no SHOW: "trick or treat" goes to the runner, asked of the coordinator
+CANDY_RUNNER=1 tools/dev.sh day                      # the coordinator, its candy run the runner's
+SIM=1 GAFRO_DOMAIN=79 tools/dev.sh gafro             # against a simulated arm service on domain 79
+```
+
 ## The demo day: one coordinator, one thing at a time
 
 On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh day`, on
