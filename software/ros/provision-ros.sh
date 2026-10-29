@@ -101,6 +101,11 @@ for svc in $RETIRED; do
 done
 echo "-- installing + enabling ROS services"
 chmod +x "$ROSDIR"/*.sh
+# The robot's DDS settings and FastDDS profile, read by every unit below (and by any other lane's unit
+# or container that names them). From the repo, refreshed on every provisioning, before any unit starts.
+install -d -m 0755 /etc/opendubs
+install -m 0644 -o root -g root "$ROSDIR/ros-dds.env" /etc/opendubs/ros-dds.env
+install -m 0644 -o root -g root "$ROSDIR/fastdds-robot.xml" /etc/opendubs/fastdds-robot.xml
 for svc in $SERVICES; do
   render "$ROSDIR/$svc.service" > "/etc/systemd/system/$svc.service"
   chmod 0644 "/etc/systemd/system/$svc.service"

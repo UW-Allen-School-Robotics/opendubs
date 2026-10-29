@@ -77,7 +77,7 @@ def describe(side: str, joint: int, start, delta: float, speed: float, closest=N
     if closest is not None:
         mm, pair = closest
         lines.append(f"Closest approach along that path in the lane's twin: {mm:.1f} mm ({pair})"
-                     + (f"; the stage refuses below {minimum_mm:g} mm. The twin was 6 deg optimistic on the one pose measured on the robot." if minimum_mm else ""))
+                     + (f"; the stage refuses below {minimum_mm:g} mm. The twin agrees with the hand measurement to about half a degree; the floor is not a margin." if minimum_mm else ""))
     else:
         lines.append("Clearance along the path was NOT checked (--skip-clearance).")
     lines.append("The head is not in the model: it must be tracking OFF with the neck centred, or it can move into the path.")
@@ -132,7 +132,7 @@ def require_clearance(poses, clearance_of, minimum_mm: float = DEFAULT_MIN_CLEAR
         raise guards.Refused("no poses to check")
     if worst[0] < minimum_mm:
         raise guards.Refused(f"the path comes within {worst[0]:.1f} mm of {worst[1]} in the lane's twin, under the {minimum_mm:g} mm these stages require "
-                             "(the twin was 6 deg optimistic on the one pose measured on the robot, so it is a floor and not a margin). "
+                             "(a floor and not a margin: the twin agrees with the hand measurement to about half a degree, and the arm may overshoot its plan). "
                              "Step the other way, or a smaller step, or check the geometry by eye and pass --min-clearance-mm lower.")
     return worst
 

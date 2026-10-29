@@ -261,6 +261,27 @@ sensors:
     xyz_mm: TODO_CAD
     rpy_deg: [0, 0, 0]
 
+bucket_stage:
+  # The stage the candy bucket stands on, in front of the robot and over the front lidar. From the
+  # project's CAD (bucket_stage.stl, 2026-10-28; not kept: the stage in it is a plain box, written
+  # here as one). That file was exported Y-up, in its own frame, with the lift plate as a reference
+  # piece. Registered on the plate:
+  #   * The rotation is +90 deg about x (export y up -> robot z up), a proper rotation, as a CAD
+  #     export is; the stage lies on the export's +x side of the plate, which is the robot's front.
+  #   * The plate in the file is 400 x 320 x 9.5 mm with two rows of five through-holes, 15 mm in
+  #     from each end. Its outline lands on meshes.lift_platform exactly (x 148..548, y +/-160:
+  #     residual 0.00 mm), and its hole pattern's centre is the outline's to 0.00 mm. Its top face
+  #     is put on the plate mesh's top (z 357.58).
+  #   * So export (x, y, z) -> CAD (x + 601, -z - 186, y + 297.555) mm.
+  #   * The plate and its holes are symmetric, so up and left/right rest on the conventions above;
+  #     the stage's top is then flush with the plate's UNDERSIDE, as the CAD shows it, and its
+  #     22 mm offset is to the robot's left, where it is mounted (the project team, 2026-10-28).
+  # Mounted to the LIFT and rides it (the project team, 2026-10-28). Clear of the front lidar's scan:
+  # its underside is 55.3 mm above the scan plane (241.3) with the lift down, and only rises.
+  fitted: true
+  rides: lift_platform
+  span_mm: { x: [597.0, 829.0], y: [-190.0, 234.0], z: [296.555, 348.055] }   # 232 x 424 x 51.5, lift down
+
 head_assembly:
   # The head is a SWAPPABLE sub-assembly: it attaches to the lift platform at its own mount pose
   # and brings its own joints and sensor frames. Only the fitted assembly is emitted.

@@ -80,7 +80,7 @@ plan = mp.describe("right", 3, np.radians([2.2, 1.1, 0.1, 0.2, -0.2, -0.5, -0.3]
 check("the plan names the side, the joint, the direction and the pose", all(w in plan for w in ("right arm", "joint 3", "POSITIVE", "by 2.86 deg", "+0.0500 rad", "+2.20 deg", "this one moves")), True)
 check("the plan says the other way when the step is negative", "NEGATIVE" in mp.describe("left", 2, [0.0] * 7, -0.02, 0.1, None, None), True)
 check("the plan says plainly when clearance was not checked", "NOT checked" in mp.describe("left", 2, [0.0] * 7, -0.02, 0.1, None, None), True)
-check("the plan states the twin's optimism", "6 deg optimistic" in plan, True)
+check("the plan says the clearance is a floor", "the floor is not a margin" in plan, True)
 quiet = lambda *_: None
 check("the matching token goes ahead", mp.confirm(plan, 3, 0.05, ask=lambda _p: "3+", out=quiet), None)
 check("a space around it does not matter", mp.confirm(plan, 3, 0.05, ask=lambda _p: " 3+ ", out=quiet), None)
@@ -115,7 +115,7 @@ check("a start that is already too close is refused too", refuses(lambda: mp.req
 check("exactly at the minimum passes", mp.require_clearance(poses, lambda q: (20.0, "a <-> b"), 20.0), (20.0, "a <-> b"))
 check("a lower --min-clearance-mm lets a close path through", mp.require_clearance(poses, tight_in_the_middle, 5.0), (8.0, "arm <-> column"))
 check("no poses refuses", refuses(lambda: mp.require_clearance([], lambda q: (1.0, "x"), 20.0), "no poses"), True)
-check("the refusal calls the twin a floor and not a margin", refuses(lambda: mp.require_clearance(poses, tight_in_the_middle, 20.0), "floor", "6 deg"), True)
+check("the refusal calls the twin a floor and not a margin", refuses(lambda: mp.require_clearance(poses, tight_in_the_middle, 20.0), "floor and not a margin", "half a degree"), True)
 
 # -- the twin that cannot be built is a refusal, not a pass ---------------------------------------------------------------------------------
 check("no twin directory refuses and offers --skip-clearance", refuses(lambda: mp.twin_clearance("right", sim_dir="/nonexistent/sim"), "not at", "--skip-clearance"), True)

@@ -12,7 +12,7 @@ must stop where it is. Stage 5 `move`: one joint a small step and back, on a per
 
 A step has no default size or direction (`--delta` is signed and required; at most 5 deg unless `--allow-large`). Once the arm is held at its real pose and
 before it moves, `lapse` and `move` check the clearance along the path in the Choreography lane's twin (sim/clearance.py: refuse under 20 mm, a floor
-and not a margin, since the twin was 6 deg optimistic on the one pose measured on the robot), print the plan with that pose, and start only when the joint and the
+and not a margin; the twin agrees with the hand measurement to about half a degree), print the plan with that pose, and start only when the joint and the
 direction are typed back (`3+`). A `lapse` that cannot pass, because the move would be over before the permit runs out, is refused before anything is
 enabled. See motion_plan.py.
 

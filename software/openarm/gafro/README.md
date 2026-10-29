@@ -64,7 +64,7 @@ $PY software/openarm/gafro/bringup.py move  --side right --model $M --hardware-c
 right sign depends on what the arm stands next to. Before anything is enabled `bringup.py` refuses a step it cannot take, and a `lapse` that cannot pass.
 Then, with the arm held at its real pose and before it moves, it (1) checks the clearance along the straight path in the Choreography lane's twin
 (`sim/clearance.py`, read and never edited; only pairs involving the arm being moved count) and refuses under `--min-clearance-mm` (20): a floor
-and not a margin, since the twin was 6 deg optimistic on the one pose measured on the robot, (2) prints the plan with the pose the arm is at, and
+and not a margin (the twin agrees with the hand measurement to about half a degree), (2) prints the plan with the pose the arm is at, and
 (3) starts only when the joint and direction are typed back (`3+`, or `--confirm 3+` from a script that has read the plan). The twin needs
 `--assets` (the openarm_assets checkout, `$ARM_ASSETS` in `env.sh`) and a `sim/` whose twin builds (`--sim-dir`, or `$OPENDUBS_SIM_DIR`); one that cannot be
 built is a refusal, not a pass, and `--skip-clearance` goes without it and says so in the plan. The twin keeps its meshes in `/tmp/opendubs_sim_meshes_<hash>`

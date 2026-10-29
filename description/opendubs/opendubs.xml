@@ -85,6 +85,7 @@
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
+    <material name="stage" rgba="0.72 0.58 0.40 1"/>
   </asset>
 
   <worldbody>
@@ -204,6 +205,19 @@
              ATTACH POINT — the bimanual model goes here:
                <include file="openarm_bimanual_decorated.xml"/> with its root at this site. -->
         <site name="arm_frame_mount" pos="0.423 0 0.3575" size="0.012" rgba="0.9 0.5 0.1 1"/>
+
+        <!-- THE BUCKET STAGE, in front of the robot over the front lidar (dimensions.yaml
+             bucket_stage, which says how it was registered on this plate). It is mounted to the lift
+             and rides it, where it sits in CAD (off-centre: y -190..234). A plain box in the CAD it
+             came from, so a box here: x 597..829, z 296.6..348.1 mm with the lift down, its top
+             flush with this plate's underside, its underside 55 mm above the front lidar's scan
+             plane and only further from it as the lift rises. -->
+        <geom class="visual"    type="box" pos="0.713 0.022 0.322305" size="0.116 0.212 0.02575"
+              material="stage" name="bucket_stage_visual"/>
+        <geom class="collision" type="box" pos="0.713 0.022 0.322305" size="0.116 0.212 0.02575"
+              name="bucket_stage_collision"/>
+        <!-- The centre of the stage's top face, axes as the lift's: where a bucket's base sits. -->
+        <site name="bucket_stage_top" pos="0.713 0.022 0.348055" size="0.008" rgba="0.95 0.75 0.2 1"/>
 
         <!-- THE CHEST COVER, fixed to the top of the arm extrusion, with the neck's M5Dial on its
              back (the -x side). It replaces the OpenArm frame's stock cover (sim/scene.py hides
