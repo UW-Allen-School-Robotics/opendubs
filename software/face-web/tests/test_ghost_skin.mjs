@@ -83,6 +83,8 @@ for (const [id, d] of Object.entries(ghost.DANCES)) {
   if (steps.length) ok(!wrong.length && steps[0][0] === 0, `${id}: ${steps.length} steps from 0 s, each a look and costume, in order`, JSON.stringify(wrong));
 }
 ok(Object.values(ghost.EMOTE_LOOKS).every((l) => LOOKS.includes(l)), "every emote has a look");
+ok(ghost.TIMELINE.looks.every((l) => LOOKS.includes(l)) && ghost.TIMELINE.costumes.every((c) => c in ghost.COSTUMES),
+   "a studio is offered only looks and costumes the ghost draws");
 
 // The emote read back from the eye: the lids' bow and the brow each emote gives (engine/vocab.js).
 for (const [name, lidCurve, browRaise] of [["NEUTRAL", 0, 0], ["ALERT", -0.5, 1], ["SQUINT", 0.3, -0.45],

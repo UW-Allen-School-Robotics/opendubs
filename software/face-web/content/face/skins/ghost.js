@@ -860,7 +860,10 @@ let last = 0, gx = 0, gy = 0, look = 0;
 const idleFloat = t => U * 3.5 * Math.sin(t * 1.15);
 function frame(nowMs) {
   clock = nowMs;
-  const t = nowMs / 1000, dt = Math.min(0.05, (nowMs - last) / 1000); last = nowMs;
+  const t = nowMs / 1000, dt = Math.min(0.05, (nowMs - last) / 1000), jumped = nowMs - last > 500; last = nowMs;
+  // a show's costume now, before anything is painted in it (a studio may draw one frame at a time)
+  const DL = danceOn ? danceLook(t) : null;
+  if (DL && COSTUMES[DL.costume]) costume = DL.costume;
   const P = COSTUMES[costume] || COSTUMES.classic, bg = P.bg, ink = P.ink;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
@@ -902,12 +905,11 @@ function frame(nowMs) {
   // alone, after a nod or two, look around
   // alone for long enough (and not mid-lookout or mid-nod): groove
   if (!near && !busyNow() && lookT0 < 0 && nodT0 < 0 && grooveT0 < 0 && t - aloneSince >= ctl.grooveAfter) grooveT0 = t;
-  const DL = danceOn ? danceLook(t) : null;
-  if (DL && COSTUMES[DL.costume]) costume = DL.costume;
   // a show's groove keeps going, on the show's beat (or where the last cue put it)
   const G = DL ? (GROOVY.includes(DL.look) ? groove(DL.g, true) : null)
     : grooveT0 >= 0 ? groove(t - grooveT0) : null;
   danceAmt = clamp01(danceAmt + (DL && !GROOVY.includes(DL.look) ? 1 : -1) * dt / 0.35);
+  if (jumped && DL) danceAmt = GROOVY.includes(DL.look) ? 0 : 1;   // jumped to a time (a scrub): the look there, whole
   if (grooveT0 >= 0 && !G) { grooveT0 = -1; aloneSince = t; nodCount = 0; nextNod = t + 2; if (reviewState) reviewNext = t + 1; }
   grooveAmt = clamp01(grooveAmt + (G ? 1 : -1) * dt / 0.4);
   // patrolling (the coordinator's IDLE_NAV, the base driving): look out, again and again, rather than doze
@@ -992,7 +994,7 @@ function frame(nowMs) {
   }
   // the dance's own looks, over the groove (DANCE, above)
   let danceScale = 1, danceFloat = 0;
-  if (DL) for (const dt2 of DL.swaps) blink = Math.max(blink, blinkAt(QUICK.close - dt2));
+  if (DL && !jumped) for (const dt2 of DL.swaps) blink = Math.max(blink, blinkAt(QUICK.close - dt2));   // not on a scrub
   if (DL) {
     const pop = Math.exp(-DL.frac * 5), a = ease(danceAmt), L2 = DL.look;
     if (L2 === "beatpop") { danceScale = 1 + 0.12 * pop; pose = mixPose(pose, POSE.eek, 0.22 * pop); }   // ALERT: pop on every beat
@@ -1259,7 +1261,8 @@ return {
 // A harness or the browser's console can drive it with no robot:
 //   window.ghostInputs = { runner: { available: true, state: "RUNNING", since_s: 0.5 }, person: true }
 //   window.ghostInputs = { day: { available: true, state: "CHOREO", show: "wave-and-nod", since_s: 0 } }
-// and `costume` in it dresses the ghost whatever the show (a preview).
+// and `costume` in it dresses the ghost whatever the show (a preview); `steps` dances a draft timeline
+// instead of the show's own (TIMELINE).
 
 export const name = "ghost";
 
@@ -1353,6 +1356,16 @@ export const COSTUMES = {
   monster: { bg: "#8ccf5e", ink: "#13200c", hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
 };
 
+// For a studio (ENCORE's Face pane, wearing this skin): what a show's face timeline may name, and each
+// show's own timeline and costume here, to start a draft from. A draft comes back as ghostInputs.steps.
+export const TIMELINE = {
+  looks: ["smile", "peek", "eek", "happy", "focus", "puzzled", "doze", "lookout", "groove",
+          "nod", "bow", "sway", "wave-r", "wave-l", "wavelook", "beatpop", "tick", "creep", "rise", "drowsy", "cheer"],
+  costumes: Object.keys(COSTUMES),
+  steps(show) { const d = DANCES[danceKey(show)]; return d && d.steps ? d.steps.map((x) => [...x]) : null; },
+  costume(show) { return (DANCES[danceKey(show)] || {}).costume || "classic"; },
+};
+
 // A show's id as the palette or ENCORE writes it ("wave-and-nod", "wave_and_nod") -> its DANCES key, or null
 export function danceKey(show) {
   const k = String(show || "").trim().toLowerCase().replace(/\s+/g, "-");
@@ -1434,7 +1447,8 @@ export function draw(ctx, e, t) {
   if (next !== stage || show !== stageShow) {
     stage = next; stageShow = show;
     if (next === "dance") {
-      const spec = { ...(DANCES[show] || {}), ...(given && given.costume ? { costume: given.costume, force: given.costume } : {}) };
+      const spec = { ...(DANCES[show] || {}), ...(given && given.costume ? { costume: given.costume, force: given.costume } : {}),
+                     ...(given && Array.isArray(given.steps) ? { steps: given.steps } : {}) };   // a studio's draft timeline
       renderer.dance(spec, cueTaken, ms);
     } else renderer.task(next, ms);
   }
