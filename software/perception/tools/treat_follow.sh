@@ -158,8 +158,11 @@ case "${cmd}" in
     ;;
   services-down)
     if alive "${GRASP_SIM_DIR}/services.pid"; then
-      kill -TERM "$(cat "${GRASP_SIM_DIR}/services.pid")" 2>/dev/null || true
-      echo "treat services: stopped (a running move is cancelled; the arm holds)"
+      pid="$(cat "${GRASP_SIM_DIR}/services.pid")"
+      kill -TERM "${pid}" 2>/dev/null || true
+      for ((i = 0; i < 10; i++)); do kill -0 "${pid}" 2>/dev/null || break; sleep 0.5; done
+      if kill -0 "${pid}" 2>/dev/null; then kill -KILL "${pid}" 2>/dev/null || true; echo "treat services: did not stop on TERM: killed"; fi
+      echo "treat services: stopped (a running move ends: the arm holds)"
     else
       echo "treat services: not running"
     fi
