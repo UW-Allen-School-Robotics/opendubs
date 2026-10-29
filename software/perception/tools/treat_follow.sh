@@ -10,6 +10,13 @@
 #   treat_follow.sh status              what is running, and /perception/treat_follow/status
 #   treat_follow.sh down [--camera]     the follower, the simulated arm and the tracker stopped
 #   treat_follow.sh run [options]       the follower in the foreground (what `up` starts); options: treat_follow.py -h
+#   treat_follow.sh services [opts]     the treat steps as ROS 2 services (treat_services.py) in the background:
+#                                       /perception/treat/{ready,move_pose,move_joints,centre_person,get_hand,find_hand,
+#                                       plan_treat,stop,rearm,status}. Simulation by default (the tracker and the
+#                                       simulated arm started too); --real [--head --left-stowed] for THE REAL ARM
+#   treat_follow.sh services-down       that node stopped
+#   treat_follow.sh sequence [opts]     treat_sequence.py: the services called in order, as `reach` runs
+#   treat_follow.sh call NAME [JSON]    one service from a terminal, e.g. call find_hand '{}' or call status
 #   treat_follow.sh reset | ctl ...     the simulated arm (grasp_to_sim.sh's)
 #   treat_follow.sh reach [options]     V1, one shot (treat_reach.py): the tracker and the simulated arm started if not
 #                                       running (no follower), the head centres the person (THE HEAD MOVES), a raised and
@@ -133,11 +140,44 @@ case "${cmd}" in
     ros
     exec python3 -u "${HERE}/treat_reach.py" --real "$@"
     ;;
+  services)
+    if alive "${GRASP_SIM_DIR}/services.pid"; then echo "treat services: already running (services-down first)"; exit 0; fi
+    if alive "${PID}" || alive "${GRASP_SIM_DIR}/follow.pid"; then
+      echo "a follower is running: stop it first ($0 down, or TERM ${PID})" >&2; exit 1
+    fi
+    arm_interfaces
+    if [[ " $* " == *" --real "* ]]; then "${HERE}/hand_stack.sh" up; else stack_up; fi
+    mkdir -p "${GRASP_SIM_DIR}"
+    ( ros; exec python3 -u "${HERE}/treat_services.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@" ) \
+      > "${GRASP_SIM_DIR}/services.log" 2>&1 < /dev/null &
+    echo $! > "${GRASP_SIM_DIR}/services.pid"
+    wait_log "${GRASP_SIM_DIR}/services.log" "treat services up" 60 \
+      || { echo "the services did not start; see ${GRASP_SIM_DIR}/services.log" >&2; tail -8 "${GRASP_SIM_DIR}/services.log" >&2; exit 1; }
+    grep "treat services up" "${GRASP_SIM_DIR}/services.log"; echo "log: ${GRASP_SIM_DIR}/services.log"
+    ;;
+  services-down)
+    if alive "${GRASP_SIM_DIR}/services.pid"; then
+      kill -TERM "$(cat "${GRASP_SIM_DIR}/services.pid")" 2>/dev/null || true
+      echo "treat services: stopped (a running move is cancelled; the arm holds)"
+    else
+      echo "treat services: not running"
+    fi
+    rm -f "${GRASP_SIM_DIR}/services.pid"
+    ;;
+  sequence)
+    ros
+    exec python3 -u "${HERE}/treat_sequence.py" "$@"
+    ;;
+  call)
+    name="${1:?usage: $0 call NAME [JSON]}"; shift || true
+    ros
+    exec python3 -u "${HERE}/treat_sequence.py" --call "${name}" ${1:+"$1"}
+    ;;
   run)
     ros
     exec python3 -u "${HERE}/treat_follow.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@"
     ;;
   *)
-    sed -n '2,23p' "$0"; exit 1
+    sed -n '2,30p' "$0"; exit 1
     ;;
 esac
