@@ -18,8 +18,10 @@ THE STATES. One at a time, IDLE_NAV the default:
                base keeps patrolling (2026-10-29: the base and the arms may move at once for this show
                alone); the arm controllers hold rest from then on. Checked on every tick of
                IDLE_NAV, so an arm pushed away is put back. After a candy show that stopped part-way, with
-               an arm still away, it PAUSES instead: the hand may be in the bucket, and a straight move to
-               rest from there hits its wall (found 2026-10-28), so a person clears it first
+               an arm still away and NOT on the show's own last move home, it PAUSES instead: the hand may
+               be in or over the bucket, and a straight move to rest from there hits its wall (found
+               2026-10-28), so a person clears it first. On that last move (from the show's last pose
+               straight to rest, the move its clearance stamp covers) the rest show only finishes it
     CHOREO     a preprogrammed palette show (arms, music, the face). A random pick every CHOREO_EVERY_S
                of patrolling, from the SHORT shows (--random: wave-and-nod, robotic-smile, celebrate,
                9-33 s), so a visitor never waits out a long dance; the full dances (--choreo:
@@ -62,6 +64,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
 import re
 import threading
@@ -84,6 +87,7 @@ CHOREO_EVERY_S = (240.0, 480.0)   # a random pick after this long patrolling (un
 TICK_S = 0.2
 REST_TOL_DEG = 10.0          # a joint further than this from rest (0, signed degrees) is away: the runner's own
                              # at-rest tolerance (SKIPPED_ARM_TOL_DEG); a resting arm sags about 4 degrees at J4
+HOME_TOL_DEG = 6.0           # an arm this close (each joint) to the candy show's last move home is on it
 REST_RETRY_S = 15.0          # a rest that did not happen (the deadman let go, a refusal) is tried again after this
 BASE_LINK_IN_CHASSIS = (0.324, 0.0, -0.024)   # description/opendubs/opendubs.urdf: datum is 0.324 m behind
 
@@ -142,11 +146,15 @@ class Coordinator:
       palette  running() -> routine id or None (raises when it cannot be read),
                run(routine) -> (ok, why), stop()
       safety   ok() -> (bool, why): False on an e-stop or when the robot's state cannot be read
-      arms     away() -> [the arms away from rest] (raises when they cannot be read); None: not checked
+      arms     away() -> [the arms away from rest] (raises when they cannot be read); None: not checked;
+               poses() -> {side: 7 signed degrees}, for the candy show's way home
+      candy_home  {side: the candy show's last pose before its final rest, 7 signed degrees}: an arm on
+               the straight line from there to rest may be rested after the show stopped part-way
     """
 
     def __init__(self, nav, people, palette, safety, candy: str, choreo: list, clock=time.monotonic,
-                 rng=None, log=None, choreo_every=CHOREO_EVERY_S, shorts=None, arms=None, rest=None):
+                 rng=None, log=None, choreo_every=CHOREO_EVERY_S, shorts=None, arms=None, rest=None,
+                 candy_home=None):
         self.nav, self.people, self.palette, self.safety = nav, people, palette, safety
         self.candy, self.choreo = candy, list(choreo)
         self.shorts = list(shorts) if shorts else list(choreo)   # the random picks: short, so a visitor waits little
@@ -161,6 +169,7 @@ class Coordinator:
         self.nav_doing = None
         self._people_err = None
         self.arms, self.rest = arms, rest          # the arms' measured pose, and the show that rests them
+        self.candy_home = dict(candy_home or {})
         self.rest_after = 0.0                      # no rest tried before this (a retry's wait)
         self.rest_blocked = None                   # why the arms must not be rested by a show (a person must)
         self._arms_err = None
@@ -289,12 +298,27 @@ class Coordinator:
         self._arms_err = None
         return away
 
+    def _off_the_way_home(self, away) -> list:
+        """The arms of `away` that are not on the candy show's last move home (all of them when that
+        move, or the arms' poses, are not known)."""
+        try:
+            poses = self.arms.poses() if hasattr(self.arms, "poses") else {}
+        except Exception as e:  # noqa: BLE001
+            self._log("arms_error", what="poses", error=str(e))
+            return list(away)
+        return [side for side in away
+                if not (side in self.candy_home and side in poses and on_way_home(poses[side], self.candy_home[side]))]
+
     def _rest_arms(self, now, away) -> bool:
         """An arm is away from rest: stop the base and play the rest show (True), or pause when a
         person must clear the arm first (True), or nothing yet, a retry still to wait for (False)."""
         if self.rest_blocked:
-            self._enter("PAUSED", f"{', '.join(away)} away from rest: {self.rest_blocked}")
-            return True
+            off = self._off_the_way_home(away)
+            if off:
+                self._enter("PAUSED", f"{', '.join(off)} away from rest: {self.rest_blocked}")
+                return True
+            self._log("rest_unblocked", away=away, why="on the candy show's own last move home")
+            self.rest_blocked = None
         if now < self.rest_after:
             return False
         self.rest_after = now + REST_RETRY_S
@@ -789,12 +813,52 @@ class RosArms:
             self.pos.update(zip(m.name, m.position))
             self.at = time.monotonic()
 
-    def away(self) -> list:
+    def _fresh(self) -> dict:
         with self.lock:
             if time.monotonic() - self.at > self.STALE_S:
                 raise RuntimeError(f"nothing on /joint_states within {self.STALE_S:.0f} s")
-            pos = dict(self.pos)
-        return arms_away(pos, self.SIDES)
+            return dict(self.pos)
+
+    def away(self) -> list:
+        return arms_away(self._fresh(), self.SIDES)
+
+    def poses(self) -> dict:
+        pos = self._fresh()
+        out = {}
+        for side in self.SIDES.values():
+            names = [f"openarm_{side}_joint{j}" for j in range(1, 8)]
+            if all(n in pos for n in names):
+                out[side] = [math.degrees(pos[n]) for n in names]
+        return out
+
+
+def on_way_home(pose, last, tol_deg: float = HOME_TOL_DEG) -> bool:
+    """Is `pose` (7 signed degrees) on the straight joint-space move from `last` to rest (0), within
+    tol_deg at every joint? The runner moves to a `pose: rest` cue joint by joint in proportion, so a
+    run stopped on that move stopped on this line, and resting from there retraces the show's own move."""
+    if not any(last):
+        return False
+    s = sum(p * q for p, q in zip(pose, last)) / sum(q * q for q in last)
+    s = min(1.0, max(0.0, s))
+    return all(abs(p - s * q) <= tol_deg for p, q in zip(pose, last))
+
+
+def candy_home(path: str) -> dict:
+    """{side: the arm's last `joints` cue before its final `pose: rest`} from a show file; {} when it
+    cannot be read. Only an arm whose show ends with that rest has a way home."""
+    import yaml
+    try:
+        with open(path, encoding="utf-8") as f:
+            cues = (yaml.safe_load(f) or {}).get("cues") or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return {}
+    out = {}
+    for slot, side in RosArms.SIDES.items():
+        mine = sorted((c for c in cues if isinstance(c, dict) and c.get("slot") == slot), key=lambda c: c.get("t", 0))
+        if len(mine) >= 2 and mine[-1].get("pose") == "rest" and isinstance(mine[-2].get("joints"), dict):
+            j = mine[-2]["joints"]
+            out[side] = [float(j.get(k, j.get(str(k), 0.0))) for k in range(1, 8)]
+    return out
 
 
 def arms_away(pos: dict, sides: dict, tol_deg: float = REST_TOL_DEG) -> list:
@@ -876,6 +940,8 @@ def main(argv=None) -> int:
     ap.add_argument("--rest", default="architect-78d41e435106", metavar="ROUTINE",
                     help="the show that brings both arms to rest, played when one is away from rest while "
                          "patrolling (examples/arms_rest.py); '' to leave the arms alone")
+    ap.add_argument("--shows", default="/var/lib/opendubs/shows", metavar="DIR",
+                    help="the robot's shows folder, read-only: the candy show's last move home (candy_home)")
     ap.add_argument("--start-paused", action="store_true",
                     help="start PAUSED (the boot unit's way): nothing is armed until POST /api/resume")
     ap.add_argument("--host", default="127.0.0.1")
@@ -903,7 +969,8 @@ def main(argv=None) -> int:
     arms = RosArms() if args.rest and args.palette != "fake" else None
     nav = HoundNav(log).start() if args.nav == "hound" else StubNav(log)
     co = Coordinator(nav, people, palette, safety, args.candy, args.choreo, log=log,
-                     choreo_every=tuple(args.every), shorts=args.random, arms=arms, rest=args.rest or None)
+                     choreo_every=tuple(args.every), shorts=args.random, arms=arms, rest=args.rest or None,
+                     candy_home=candy_home(os.path.join(args.shows, args.candy + ".yaml")))
     if args.start_paused:
         co.pause("started paused: POST /api/resume to begin the demo day")
 

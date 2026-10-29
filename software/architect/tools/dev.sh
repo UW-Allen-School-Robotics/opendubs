@@ -240,7 +240,8 @@ day() {  # the coordinator: reads the palette and the perception services, drive
   ${DOCKER} run ${DETACH} --rm --name "${DAY_NAME}" --network host \
     -e ROS_DOMAIN_ID=0 "${DDS[@]}" -e PYTHONPATH=/work/software/architect \
     -e OPENDUBS_ARCHITECT_ARMS=/data/architect-arms.yaml -v "${DATA}:/data" -v "${REPO}:/work:ro" \
-    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_day ${args} 2>&1 | tee /data/demo_day.log"
+    -v /var/lib/opendubs/shows:/shows:ro \
+    "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_day --shows /shows ${args} 2>&1 | tee /data/demo_day.log"
   echo "started ${DAY_NAME}: http://127.0.0.1:8096/api/state (start the listener with DAY=1 SHOW=${SHOW})"
 }
 

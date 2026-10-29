@@ -398,9 +398,12 @@ runner like any show, so the arms keep one commander; nothing streams to them. T
 patrolling meanwhile: the only show the base may move during, since it only folds the arms home at
 the runner's slow start-pose speed (any other show still stops the base). It starts with
 `countdown` (no fresh press) and is refused while the deadman is let go, then tried again every 15 s.
-**One exception:** after a candy show that stopped part-way, an arm away from rest PAUSES the day
-instead, since the hand may be in the bucket and a straight move to rest from there hits its wall.
-Clear it, park the arm, then resume.
+**One exception:** after a candy show that stopped part-way, an arm away from rest and off the
+show's own last move home PAUSES the day instead, since the hand may be in or over the bucket and a
+straight move to rest from there hits its wall. Clear it, park the arm, then resume. An arm that
+stopped on that last move (within 6 degrees of the straight line from the show's last pose to rest,
+read from the show file) is rested as usual: the rest show only finishes the move the show's
+clearance stamp covers (2026-10-29: the deadman let go with J4 at 21 degrees on the way home).
 
 **The rules it keeps.** The base moves only in `IDLE_NAV` and `APPROACH`, and only while the palette
 can be read and runs nothing; a show started from the Shows page stops it too. No show starts and no

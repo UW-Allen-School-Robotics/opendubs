@@ -90,7 +90,10 @@ class Safety:
 
 class Arms:
     def __init__(self):
-        self.out = []
+        self.out, self.at = [], {}
+
+    def poses(self):
+        return dict(self.at)
 
     def away(self):
         if isinstance(self.out, Exception):
@@ -169,6 +172,44 @@ class Rest(unittest.TestCase):
         self.arms.out = ["right"]
         self.co.tick()
         self.assertFalse(self.co.request("candy")[0])       # busy for its few seconds: the listener holds on
+
+    def test_after_a_candy_show_stopped_on_its_way_home_the_arm_is_rested_not_paused(self):
+        """opendubs2, 2026-10-29: the deadman let go on the show's last move to rest (J4 at 21 deg), and
+        the day paused for a hand nowhere near the bucket."""
+        back = [-43.5, -4.5, 29.7, 133.5, -36.9, -39.5, -42.0]          # architect-93cbf2aabeca's last pose
+        self.co.candy_home = {"right": back}
+        self.co.tick()
+        self.assertTrue(self.co.request("candy")[0])
+        self.pal.now = "candy_show"
+        self.co.tick()
+        self.pal.now, self.arms.out = None, ["right"]
+        self.arms.at = {"right": [-4.9, -0.7, 4.2, 21.4, -5.9, -6.6, -6.0]}
+        self.pal.last = lambda: {"id": "candy_show", "status": "ABORTED", "code": "DEADMAN"}
+        self.run_for(dd.ENGAGED_S + 1)
+        self.assertEqual((self.co.state, self.pal.runs[-1]), ("REST", "arms_rest"))
+
+    def test_after_a_candy_show_stopped_in_the_bucket_it_still_pauses(self):
+        self.co.candy_home = {"right": [-43.5, -4.5, 29.7, 133.5, -36.9, -39.5, -42.0]}
+        self.co.tick()
+        self.assertTrue(self.co.request("candy")[0])
+        self.pal.now = "candy_show"
+        self.co.tick()
+        self.pal.now, self.arms.out = None, ["right"]
+        self.arms.at = {"right": [4.7, -4.5, 1.0, 83.0, 7.8, 7.8, -73.7]}   # the hand down in the bucket
+        self.pal.last = lambda: {"id": "candy_show", "status": "ABORTED", "code": "DEADMAN"}
+        self.run_for(dd.ENGAGED_S + 1)
+        self.assertEqual(self.co.state, "PAUSED")
+
+    def test_the_way_home_is_read_from_the_show(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+            f.write("cues:\n- {t: 0.5, slot: ARM_R, pose: rest}\n- {t: 5, slot: ARM_R, joints: {1: 10, 4: 90}}\n"
+                    "- {t: 9, slot: ARM_R, pose: rest}\n- {t: 1, slot: ARM_L, pose: rest}\n")
+        self.assertEqual(dd.candy_home(f.name), {"right": [10.0, 0, 0, 90.0, 0, 0, 0]})
+        os.unlink(f.name)
+        self.assertEqual(dd.candy_home("/nonexistent.yaml"), {})
+        self.assertTrue(dd.on_way_home([5, 0, 0, 45, 0, 0, 0], [10, 0, 0, 90, 0, 0, 0]))
+        self.assertFalse(dd.on_way_home([5, 0, 0, 45, 0, 0, 30], [10, 0, 0, 90, 0, 0, 0]))
 
     def test_unknown_arms_leave_patrol_as_it_was(self):
         self.arms.out = RuntimeError("nothing on /joint_states")
