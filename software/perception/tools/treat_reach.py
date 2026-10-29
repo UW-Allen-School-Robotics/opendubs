@@ -74,6 +74,10 @@ def main():
     ap.add_argument("--head-quiet-s", type=float, default=0.35)
     ap.add_argument("--head-lease-ms", type=int, default=600)
     ap.add_argument("--arm-j2-max", type=float, default=142.0)
+    ap.add_argument("--arm-check", action="store_true",
+                    help="keep the follower's rule that the head moves only while both REAL arms' positions are known and "
+                         "neither shoulder is raised. Off by default: V1 is for the simulation, where the real arm service "
+                         "is usually off and nothing publishes them (the head then never moved)")
     ap.add_argument("--dummy", action="store_true", help="no camera, no head: a scripted person (above)")
     ap.add_argument("--dry-run", action="store_true", help="everything but the goal")
     ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
@@ -121,6 +125,8 @@ def main():
     g2s.spin_in_thread(rclpy, node, robot_ctx)
 
     def arms_clear():
+        if not args.arm_check:
+            return None
         # the follower's rule: the head moves only while both real arms are known and neither shoulder is raised
         if time.monotonic() - real_j2["at"] > 2.0 or len(real_j2["value"]) < 2:
             return "the real arms' positions are not known (/joint_states)"
@@ -136,6 +142,8 @@ def main():
         head = Head(HeadTilt(host, None, args, arms_clear), HeadLaw(HeadParams(pan=args.head_pan)), lambda: mode["m"])
         threading.Thread(target=head.run, daemon=True).start()
         head.start()
+        if not args.arm_check:
+            print("head: the real arms' positions are not checked (simulation; --arm-check to check them)", flush=True)
 
     def frame_in_arm(msg):
         """(shoulders, palms, mid) of one tracker message in arm_mount, or None when it cannot be trusted."""

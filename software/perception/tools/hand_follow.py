@@ -483,7 +483,9 @@ class HeadTilt:
         try:
             import urllib.request
             why = json.load(urllib.request.urlopen("http://127.0.0.1:8080/api/head/follow", timeout=1.0)).get("why") or ""
-            if "not set to the tablet" not in why:
+            # off ("not set to the tablet"), or waiting on something itself ("... the head waits": e.g. the arms'
+            # positions unknown) and so not sending; anything else, it may be driving the head
+            if "not set to the tablet" not in why and "the head waits" not in why:
                 return "the dashboard's own head tracking is on"
         except (OSError, ValueError):
             return "the dashboard does not answer /api/head/follow"
