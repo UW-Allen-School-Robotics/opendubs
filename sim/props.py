@@ -6,23 +6,31 @@ the bottom centre and its handle arching along its own x. MuJoCo collides a mesh
 would fill the opening, so the mesh is drawn only and the collision is built from primitives that leave
 the inside free: the base, sixteen wall panels, and the handle as capsules along its arc.
 
-WHERE IT STANDS. The best seen-and-reachable spot from the Thor lane's coverage study (#589,
-description/coverage.py): 0.40 m forward of base_link and 0.20 m to the side, 0.90 m above the floor,
-on a stand, because no arm reaches the floor. ARCHITECT's candy show picks with the RIGHT gripper, so
-the default is the right side. That height is the CANDY LEVEL, where the gripper's tool point goes, not
-the bucket's base: the bucket is taken as half full (CANDY_LEVEL_M above its base). The handle is turned
-across the robot's line of approach and the bucket set back so the target is in the half nearer the
-robot, clear of the handle (TARGET_OFFSET_M from the centre). The stand is a stand-in, a column of the
-bucket's base diameter, until the real one is measured.
+WHERE IT STANDS. On the BUCKET STAGE, when the robot model has one (#602): a box mounted to the lift in
+front of the robot, its top centre the site bucket_stage_top. The bucket's base sits on that site, so it
+rides the lift: with the lift down its candy is about 0.54 m above the floor. A model without the stage
+falls back to the spot the coverage study (description/coverage.py) found before it: 0.40 m forward of
+base_link and 0.20 m to the right, 0.90 m above the floor, on a floor stand, a stand-in column of the
+bucket's base diameter. An explicit X,Y,H always uses the floor stand. X,Y,H is the CANDY LEVEL, where the
+gripper's tool point goes, not the bucket's base: the bucket is taken as half full (CANDY_LEVEL_M above
+its base). The handle is turned across the robot's line of approach and the target set in the half
+nearer the robot, clear of the handle (TARGET_OFFSET_M from the centre).
 
 IT MOVES. The bucket is a free body (a freejoint, added after the robot's, so the chassis keeps qpos 0-6
-and every arm joint keeps its address) resting on the stand, a separate fixed body, by contact. Its pose
-is in the model (qpos0), and the target site is its child, so anything that reads the model sees the
-bucket where it is. settle_check() drops it a few mm onto the stand and checks it comes to rest seated
-and upright: a bad contact or mass would send it flying in every render.
+and every arm joint keeps its address) resting on the stage or the stand by contact. Its pose is in the
+model (qpos0), and the target site is its child, so anything that reads the model sees the bucket where
+it is. A tool that sets the lift directly (no physics) calls follow_stage() to carry the bucket with the
+stage. settle_check() drops it a few mm onto what it rests on and checks it comes to rest seated and
+upright relative to that: a bad contact or mass would send it flying in every render.
 
 Geometry: base r 92.5 mm, rim r 126 mm at 205 mm, a 5 mm floor, the handle 15 mm wide and up to 285 mm,
 all read off the mesh.
+
+TWO VARIANTS, the same bucket: `handle_up` (the default, props/candy_bucket.stl) and `handle_down`
+(props/candy_bucket_handle_down.stl, the handle folded down onto the rim, 205 mm tall overall). The
+second came from the same Fusion export frame and is flipped the same way. Its folded handle lies
+along the rim, within the wall's own radius (r 120-126 mm, z 185-205 mm), so it collides as the base
+and wall panels alone: no handle capsules. Mass, centre of mass, pose and target are the same.
 """
 from __future__ import annotations
 
@@ -31,6 +39,11 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CANDY_BUCKET_MESH = os.path.join(HERE, "props", "candy_bucket.stl")
+# variant: (its mesh, whether its handle stands up and collides)
+BUCKET_VARIANTS = {"handle_up": (CANDY_BUCKET_MESH, True),
+                   "handle_down": (os.path.join(HERE, "props", "candy_bucket_handle_down.stl"), False)}
+BUCKET_VARIANT = "handle_up"
+STAGE_SITE = "bucket_stage_top"          # the robot description's bucket stage (#602): the bucket's home
 BASE_LINK = (0.324, 0.0, -0.024)       # the model's world is the CAD datum; base_link sits here in it
 FLOOR_Z = -0.094                       # the floor in the CAD datum (opendubs.xml)
 
@@ -59,13 +72,32 @@ def candy_bucket_pose(at=None) -> tuple:
     return base, math.degrees(away) + 90.0, target   # the handle across the line of approach
 
 
-def add_candy_bucket(spec, at=None, stand=True) -> None:
+def candy_bucket_on(top) -> tuple:
+    """(base, yaw, target) as candy_bucket_pose, for a bucket whose base sits at `top`, a point in the
+    model's world (the stage's top centre): the target is set back toward the robot and up to the candy."""
+    away = math.atan2(top[1] - BASE_LINK[1], top[0] - BASE_LINK[0])
+    target = (top[0] - TARGET_OFFSET_M * math.cos(away), top[1] - TARGET_OFFSET_M * math.sin(away),
+              top[2] + CANDY_LEVEL_M)
+    return tuple(top), math.degrees(away) + 90.0, target
+
+
+def add_candy_bucket(spec, at=None, stand=True, variant=None, on=None) -> None:
     """The bucket (and its stand) in the world of an MjSpec: drawn from the mesh, colliding as
-    primitives (group 3, names prefixed candy_bucket_), with a site candy_bucket_target at the candy."""
+    primitives (group 3, names prefixed candy_bucket_), with a site candy_bucket_target at the candy.
+    `variant`: a BUCKET_VARIANTS key, handle_up by default. `on`: a point in the model's world for the
+    bucket's base to sit on (the stage's top centre, scene.build finds it); no stand then."""
     import mujoco
-    base, yaw, target = candy_bucket_pose(at)
+    variant = variant or BUCKET_VARIANT
+    if variant not in BUCKET_VARIANTS:
+        raise ValueError(f"bucket variant {variant!r}: one of {', '.join(BUCKET_VARIANTS)}")
+    mesh, handle = BUCKET_VARIANTS[variant]
+    if on is not None:
+        base, yaw, target = candy_bucket_on(on)
+        stand = False
+    else:
+        base, yaw, target = candy_bucket_pose(at)
     vis = dict(group=2, contype=0, conaffinity=0)
-    spec.add_mesh(name="candy_bucket", file=CANDY_BUCKET_MESH)
+    spec.add_mesh(name="candy_bucket", file=mesh)
     half = math.radians(yaw) / 2
     b = spec.worldbody.add_body(name="candy_bucket", pos=list(base), quat=[math.cos(half), 0, 0, math.sin(half)])
     b.add_freejoint(name="candy_bucket_free")
@@ -92,7 +124,7 @@ def add_candy_bucket(spec, at=None, stand=True) -> None:
         b.add_geom(name=f"candy_bucket_wall{i:02d}", type=mujoco.mjtGeom.mjGEOM_BOX,
                    size=[WALL_T / 2, half_w, slant / 2], pos=[rm * math.cos(a), rm * math.sin(a), RIM_Z / 2],
                    quat=list(q), **col)
-    for i, ((x0, z0), (x1, z1)) in enumerate(zip(HANDLE, HANDLE[1:])):
+    for i, ((x0, z0), (x1, z1)) in enumerate(zip(HANDLE, HANDLE[1:]) if handle else ()):
         b.add_geom(name=f"candy_bucket_handle{i}", type=mujoco.mjtGeom.mjGEOM_CAPSULE, size=[HANDLE_R, 0, 0],
                    fromto=[x0, 0, z0, x1, 0, z1], **col)
     c, sn = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
@@ -115,27 +147,80 @@ def _qmul(p, q):
             a1 * c2 - b1 * d2 + c1 * a2 + d1 * b2, a1 * d2 + b1 * c2 - c1 * b2 + d1 * a2)
 
 
+def _on_stage(model) -> int:
+    """The stage site's id when the bucket sits on the stage (no floor stand), else -1."""
+    import mujoco
+    if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "candy_bucket_stand") >= 0:
+        return -1
+    return mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, STAGE_SITE)
+
+
+def _rel(model, data, a, sid):
+    """The bucket's position and orientation in the stage's frame (or the world's, sid < 0)."""
+    import mujoco
+    import numpy as np
+    p, q = data.qpos[a:a + 3].copy(), data.qpos[a + 3:a + 7].copy()
+    if sid < 0:
+        return p, q
+    sq = np.zeros(4)
+    mujoco.mju_mat2Quat(sq, data.site_xmat[sid])
+    inv, rq = np.zeros(4), np.zeros(4)
+    mujoco.mju_negQuat(inv, sq)
+    mujoco.mju_mulQuat(rq, inv, q)
+    return data.site_xmat[sid].reshape(3, 3).T @ (p - data.site_xpos[sid]), rq
+
+
+def follow_stage(model, data) -> None:
+    """Carry a bucket that sits on the stage to where the stage is now, for a tool that poses the robot
+    without physics (set the lift, then call this, then mj_forward). It keeps the bucket where the model
+    puts it on the stage. Nothing to do without a bucket on a stage."""
+    import mujoco
+    import numpy as np
+    j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "candy_bucket_free")
+    sid = _on_stage(model)
+    if j < 0 or sid < 0:
+        return
+    a = model.jnt_qposadr[j]
+    home = mujoco.MjData(model)
+    mujoco.mj_kinematics(model, home)
+    rp, rq = _rel(model, home, a, sid)                  # where the model seats it, in the stage's frame
+    mujoco.mj_kinematics(model, data)
+    sq, q = np.zeros(4), np.zeros(4)
+    mujoco.mju_mat2Quat(sq, data.site_xmat[sid])
+    mujoco.mju_mulQuat(q, sq, rq)
+    data.qpos[a:a + 3] = data.site_xpos[sid] + data.site_xmat[sid].reshape(3, 3) @ rp
+    data.qpos[a + 3:a + 7] = q
+
+
 def settle_check(model, drop_m=0.005, secs=1.0) -> list[str]:
-    """Drop the bucket `drop_m` onto its stand and step `secs`: it must end seated (within 2 mm of where
-    the model puts it) and upright (within 2 degrees), and at rest. [] when it does; else what went wrong."""
+    """Drop the bucket `drop_m` onto what it rests on and step `secs`: it must end seated (within 2 mm of
+    where the model puts it) and upright (within 2 degrees), and at rest, all RELATIVE TO THE STAGE when it
+    sits on one (the free base settles too, and carries the stage with it). [] when it does; else what
+    went wrong."""
     import mujoco
     import numpy as np
     j = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "candy_bucket_free")
     if j < 0:
         return []
     a, v = model.jnt_qposadr[j], model.jnt_dofadr[j]
+    sid = _on_stage(model)
+    where = "the stage" if sid >= 0 else "its stand"
     data = mujoco.MjData(model)
-    seat = model.qpos0[a:a + 3].copy()
+    mujoco.mj_kinematics(model, data)
+    seat, seat_q = _rel(model, data, a, sid)
     data.qpos[a + 2] += drop_m
     for _ in range(int(secs / model.opt.timestep)):
         mujoco.mj_step(model, data)
-    pos, quat = data.qpos[a:a + 3], data.qpos[a + 3:a + 7]
-    up = 1 - 2 * (quat[1] ** 2 + quat[2] ** 2)          # the bucket's z axis . world z
+    pos, quat = _rel(model, data, a, sid)
+    tilt = np.zeros(4)
+    mujoco.mju_negQuat(tilt, seat_q)
+    mujoco.mju_mulQuat(tilt, tilt, quat)
+    up = 1 - 2 * (tilt[1] ** 2 + tilt[2] ** 2)          # the bucket's z axis . its seated z axis
     fails = []
     if np.linalg.norm(pos - seat) > 0.002:
-        fails.append(f"candy bucket did not settle on its stand: {np.round((pos - seat) * 1000, 1)} mm from its seat")
+        fails.append(f"candy bucket did not settle on {where}: {np.round((pos - seat) * 1000, 1)} mm from its seat")
     if up < math.cos(math.radians(2)):
         fails.append(f"candy bucket tipped {math.degrees(math.acos(max(-1.0, min(1.0, up)))):.1f} deg")
-    if np.linalg.norm(data.qvel[v:v + 6]) > 0.05:
+    if sid < 0 and np.linalg.norm(data.qvel[v:v + 6]) > 0.05:
         fails.append(f"candy bucket still moving after {secs:g} s ({np.linalg.norm(data.qvel[v:v + 6]):.2f})")
     return fails
