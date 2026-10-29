@@ -567,14 +567,29 @@ class ShowRecorder(_Arms):
             self.write()
         return move
 
+    def _hold_arms(self) -> None:
+        for s in SIDES:
+            slot = ARM_SLOT[s]
+            arm_cues = [c for c in self.cues if c.get("slot") == slot]
+            if arm_cues and "joints" in arm_cues[-1]:
+                if not any(c.get("slot") == slot and abs(c.get("t") - self.t) < 1e-4 for c in self.cues):
+                    self.cues.append({
+                        "t": round(self.t, 2),
+                        "slot": slot,
+                        "joints": dict(arm_cues[-1]["joints"])
+                    })
+
     def wait(self, seconds: float) -> None:
-        """Nothing moves for `seconds`: the next cue starts that much later."""
+        """Nothing moves for `seconds`: the next cue starts that much later, arms held at their pose."""
         self.t = round(self.t + float(seconds), 2)
+        self._hold_arms()
+        self.write()
 
     def _grip(self, side: str, opening: float) -> None:
         self.cues.append({"t": round(self.t, 2), "slot": GRIP_SLOT[side], "open": round(opening, 2)})
         self.grips[side] = opening
         self.t = round(self.t + GRIP_S, 2)
+        self._hold_arms()
         self.write()
 
     def gripper_openings(self) -> dict:

@@ -76,6 +76,7 @@ class Publisher:
         recorder.palette = {"label": f"ARCHITECT {program.sha[:6]}", "order": 90}
         robot = ShowRobot((self.base or DryRunRobot)(_Quiet()), recorder)
         ns = {name: getattr(robot, name) for name in self.primitives}
+        ns["wait"] = robot.wait
         try:
             try:
                 exec(compile(program.code, f"<recording {program.sha}>", "exec"), ns)  # noqa: S102  records only
@@ -148,8 +149,14 @@ class ShowRobot:
     # Arm and gripper control
     @_refused
     def move_ee_to_pose(self, arm: str, target_pose: dict) -> bool:
-        p = api.check_pose(target_pose)["position"]
-        self.recorder.move_to_point(api.check_arm(arm), [p["x"], p["y"], p["z"]], api.approach_of(target_pose))
+        pose = api.check_pose(target_pose)
+        p = pose["position"]
+        orient = api.approach_of(pose)
+        if orient is None:
+            o = pose.get("orientation")
+            if o and not (o.get("w") == 1.0 and not any(o.get(k) for k in "xyz")):
+                orient = o
+        self.recorder.move_to_point(api.check_arm(arm), [p["x"], p["y"], p["z"]], approach=orient)
         return True
 
     def wait(self, seconds: float) -> bool:
@@ -183,6 +190,7 @@ class ShowRobot:
         self.recorder.move_to_named(arm, OFFER_POSE)
         self.recorder.set_gripper(arm, 1.0)
         return {"released": True, "reason": f"recorded: offered at the fixed {OFFER_POSE!r} pose"}
+
 
 
 class PerceptionDryRun:

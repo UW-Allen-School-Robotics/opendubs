@@ -195,12 +195,13 @@ class Kin:
         jid = self._jid(side, 4)
         return jid, self.m.jnt_bodyid[jid]
 
-    def _descend(self, mode, site, goal, qadr, dadr, bounds, q_start, q_rest, iters=1500, elbow=None):
+    def _descend(self, mode, site, goal, qadr, dadr, bounds, q_start, q_rest, iters=1500, elbow=None, z_des=None):
         """Damped least squares on the task. Without an elbow goal, a pull toward `q_rest` is
         projected into the task's null space, so it shapes the posture without fighting the target.
         With one — (joint id, body id, world point) — the ELBOW is a second task in that null space
         instead: the hand stays primary, and the elbow gets as close as the arm's spare freedom (its
-        swivel) allows. Returns (q, hand error, elbow error in metres or None)."""
+        swivel) allows. With `z_des`, tool Z-axis orientation is tracked in the null space.
+        Returns (q, hand error, elbow error in metres or None)."""
         mj, np = self.mj, self.np
         for k, a in enumerate(qadr):
             self.d.qpos[a] = q_start[k]
@@ -217,9 +218,16 @@ class Kin:
             q = np.array([self.d.qpos[a] for a in qadr])
             dq = Jpinv @ e
             if elbow is None:
-                if (mode == "reach" and err < 2e-4) or (mode == "point_at" and err < 0.1):
-                    break
-                dq = dq + N @ (0.05 * (q_rest - q))
+                if z_des is not None and mode == "reach":
+                    curr_z = self.d.site_xmat[site].reshape(3, 3)[:, 2]
+                    er = np.cross(curr_z, z_des)
+                    if err < 2e-4 and float(np.linalg.norm(er)) < 1e-2:
+                        break
+                    dq = dq + N @ (jr[:, dadr].T @ er * 0.5)
+                else:
+                    if (mode == "reach" and err < 2e-4) or (mode == "point_at" and err < 0.1):
+                        break
+                    dq = dq + N @ (0.05 * (q_rest - q))
             else:
                 jid, body, egoal = elbow
                 pe = self.d.xanchor[jid].copy()
@@ -237,10 +245,11 @@ class Kin:
         e_err = None if elbow is None else float(np.linalg.norm(elbow[2] - self.d.xanchor[elbow[0]]))
         return np.array([self.d.qpos[a] for a in qadr]), err, e_err
 
-    def solve(self, side: str, mode: str, goal, elbow_goal=None):
+    def solve(self, side: str, mode: str, goal, elbow_goal=None, orientation=None):
         """Move one arm's 7 joints so its tool site reaches `goal` (reach) or its +z axis points at it
         (point_at), starting from the pose last set and staying as near it as the target allows.
         With `elbow_goal` (a world point), the elbow is brought as near it as the hand allows.
+        With `orientation` ({x, y, z, w} dict), the tool Z-axis is aligned toward it in the null space.
         Returns (outward degrees {1..7}, error, elbow error) — metres for reach, degrees for
         point_at; the elbow's in metres, or None without an elbow goal."""
         mj, np = self.mj, self.np
@@ -258,6 +267,25 @@ class Kin:
         if elbow_goal is not None:
             jid, body = self._elbow_point(side)
             elbow = (jid, body, np.asarray(elbow_goal, dtype=float))
+        z_des = None
+        b_chassis = self.mj.mj_name2id(self.m, self.mj.mjtObj.mjOBJ_BODY, "chassis")
+        r_chassis = self.d.xmat[b_chassis].reshape(3, 3)
+        if orientation is not None:
+            if isinstance(orientation, dict) and "w" in orientation:
+                rot = np.zeros(9)
+                mj.mju_quat2Mat(rot, [float(orientation["w"]), float(orientation["x"]),
+                                      float(orientation["y"]), float(orientation["z"])])
+                z_des = r_chassis @ rot.reshape(3, 3)[:, 2]
+            elif isinstance(orientation, dict) and all(k in orientation for k in ("x", "y", "z")):
+                v = np.array([float(orientation["x"]), float(orientation["y"]), float(orientation["z"])])
+                norm = np.linalg.norm(v)
+                if norm > 1e-6:
+                    z_des = r_chassis @ (v / norm)
+            elif isinstance(orientation, (list, tuple, np.ndarray)) and len(orientation) == 3:
+                v = np.asarray(orientation, dtype=float)
+                norm = np.linalg.norm(v)
+                if norm > 1e-6:
+                    z_des = r_chassis @ (v / norm)
         best = None
         for env in self._envelopes(bounds):
             mid = np.array([(lo + hi) / 2 for lo, hi in env])
@@ -271,10 +299,14 @@ class Kin:
                     seeds.append(s2)
             for seed in seeds:
                 seed = np.array([min(max(v, lo), hi) for v, (lo, hi) in zip(seed, env)])
-                q, err, e_err = self._descend(mode, site, goal, qadr, dadr, env, seed, q0, elbow=elbow)
-                # the hand first; then (with an elbow goal) how near the elbow; then the smallest move
-                score = (err > tol, round(e_err, 3) if e_err is not None and err <= tol else 0.0,
-                         float(np.abs(q - q0).sum()) if err <= tol else err)
+                q, err, e_err = self._descend(mode, site, goal, qadr, dadr, env, seed, q0, elbow=elbow, z_des=z_des)
+                if z_des is not None and mode == "reach":
+                    curr_z = self.d.site_xmat[site].reshape(3, 3)[:, 2]
+                    rot_err = float(np.linalg.norm(np.cross(curr_z, z_des)))
+                    score = (err > tol, rot_err > 0.05, float(np.abs(q - q0).sum()) if err <= tol else err)
+                else:
+                    score = (err > tol, round(e_err, 3) if e_err is not None and err <= tol else 0.0,
+                             float(np.abs(q - q0).sum()) if err <= tol else err)
                 if best is None or score < best[0]:
                     best = (score, q, err, e_err)
         q, err, e_err = best[1], best[2], best[3]

@@ -265,28 +265,36 @@ and checks every move inside the box it proposes. Run it with the robot's own li
 `dev.sh up` has ARCHITECT write the program instead of the fixed example. It needs
 `~/architect-data/architect.env` (mode 600) with ssa's API settings.
 
-## The candy-bucket hand-off (2026-10-24)
+## The candy-bucket hand-off (2026-10-24, updated 2026-10-29)
 
-`examples/bucket_offer.py` ran on the robot from a spoken "trick or treat" (show mode, the
-supervisor's deadman press): the right arm lifts clear, comes over the rim of a 9 in bucket in front
-of the arm column, goes straight down to the candy, lifts it out, swings out to the right and forward,
-and lets go. 17.4 s, swept at 38.9 mm. What it took, learned at the robot:
+`examples/bucket_offer.py` runs on the robot from a spoken "trick or treat" (show mode, the
+supervisor's deadman press): the right arm approaches behind and right of the bucket on the stage (#602),
+enters vertically over the rim with fingers angled down (20°), grabs candy, pauses 0.8 s for a firm
+clamped grasp, extracts straight up (to z 0.74 m, ~19 cm above the rim) maintaining downward gripper
+angle, swings out to the right and forward to offer to a child (`[0.70, -0.28, 0.95]`, pointing
+straight down perpendicular to the floor), holds completely motionless for 2.0 s before opening, drops the
+candy, holds motionless for 2.5 s post-drop, and returns safely via `behind_bucket` to rest.
+49.3 s, swept at 38.9 mm clearance. What it took, learned at the robot:
 
 - **The chassis frame faces +x** (head screen and camera at x 0.51); the shoulders are at x 0.423. A
   target behind that line is behind the chest: the robot went exactly where the twin said, and a
   scratch workspace box that reached back to x 0.25 let the wrong target through. Keep a box in front
   of the arm column.
-- **Heights:** the twin's floor is at chassis z -0.094, the base's top at 0.356. In front of the torso
-  the right hand reaches no lower than about z 0.46 (x 0.48 to 0.56, right of centre) or 0.50 at x 0.60.
-- **The IK keeps to the arm's current posture**, so the same target can solve cleanly from rest and
-  fold the wrist into the arm column from a nearby pose (17.7 mm). A lift to a NAMED pose (joint
-  angles, no IK) before the reach gave a clean approach.
-- **The twin knows only the robot.** Neither the sweep nor CBiRRT knows the bucket: a straight move
-  from rest passed 3 to 4.6 cm outside its wall below the rim. The program keeps clear of it by
-  design, and it was checked by sampling the hand along every move against a cylinder for the bucket
-  (to be made a tool if obstacles become routine).
-- **Every move in it is straight.** CBiRRT routes a move the straight-line planner refuses (below); the
-  hand-off needed a hand-designed route instead.
+- **Heights:** the twin's floor is at chassis z -0.094, the base's top at 0.356, the bucket stage rim
+  at z 0.553, and candy at z 0.535.
+- **Orientation & vertical extraction:** The candy is reached and extracted in 2 cm vertical steps
+  with fingers pointed downward (`DOWN = {"x": 0.242, "y": 0.242, "z": -0.940}`). Lifting up to
+  z 0.74 m before swinging out clears the rim by ~19 cm without tilting the gripper, preventing candy
+  from slipping out.
+- **Perpendicular kid drop-off:** At `DROP_OFF = [0.70, -0.28, 0.95]`, the gripper is oriented
+  straight down perpendicular to the ground (`STRAIGHT_DOWN = {"x": 0.0, "y": 0.0, "z": -1.0}` within
+  0.5° of vertical) so candy drops cleanly into an outstretched trick-or-treat bag or hands.
+- **Motionless pause holds:** `ShowRecorder` records explicit hold keyframes at the start and end of
+  every `wait()` and gripper actuation, ensuring the arm has zero velocity (stays completely still)
+  while clamping candy (0.8 s), before dropping (2.0 s), and after dropping (2.5 s) without drifting.
+- **The twin knows only the robot.** Neither the sweep nor CBiRRT knows the bucket: the program keeps
+  clear of the stage and bucket by design (ingress via `BACK` -> `SIDE`, and egress via `SIDE` ->
+  `behind_bucket`), checked against the twin's clearance sweep.
 
 **Re-aimed for the bucket stage (2026-10-28).** The bucket now stands on the stage mounted to the
 lift (#602; the handle-down bucket, #601), against the stage's RIGHT edge and 1 cm forward of its
