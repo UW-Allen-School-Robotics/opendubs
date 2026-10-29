@@ -323,7 +323,7 @@ class Coordinator:
             return False
         self.rest_after = now + REST_RETRY_S
         self._enter("REST", f"{', '.join(away)} away from rest")
-        self.show = self.rest
+        self.show, self.rest_before = self.rest, self._palette_last()
         try:
             ok, how = self.palette.run(self.rest, start="countdown")
         except Exception as e:  # noqa: BLE001
@@ -331,7 +331,15 @@ class Coordinator:
         self._log("rest", routine=self.rest, away=away, ok=ok, why=how)
         if not ok:
             self._enter("IDLE_NAV", f"{self.rest} refused: {how}")
+            self.rest_after = now + REST_RETRY_S
         return True
+
+    def _palette_last(self):
+        try:
+            return self.palette.last() if hasattr(self.palette, "last") else None
+        except Exception as e:  # noqa: BLE001
+            self._log("palette_error", what="last", error=str(e))
+            return None
 
     def _tick_idle_nav(self, now, running) -> None:
         away = self._arms_away()
@@ -397,7 +405,15 @@ class Coordinator:
     def _tick_rest(self, now, running) -> None:
         if self.nav_doing != "patrol":           # the base patrols on while the arms come home
             self._drive("patrol")
-        self._tick_show(now, running)
+        last = None if running == self.rest else self._palette_last()
+        if (not self.show_seen and isinstance(last, dict) and last != self.rest_before
+                and last.get("id") == self.rest and last.get("status") in ("REFUSED", "ABORTED", "ESTOPPED")):
+            # refused at preflight (the deadman let go): out at once, so a visitor is not told "busy"
+            self._enter("IDLE_NAV", f"{self.rest} {str(last.get('status')).lower()}: {(last.get('cause') or '')[:200]}")
+        else:
+            self._tick_show(now, running)
+        if self.state != "REST":
+            self.rest_after = now + REST_RETRY_S   # the next try waits from the end of this one
 
     def _start_choreo(self, routine, why: str):
         if routine is None:

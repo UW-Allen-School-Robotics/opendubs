@@ -134,6 +134,25 @@ class Rest(unittest.TestCase):
         self.run_for(30.0)
         self.assertEqual(self.pal.runs, ["arms_rest"])      # at rest: nothing more is played
 
+    def test_a_rest_refused_at_preflight_leaves_rest_at_once_and_waits_before_the_next(self):
+        """opendubs2, 2026-10-29: the deadman let go, the runner refused each rest at preflight, and the
+        coordinator sat in REST (busy to "trick or treat") until its 15 s ran out, then tried at once."""
+        self.co.tick()
+        self.arms.out = ["right"]
+        self.pal.last = lambda: self.pal.__dict__.get("_last")
+        self.co.tick()
+        self.assertEqual(self.co.state, "REST")
+        self.pal.now = None                                 # refused at preflight, never seen running
+        self.pal._last = {"id": "arms_rest", "status": "REFUSED", "cause": "deadman is False — the deadman must be held"}
+        self.co.tick()
+        self.assertEqual(self.co.state, "IDLE_NAV")
+        self.assertTrue(self.co.request("candy")[0])        # not busy
+        self.co._enter("IDLE_NAV", "test")
+        self.run_for(dd.REST_RETRY_S - 1)
+        self.assertEqual(len(self.pal.runs), 1)
+        self.run_for(2.0)
+        self.assertEqual(len(self.pal.runs), 2)
+
     def test_a_refused_rest_is_tried_again_later_and_patrol_goes_on_meanwhile(self):
         self.co.tick()
         self.arms.out, self.pal.refuse = ["left"], "PRECONDITION_FAILED: the deadman must be held"
