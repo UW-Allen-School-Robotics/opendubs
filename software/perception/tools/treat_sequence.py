@@ -4,8 +4,8 @@ Nothing else: no topics, no polling; each call's data goes into the next call's 
   treat_follow.sh sequence [options]
   treat_follow.sh call NAME [JSON]        one service, sent once and waited for (`--call`)
 
-  gripper_close -> ready -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> gripper_open
-  -> hold -> ready
+  ready -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> hold -> ready
+  with --gripper: gripper_close first, gripper_open after move_joints (once the gripper is calibrated)
 
 The services decide real arm or simulation, and keep the safety: on the real arm a released deadman latches a stop and
 every later move is refused, so this sequence ends at the first refusal. Hold the deadman BEFORE starting it (the real
@@ -30,8 +30,10 @@ def main():
     ap.add_argument("--no-jaws-level", dest="jaws", action="store_false", help="move_pose to the IK's pose instead")
     ap.add_argument("--speed", type=float, default=None, help="rad/s (the services cap it on the real arm)")
     ap.add_argument("--no-return", dest="return_home", action="store_false", help="stay at the treat")
-    ap.add_argument("--no-gripper", dest="gripper", action="store_false",
-                    help="leave the gripper alone (no close before ready, no open at the treat)")
+    ap.add_argument("--gripper", action="store_true",
+                    help="close the gripper before ready and open it at the treat. Off by default: on opendubs2 the "
+                         "right gripper is not yet calibrated for the arm service (2026-10-28)")
+    ap.add_argument("--no-gripper", dest="gripper", action="store_false", help="(the default) leave the gripper alone")
     ap.add_argument("--call-s", type=float, default=150.0, help="s to wait for one service call")
     ap.add_argument("--call", nargs="+", metavar=("NAME", "JSON"),
                     help="call ONE service and print its answer (sent once, never resent: perception_call.sh resends an "

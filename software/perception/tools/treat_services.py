@@ -407,6 +407,11 @@ class Treat:
         if status == GoalStatus.STATUS_SUCCEEDED:
             return f"gripper {'closed' if closing else 'open'} at {mm} mm", {"position_mm": mm, "holding": False}
         if closing and status == GoalStatus.STATUS_ABORTED and r.stalled:
+            if mm >= 0.044 * 1000 - 3.0:
+                # stalled where it started, fully open: it never moved (on opendubs2, 2026-10-28, with derived and not
+                # measured motor angles, every close "stalled" at 42.7 mm and was taken for a held candy)
+                raise Refused(self.RC.FAILURE, f"the gripper did not move (still {mm} mm open): is it enabled and "
+                                               "calibrated in the arm's hardware config?")
             return f"gripper closed on something at {mm} mm (holding it)", {"position_mm": mm, "holding": True}
         why = "cancelled" if status == GoalStatus.STATUS_CANCELED else ("stalled" if r.stalled else "did not reach")
         raise Refused(self.RC.FAILURE, f"the gripper {why} at {mm} mm")
