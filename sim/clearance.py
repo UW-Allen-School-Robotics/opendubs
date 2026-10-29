@@ -168,11 +168,13 @@ def main():
     ap.add_argument("--contact", metavar="SIDE:JOINT",
                     help='sweep this joint to find where clearance hits zero, e.g. "right:2"')
     ap.add_argument("--hold", default="", help='joints to hold during --contact')
+    ap.add_argument("--candy-bucket", nargs="?", const=True, default=None, type=scene.candy_bucket_arg,
+                    metavar="X,Y,H", help="measure against the candy bucket and its stand too (props.py)")
     a = ap.parse_args()
 
     import mujoco
 
-    model = scene.build(a.assets)
+    model = scene.build(a.assets, candy_bucket=a.candy_bucket)
     data = mujoco.MjData(model)
 
     if a.contact:

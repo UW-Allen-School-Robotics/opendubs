@@ -207,8 +207,12 @@ def fitted_head() -> str:
 
 
 def build(assets: str | None = None, chest_cover: bool = False, face_screen: bool = False,
-          head: str | None = None, projection: bool = False, crawler=None, tools: dict | None = None):
-    """`head`: galaxy_tablet, the head the robot description carries (the default).
+          head: str | None = None, projection: bool = False, crawler=None, tools: dict | None = None,
+          candy_bucket=None):
+    """`head`: galaxy_tablet, the head the robot description carries (the default). `candy_bucket`:
+    None, or True for the candy bucket on its stand where props.py puts it, or (x, y, h): its candy at
+    base_link x, y and h above the floor, in metres. It COLLIDES (props.py), so the clearance sweep and
+    pick planning see it.
     `projection`: the projection screen behind the robot, built hidden (geom alpha 0). `crawler`: a
     crawling hand's tool type (effectors.Tool) to add, posed by sim_preview.apply_crawler. `tools`:
     {"left"|"right": effectors.Tool} fitted at a flange in place of the OpenArm gripper, posed by
@@ -242,6 +246,9 @@ def build(assets: str | None = None, chest_cover: bool = False, face_screen: boo
     if crawler is not None:
         import hand
         hand.add_crawler(ours, crawler)
+    if candy_bucket is not None and candy_bucket is not False:
+        import props
+        props.add_candy_bucket(ours, None if candy_bucket is True else tuple(candy_bucket))
 
     model = ours.compile()
     for side, tool in sorted((tools or {}).items()):
@@ -334,6 +341,14 @@ def set_joints(model, data, spec: str):
         data.qpos[model.jnt_qposadr[i]] = math.radians(float(val) * sign)
 
 
+def candy_bucket_arg(text: str) -> tuple:
+    try:
+        x, y, h = (float(v) for v in text.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError("X,Y,H in metres, e.g. 0.40,-0.20,0.90") from None
+    return (x, y, h)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--assets")
@@ -346,6 +361,9 @@ def main():
     ap.add_argument("--lift", type=float, default=0.0, help="Z-axis height in mm (0..275.1)")
     ap.add_argument("--joints", default="", help='e.g. "right:2=150,right:4=100"')
     ap.add_argument("--chest-cover", action="store_true", help="draw the cover we removed")
+    ap.add_argument("--candy-bucket", nargs="?", const=True, default=None, type=candy_bucket_arg, metavar="X,Y,H",
+                    help="add the candy bucket on its stand (props.py); X,Y,H: its candy at base_link x, y and "
+                         "h above the floor, metres")
     ap.add_argument("--drive", metavar="FWD,ROT,STR",
                     help="drive command, each -1..1, same meaning as the robot's DRIVE")
     ap.add_argument("--settle", type=float, default=0.0,
@@ -357,7 +375,7 @@ def main():
 
     import mujoco
 
-    model = build(a.assets, a.chest_cover, head=a.head)
+    model = build(a.assets, a.chest_cover, head=a.head, candy_bucket=a.candy_bucket)
     data = mujoco.MjData(model)
     # NOT qpos[0] any more: the chassis freejoint owns the first seven coordinates.
     zaxis = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "zaxis")
@@ -378,6 +396,9 @@ def main():
 
     print(f"{model.nbody} bodies, {model.njnt} joints, {model.ngeom} geoms")
     problems = check_invariants(model, a.head)
+    if a.candy_bucket:
+        import props
+        problems += props.settle_check(model)
     for msg in problems:
         print(f"FAIL: {msg}", file=sys.stderr)
     if not problems:
