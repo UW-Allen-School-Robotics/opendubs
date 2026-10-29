@@ -273,16 +273,14 @@ bucket_stage:
   #     residual 0.00 mm), and its hole pattern's centre is the outline's to 0.00 mm. Its top face
   #     is put on the plate mesh's top (z 357.58).
   #   * So export (x, y, z) -> CAD (x + 601, -z - 186, y + 297.555) mm.
-  #   * The plate and its holes are symmetric, so two things rest on the conventions above, not on
-  #     a feature: that +y was up (the stage's top is then flush with the plate's UNDERSIDE, not
-  #     standing on the plate), and that the stage's 22 mm offset is to the robot's LEFT.
-  # Fixed to the CHASSIS (TODO_CONFIRM with the project team): the file shows no contact with the
-  # plate (a 49 mm gap to its front edge), and the stage's rear 15 mm lies over the chassis' front
-  # (x 597..612). It is the same place at the lift's lowest position either way.
-  # Clear of the front lidar's scan: its underside is 55.3 mm above the scan plane (241.3).
+  #   * The plate and its holes are symmetric, so up and left/right rest on the conventions above;
+  #     the stage's top is then flush with the plate's UNDERSIDE, as the CAD shows it, and its
+  #     22 mm offset is to the robot's left, where it is mounted (the project team, 2026-10-28).
+  # Mounted to the LIFT and rides it (the project team, 2026-10-28). Clear of the front lidar's scan:
+  # its underside is 55.3 mm above the scan plane (241.3) with the lift down, and only rises.
   fitted: true
-  rides: chassis
-  span_mm: { x: [597.0, 829.0], y: [-190.0, 234.0], z: [296.555, 348.055] }   # 232 x 424 x 51.5
+  rides: lift_platform
+  span_mm: { x: [597.0, 829.0], y: [-190.0, 234.0], z: [296.555, 348.055] }   # 232 x 424 x 51.5, lift down
 
 head_assembly:
   # The head is a SWAPPABLE sub-assembly: it attaches to the lift platform at its own mount pose

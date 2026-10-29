@@ -29,11 +29,6 @@
       <geometry><box size="0.644 0.649 0.404"/></geometry>
       <material name="frame"/>
     </visual>
-    <visual>
-      <origin xyz="0.713 0.022 0.322305" rpy="0 0 0"/>
-      <geometry><box size="0.232 0.424 0.0515"/></geometry>
-      <material name="plate"/>
-    </visual>
   </link>
   <joint name="datum_joint" type="fixed">
     <parent link="base_link"/>
@@ -110,6 +105,11 @@
       <origin xyz="0.4147 0 1.055875" rpy="0 0 0"/>
       <geometry><box size="0.14778 0.094 0.172"/></geometry>
       <material name="frame"/>
+    </visual>
+    <visual>
+      <origin xyz="0.713 0.022 0.322305" rpy="0 0 0"/>
+      <geometry><box size="0.232 0.424 0.0515"/></geometry>
+      <material name="plate"/>
     </visual>
   </link>
   <joint name="zaxis" type="prismatic">
