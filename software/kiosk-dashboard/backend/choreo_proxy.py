@@ -130,7 +130,9 @@ async def run(rid: str, request: Request):
     except ValueError:
         return JSONResponse({"error": "the body must be JSON: {start, countdown_s}"}, status_code=400)
     body = {k: raw[k] for k in RUN_KEYS if isinstance(raw, dict) and raw.get(k) is not None}
-    return await _forward("POST", f"run/{rid}", body or None)
+    # a start validates the show list too (Palette.run reads routines()): the list's timeout, or a busy
+    # robot's start is reported as "the runner is not running" while the run goes ahead (2026-10-28)
+    return await _forward("POST", f"run/{rid}", body or None, timeout=LIST_TIMEOUT_S)
 
 
 @router.post("/api/choreo/stop")
