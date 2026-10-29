@@ -338,12 +338,12 @@ with the deadman held, and every show's go is a fresh press of it: a random pick
 the supervisor starts it. Nothing moves on a child's word or a timer alone.
 
 ```sh
-SHOW=architect-ce957446f66e tools/dev.sh day                       # the coordinator
-DAY=1 SHOW=architect-ce957446f66e tools/dev.sh listen              # the listener, asking it first
-FAKE=1 SHOW=architect-ce957446f66e tools/dev.sh day                # a desk: no palette, nobody seen
+SHOW=architect-7e8c712324b3 tools/dev.sh day                       # the coordinator
+DAY=1 SHOW=architect-7e8c712324b3 tools/dev.sh listen              # the listener, asking it first
+FAKE=1 SHOW=architect-7e8c712324b3 tools/dev.sh day                # a desk: no palette, nobody seen
 ```
 
-**At boot.** `SHOW=architect-ce957446f66e tools/dev.sh install` installs three systemd units from
+**At boot.** `SHOW=architect-7e8c712324b3 tools/dev.sh install` installs three systemd units from
 `deploy/` (camera, listener with `DAY=1`, coordinator), filled in with this checkout, and starts
 them; `dev.sh uninstall` removes them, `dev.sh status` says whether they run. They are TEST units,
 like `archit-perception`'s: no deploy or provisioner touches them, and they run this checkout, so
