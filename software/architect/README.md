@@ -433,7 +433,8 @@ read off the camera's marks as 32 mm to the left, which put every perceived poin
 
 `PROFILE=arms_see tools/dev.sh dry|up` offers them to the program, and a show recorded at approval
 goes where the camera saw things then. For those calls the container joins the robot's ROS domain
-0 with `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`, as API.md says a caller must; every call only reads.
+0 with the robot's DDS profile (`/etc/opendubs/fastdds-robot.xml`, as every ROS container `dev.sh`
+starts); every call only reads.
 
 **The services, not the program, decide whether anything moves.** A motion service runs only
 with CH5 in AUTO and the deadman held, through the same gate the show runner uses

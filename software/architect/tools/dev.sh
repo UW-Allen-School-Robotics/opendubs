@@ -54,7 +54,7 @@
 # PROGRAM (for dry, a path inside the repository), DOCKER (default: sudo -n docker), PROFILE (arms,
 # the default, or arms_see: the program may look with the perception services, which a recorded show
 # then follows; the container joins the robot's ROS domain 0 for those read-only calls, as API.md
-# says a caller must, with FASTDDS_BUILTIN_TRANSPORTS=UDPv4).
+# says a caller must, with the robot's DDS profile like every container here).
 #
 # PLANNER (show path: dry, up): cbirrt routes a move the straight-line planner refuses as too close
 # around the body (routing.py), with PLANNER_ROOT a checkout of feat/arm-motion-planner-ui, mounted
@@ -89,6 +89,14 @@ DETACH=-d
 [ "${FOREGROUND:-0}" = 1 ] && DETACH=""
 UNITS=(archit-architect-camera archit-architect-listener archit-architect-day)
 PERCEPTION_CAMERA=archit-perception-camera
+# Every ROS container takes the robot's DDS profile (software/ros, provision-ros.sh; ros-dds.env):
+# UDP over loopback only, so the traffic stays on the Thor and no discovery multicast reaches the
+# Wi-Fi. Nothing may override its transports (no FASTDDS_BUILTIN_TRANSPORTS, no profile of our own),
+# and the range stays SUBNET: in Jazzy LOCALHOST quietly adds shared memory on top of any profile.
+ROBOT_DDS=/etc/opendubs/fastdds-robot.xml
+DDS=(-v "${ROBOT_DDS}:${ROBOT_DDS}:ro" -e FASTRTPS_DEFAULT_PROFILES_FILE="${ROBOT_DDS}"
+     -e FASTDDS_DEFAULT_PROFILES_FILE="${ROBOT_DDS}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET)
+need_dds() { [ -f "${ROBOT_DDS}" ] || { echo "dev.sh: no ${ROBOT_DDS} (software/ros/provision-ros.sh installs it)" >&2; exit 1; }; }
 
 # The arm stack's joint_limits.yaml, the file the show runner validates against: its drop-in binds the
 # arm stack's hw_validation/ directory to /etc/opendubs/arm-limits (provision-runner.sh). Read in
@@ -123,7 +131,7 @@ run() {  # $1: show or live; then the runner's arguments
   local profile="${PROFILE:-arms}" domain=77
   case "${profile}" in
     arms) ;;
-    arms_see) domain=0; env+=(-e FASTDDS_BUILTIN_TRANSPORTS=UDPv4) ;;
+    arms_see) domain=0 ;;
     *) echo "dev.sh: PROFILE must be arms or arms_see, not ${profile}" >&2; exit 1 ;;
   esac
   if [ -n "${PLANNER:-}" ]; then
@@ -139,11 +147,13 @@ run() {  # $1: show or live; then the runner's arguments
   fi
   DOMAIN="${domain}"
   # The runner and the arm service share one IPC namespace (--ipc shareable here, container:NAME there).
-  # With localhost-only discovery, Fast DDS still hands a reply over by shared memory, so across two
-  # private IPC namespaces a call finds the service and never hears back, even with UDPv4 only: a run
-  # waited 60 s on reset_robot (2026-10-24). UDPv4 as software/perception/API.md asks of every caller.
+  # Under ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST Fast DDS handed a reply over by shared memory, so across
+  # two private IPC namespaces a call found the service and never heard back: a run waited 60 s on
+  # reset_robot (2026-10-24). The robot's profile has no shared memory; the shared namespace stays as
+  # cheap insurance.
+  need_dds
   ${DOCKER} run -d --rm --name "${NAME}" --network host --ipc shareable \
-    -e ROS_DOMAIN_ID="${domain}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
+    -e ROS_DOMAIN_ID="${domain}" "${DDS[@]}" \
     -e HOME=/data/home -w /data/home \
     -e OPENDUBS_ARCHITECT_PROFILE="${profile}" -e OPENDUBS_ARCHITECT_BACKEND="${backend}" -e OPENDUBS_ARCHITECT_DATA=/data \
     -e PYTHONPATH=/work/software/architect:/ssa -e SSA_ROOT=/ssa \
@@ -174,8 +184,9 @@ arms() {  # the arm service for the live backend, on the runner's ROS domain ($D
   if ${DOCKER} inspect "${ARMS_NAME}" >/dev/null 2>&1; then
     echo "dev.sh: ${ARMS_NAME} is already running; 'dev.sh down' first" >&2; exit 1
   fi
+  need_dds
   ${DOCKER} run -d --rm --name "${ARMS_NAME}" --network host --ipc "container:${NAME}" \
-    -e ROS_DOMAIN_ID="${DOMAIN}" -e ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 \
+    -e ROS_DOMAIN_ID="${DOMAIN}" "${DDS[@]}" \
     -e HOME=/data/home -w /data/home -e PYTHONPATH=/work/software/architect \
     -v "${DATA}:/data" -v "${REPO}:/work:ro" "${vols[@]}" \
     "${IMAGE}" bash -c "python3 -u -m opendubs_architect.robot_node ${args[*]} 2>&1 | tee /data/arms.log"
@@ -188,9 +199,11 @@ camera() {  # the colour image for the dashboard tab, from the perception stack'
   if ${DOCKER} inspect "${CAMERA_NAME}" >/dev/null 2>&1; then
     echo "dev.sh: ${CAMERA_NAME} is already running; 'dev.sh down' first" >&2; exit 1
   fi
-  # The driver hands frames over by shared memory: a container of its own discovers the topic and gets none.
+  # The driver's container shares its IPC namespace: before the robot's profile, the driver handed frames
+  # over by shared memory and a container of its own discovered the topic and got none.
+  need_dds
   ${DOCKER} run ${DETACH} --rm --name "${CAMERA_NAME}" --network host --ipc "container:${PERCEPTION_CAMERA}" \
-    -e ROS_DOMAIN_ID=0 -e PYTHONPATH=/work/software/architect -v "${REPO}:/work:ro" \
+    -e ROS_DOMAIN_ID=0 "${DDS[@]}" -e PYTHONPATH=/work/software/architect -v "${REPO}:/work:ro" \
     "${IMAGE}" python3 -u -m opendubs_architect.camera_feed
   echo "started ${CAMERA_NAME}: http://127.0.0.1:8097/frame.jpg"
 }
@@ -205,8 +218,9 @@ day() {  # the coordinator: reads the palette and the perception services, drive
   [ -n "${EVERY:-}" ] && args="${args} --every ${EVERY}"
   [ "${FAKE:-0}" = 1 ] && args="${args} --people fake --palette fake"
   [ "${PAUSED:-0}" = 1 ] && args="${args} --start-paused"
+  need_dds
   ${DOCKER} run ${DETACH} --rm --name "${DAY_NAME}" --network host \
-    -e ROS_DOMAIN_ID=0 -e FASTDDS_BUILTIN_TRANSPORTS=UDPv4 -e PYTHONPATH=/work/software/architect \
+    -e ROS_DOMAIN_ID=0 "${DDS[@]}" -e PYTHONPATH=/work/software/architect \
     -e OPENDUBS_ARCHITECT_ARMS=/data/architect-arms.yaml -v "${DATA}:/data" -v "${REPO}:/work:ro" \
     "${IMAGE}" bash -c "python3 -u -m opendubs_architect.demo_day ${args} 2>&1 | tee /data/demo_day.log"
   echo "started ${DAY_NAME}: http://127.0.0.1:8096/api/state (start the listener with DAY=1 SHOW=${SHOW})"

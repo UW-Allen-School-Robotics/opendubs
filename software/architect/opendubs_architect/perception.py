@@ -8,7 +8,7 @@ chassis frame. Transport-free: client.py sends the requests.
   locate_object  -> /perception/locate {"label", "camera"}: the middle of the best match's visible
                     surface.
 
-Callers on the Thor set ROS_DOMAIN_ID=0 and FASTDDS_BUILTIN_TRANSPORTS=UDPv4 (API.md). Every call
+Callers on the Thor set ROS_DOMAIN_ID=0 and use the robot's DDS profile (dev.sh's DDS). Every call
 only reads, so an unanswered one is sent again (client.py, as perception_call.py does).
 """
 

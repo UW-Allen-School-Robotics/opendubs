@@ -2,7 +2,7 @@
 
     sudo docker cp software/architect/tools/grasp_overlay.py archit-perception-grasp:/tmp/
     sudo docker exec archit-perception-grasp bash -lc 'source /opt/ros/jazzy/setup.bash;
-        source /opt/perception_ws/install/setup.bash; export FASTDDS_BUILTIN_TRANSPORTS=UDPv4;
+        source /opt/perception_ws/install/setup.bash;
         python3 /tmp/grasp_overlay.py mug /tmp/grasp.png'
     sudo docker cp archit-perception-grasp:/tmp/grasp.png .     # outside the repo
 
