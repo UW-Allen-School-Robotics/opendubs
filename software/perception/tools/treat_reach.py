@@ -30,6 +30,9 @@ no head, a scripted person in arm_mount who raises a hand after 2 s (for the act
     on the person, but only AFTER the first `ready` and it stops before `reach_pose`: the head and the arm never move
     at the same time, as `supervise` assumes. The right arm's J2 comes from the service's /joint_states (142 deg rule)
   - the reach goal at most REAL_MAX_UP m above the arm's shoulder (a hand held higher is reached toward at that height)
+  - --jaws-level (on with --real; --no-jaws-level for V2.2's reach): the gripper ends with its jaws level and pointing
+    forward, so a candy drops straight down: ready -> the candy posture (CANDY_Q_DEG) in CANDY_STEPS reach_pose steps
+    -> the hand in two. A hand the jaws-level arm cannot reach is reached toward (plan_jaws)
   - reach_pose at REAL_SPEED rad/s by default and REAL_SPEED_MAX at most (--speed), REAL_STANDOFF m short of the palm at least (`ready` takes no speed: it moves
     at the service's default, ~0.68 rad/s with the driver's max_velocity at 1.0)
   - before the first move it prints HOLD THE DEADMAN and waits (--deadman-wait-s) until CH5 is MANUAL or AUTO, the e-stop
@@ -65,6 +68,71 @@ REAL_MAX_UP = 0.25     # m: --real's goal at most this above the arm's shoulder 
 
 class PermitLost(Exception):
     """--real: CH5, the e-stop or the deadman stopped permitting motion."""
+
+
+# --jaws-level: the gripper's jaws level (they open side to side) and pointing forward, so a candy drops straight down.
+# At `ready` the finger axis (TCP y, along which the fingers slide) is VERTICAL, and rolling it level from there drives the
+# wrist into its limits (joints 3 and 5 at -87 of +-90, 6 at 42 of +-45). This posture, found offline by a seeded search
+# on the arm model, holds the jaws level at (0.50, -0.15, 0.75) with every joint 27 deg or more from its limits.
+CANDY_Q_DEG = [60.8, 17.4, -20.4, 83.9, 20.4, -17.4, -48.5]
+CANDY_STEPS = 6          # reach_pose steps along the joint line ready -> candy (one step: "the planned path leaves a
+                         # joint's range"; six in the simulation: each reached, 14 s in all, the jaws level within 0.3 deg)
+UP = np.array([0.0, 0.0, 1.0])
+
+
+def jaws_pose(ik, q_seed, goal, posture, iterations=300, damping=0.05, posture_gain=0.2):
+    """The hand at `goal` with the jaws level and pointing toward the goal (horizontally, from the arm's base, within 30
+    deg of straight ahead): damped least squares on position + full orientation from `q_seed`, inside the IK's joint
+    box, pulled toward `posture` in the null space. Returns (position, 3x3, joints, m from goal, jaws tilt deg,
+    pointing deg off, joint margin deg)."""
+    import mujoco
+    m, d = ik.m, ik.mj.MjData(ik.m)
+    d.qpos[:] = ik.d.qpos
+    q = np.clip(np.asarray(q_seed, float), ik.lo, ik.hi)
+    d.qpos[ik.qadr] = q
+    goal = np.asarray(goal, float)
+    yaw = max(-0.52, min(0.52, math.atan2(goal[1] - SHOULDER[1], goal[0] - SHOULDER[0])))
+    point = np.array([math.cos(yaw), math.sin(yaw), 0.0])
+    across = np.cross(UP, point)
+    jacp, jacr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
+    for _ in range(iterations):
+        mujoco.mj_kinematics(m, d)
+        mujoco.mj_comPos(m, d)
+        p, R = d.xpos[ik.tcp], d.xmat[ik.tcp].reshape(3, 3)
+        a = across if across @ R[:, 1] >= 0 else -across              # either way round: the jaws are symmetric
+        e = np.concatenate([goal - p, 2.0 * (np.cross(R[:, 1], a) + np.cross(R[:, 2], point))])
+        mujoco.mj_jacBody(m, d, jacp, jacr, ik.tcp)
+        J = np.vstack([jacp[:, ik.dadr], 2.0 * jacr[:, ik.dadr]])
+        Jp = J.T @ np.linalg.inv(J @ J.T + damping ** 2 * np.eye(6))
+        dq = Jp @ e + (np.eye(7) - Jp @ J) @ (posture_gain * (posture - q))
+        n = float(np.linalg.norm(dq))
+        if n > 0.1:
+            dq *= 0.1 / n
+        q = np.clip(q + dq, ik.lo, ik.hi)
+        d.qpos[ik.qadr] = q
+    mujoco.mj_kinematics(m, d)
+    p, R = d.xpos[ik.tcp].copy(), d.xmat[ik.tcp].reshape(3, 3).copy()
+    rng = m.jnt_range[[m.joint(name).id for name in ik.names]]
+    return (p, R, q, float(np.linalg.norm(p - goal)), math.degrees(math.asin(min(1.0, abs(float(R[:, 1] @ UP))))),
+            math.degrees(math.acos(max(-1.0, min(1.0, float(R[:, 2] @ point))))),
+            math.degrees(float(np.minimum(q - rng[:, 0], rng[:, 1] - q).min())))
+
+
+def plan_jaws(ik, goal, candy_q, max_miss=0.02, max_tilt=3.0, max_point=8.0, min_margin=10.0):
+    """A jaws-level pose for `goal` reached from the candy posture: (position, 3x3, joints, m from goal) or None. Walked
+    from the candy posture's hand toward the goal; a goal it cannot make jaws-level with `min_margin` deg of joint room
+    slides toward the candy posture's hand in tenths (reaching toward the hand, the jaws always level)."""
+    p_c, _ = ik.fk(candy_q)
+    goal = np.asarray(goal, float)
+    for t in np.linspace(0.0, 1.0, 11):
+        g = goal + t * (p_c - goal)
+        q = candy_q.copy()
+        for k in range(1, 11):
+            q = jaws_pose(ik, q, p_c + (g - p_c) * k / 10, candy_q, iterations=60)[2]
+        p, R, q, miss, tilt, point, margin = jaws_pose(ik, q, g, candy_q)
+        if miss <= max_miss and tilt <= max_tilt and point <= max_point and margin >= min_margin:
+            return p, R, q, float(np.linalg.norm(p - goal))
+    return None
 
 
 DUMMY_Z = float(os.environ.get("TREAT_DUMMY_Z", "1.10"))   # the scripted palm's height in arm_mount, m
@@ -103,6 +171,10 @@ def main():
                     help="--real: centre the head too (needs --left-stowed; the head never moves while the arm does)")
     ap.add_argument("--left-stowed", action="store_true",
                     help="--real --head: the left arm is not run and is at stow: its unpublished position counts as clear")
+    ap.add_argument("--jaws-level", dest="jaws", action="store_true", default=None,
+                    help="the jaws level and pointing forward at the treat (via the candy posture), whatever the hand's "
+                         "own orientation; on by default with --real")
+    ap.add_argument("--no-jaws-level", dest="jaws", action="store_false")
     ap.add_argument("--max-up", type=float, default=0.35, help="m: the reach goal at most this above the arm's shoulder")
     ap.add_argument("--head-pan", action="store_true", help="pan as well as tilt to centre the torso")
     ap.add_argument("--neck-host", default=None)
@@ -134,6 +206,7 @@ def main():
             ap.error("--real --head needs --left-stowed: the head's clearance rule needs both arms' shoulders, and only "
                      "the right arm is run (say so only when the left arm is at stow and stays there)")
         args.max_up = min(args.max_up, REAL_MAX_UP)
+        args.jaws = True if args.jaws is None else args.jaws
         args.speed = min(args.speed or REAL_SPEED, REAL_SPEED_MAX)
         args.standoff = max(args.standoff, REAL_STANDOFF)
         action_domain = args.robot_domain
@@ -393,8 +466,43 @@ def main():
             return 0
 
         # 3. REACH
-        params = {"position": [round(float(v), 4) for v in goal]}
-        if args.orientation == "ik":
+        def pose_params(p, R):
+            x, y, z, w = (float(v) for v in g2s.mat_to_quat(R))
+            out = {"position": [round(float(v), 4) for v in p], "orientation": [round(w, 5), round(x, 5), round(y, 5), round(z, 5)],
+                   "tolerance_mm": args.tolerance_mm}
+            if args.speed:
+                out["speed"] = args.speed
+            return out
+
+        if args.jaws:
+            # JAWS LEVEL: ready -> the candy posture along its joint line, in CANDY_STEPS reach_pose steps (the planner
+            # cannot change the arm's configuration in one), then on to the hand in two. Any step that fails ends the
+            # reach there (the arm holds); home follows as usual.
+            ik = PositionIk(args.model, "right")
+            ready_q, candy_q = ik.d.qpos[ik.qadr].copy(), np.radians(CANDY_Q_DEG)
+            found = plan_jaws(ik, goal, candy_q)
+            accepted, reached = False, None
+            if found is None:
+                print("no jaws-level pose toward that hand: no reach", flush=True)
+            else:
+                p_t, R_t, q_t, off = found
+                print(f"jaws level: the hand at {fmt(p_t)}, {off * 1000:.0f} mm from the goal"
+                      + (" (as near as the jaws-level arm gets)" if off > 0.02 else ""), flush=True)
+                steps = [ready_q + (candy_q - ready_q) * k / CANDY_STEPS for k in range(1, CANDY_STEPS + 1)]
+                steps += [candy_q + (q_t - candy_q) * k / 2 for k in (1, 2)]
+                for i, q in enumerate(steps, 1):
+                    p, R = ik.fk(q)
+                    print(f"step {i}/{len(steps)}" + (" (the candy posture)" if i == CANDY_STEPS else
+                                                      " (the hand)" if i == len(steps) else ""), flush=True)
+                    ok, reached = command("reach_pose", pose_params(p, R))
+                    accepted = accepted or ok
+                    if reached != 0:
+                        print(f"step {i} did not reach: the reach ends here", flush=True)
+                        break
+            code = 0 if reached == 0 else 1
+        else:
+            params = {"position": [round(float(v), 4) for v in goal]}
+        if not args.jaws and args.orientation == "ik":
             ik = PositionIk(args.model, "right")          # starts at the model's `ready`, where the arm service starts
             pos, rot, _ = ik.solve(goal, iterations=300)
             x, y, z, w = (float(v) for v in g2s.mat_to_quat(rot))
@@ -406,11 +514,12 @@ def main():
                 params["position"] = [round(float(v), 4) for v in pos]
             print(f"orientation from the IK; its hand {miss * 1000:.0f} mm from the goal"
                   + (f": sending its position {fmt(pos)} instead" if miss > 0.01 else ""), flush=True)
-        params["tolerance_mm"] = args.tolerance_mm
-        if args.speed:
-            params["speed"] = args.speed
-        accepted, reached = command("reach_pose", params)
-        code = 0 if reached == 0 else 1
+        if not args.jaws:
+            params["tolerance_mm"] = args.tolerance_mm
+            if args.speed:
+                params["speed"] = args.speed
+            accepted, reached = command("reach_pose", params)
+            code = 0 if reached == 0 else 1
         if not accepted or not args.return_home:
             return code
         # HOME: the arm moved (or tried to): leave the treat there for --treat-s, then back to `ready` by the same
