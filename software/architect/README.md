@@ -289,20 +289,26 @@ and lets go. 17.4 s, swept at 38.9 mm. What it took, learned at the robot:
   hand-off needed a hand-designed route instead.
 
 **Re-aimed for the bucket stage (2026-10-28).** The bucket now stands on the stage mounted to the
-lift (#602; the handle-down bucket, #601): its base at chassis (0.713, 0.022, 0.348) with the lift
-down, its rim at z 0.553. The show of 2026-10-24 put a finger 16 mm into its wall. The program now
-goes up and out to the right first and last, comes over the bucket 11 cm above the rim, and goes
-straight down and back up with the fingers held 25 degrees off vertical (`move_ee_to_pose`'s
-`approach`, solved by `axis_ik.py`), then pauses 1.5 s at the offer before letting go (`wait`).
+lift (#602; the handle-down bucket, #601), against the stage's RIGHT edge and 1 cm forward of its
+centre (measured at the robot; the twin puts it at the stage's centre): its centre about chassis
+(0.723, -0.064) with the lift down, its rim at z 0.553. The show of 2026-10-24 put a finger 16 mm into
+its wall. The program now goes out to the right and behind the bucket first and last, comes over it
+11 cm above the rim, and goes straight down and back up with the fingers held 20 degrees off
+vertical (`move_ee_to_pose`'s `approach`, solved by `axis_ik.py`), then pauses 1.5 s at the offer
+before letting go (`wait`).
 
 - **Fingers down cannot go deep here.** Exactly vertical is out of reach (the wrist, J6 and J7, runs
   out); within 20-30 degrees of it the hand reaches no lower than about z 0.52, the shoulder (J2) at
   its limit. Raising the lift does not help: the arms and the stage both ride it. So the candy sits
-  on a false bottom about 2 cm below the rim, where the hand grabs at (0.68, -0.01, 0.535).
+  on a false bottom about 2 cm below the rim, where the hand grabs at (0.70, -0.09, 0.535).
+- **Where the bucket is matters to the centimetre.** Aimed at the stage's centre, the first run on
+  the arms missed the bucket. Measure where it stands before recording, and check the show against
+  it on the twin: `scene.build(candy_bucket=True)` with the bucket's free joint moved there.
 - **Checked on the twin with the stage and the bucket** (the description's branches merged in a
-  scratch tree): closest 22.8 mm to the bucket, at the bottom with the gripper 40% open (fully open,
-  a finger met the wall); the descent stays within 1 mm of the vertical and the fingers 25.0-25.2
-  degrees off it; 38.9 mm to the robot's own body. Recorded as `architect-7e8c712324b3`, 30.2 s.
+  scratch tree, the bucket moved to where it was measured, with its rim or its base at the edge):
+  19.1 mm and 24.5 mm to the bucket at the closest, with the gripper 40% open; the descent within
+  1 mm of the vertical and the fingers 19.9-20.1 degrees off it; 38.9 mm to the robot's own body.
+  Recorded as `architect-93cbf2aabeca`, 34.6 s.
 
 ## The demo day: one coordinator, one thing at a time
 
@@ -338,12 +344,12 @@ with the deadman held, and every show's go is a fresh press of it: a random pick
 the supervisor starts it. Nothing moves on a child's word or a timer alone.
 
 ```sh
-SHOW=architect-7e8c712324b3 tools/dev.sh day                       # the coordinator
-DAY=1 SHOW=architect-7e8c712324b3 tools/dev.sh listen              # the listener, asking it first
-FAKE=1 SHOW=architect-7e8c712324b3 tools/dev.sh day                # a desk: no palette, nobody seen
+SHOW=architect-93cbf2aabeca tools/dev.sh day                       # the coordinator
+DAY=1 SHOW=architect-93cbf2aabeca tools/dev.sh listen              # the listener, asking it first
+FAKE=1 SHOW=architect-93cbf2aabeca tools/dev.sh day                # a desk: no palette, nobody seen
 ```
 
-**At boot.** `SHOW=architect-7e8c712324b3 tools/dev.sh install` installs three systemd units from
+**At boot.** `SHOW=architect-93cbf2aabeca tools/dev.sh install` installs three systemd units from
 `deploy/` (camera, listener with `DAY=1`, coordinator), filled in with this checkout, and starts
 them; `dev.sh uninstall` removes them, `dev.sh status` says whether they run. They are TEST units,
 like `archit-perception`'s: no deploy or provisioner touches them, and they run this checkout, so
