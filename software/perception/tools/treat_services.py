@@ -21,6 +21,8 @@ THE SERVICES, /perception/treat/<name>; each returns when its step has ended (do
   plan_treat     {"palm": [x,y,z], "jaws_level"?: true}  no motion: the goal toward that palm (reach_goal: the standoff and
                                                          height cap) and, jaws-level, the arm's joints and pose there
                                                          (plan_jaws); data: joints, pose, mm from the goal
+  hold           {"seconds"?: 5}                         waits with the arm where it is (the treat); --real: a lost
+                                                         permit meanwhile latches the stop and returns STOPPED
   stop           {}                                      cancels any running move (the arm holds) and stops the head
   rearm          {}                                      --real: clears the stop that a lost permit latched
   status         (RobotQuery)                            mode, permit, stopped, busy, the arm's joints, the head
@@ -163,6 +165,14 @@ class Treat:
         if not result.done():
             handle.cancel_goal_async()
             raise Refused(self.RC.TIMEOUT, f"no result in {timeout:.0f} s: cancelled (the arm holds)")
+        from action_msgs.msg import GoalStatus
+        status = result.result().status
+        if status == GoalStatus.STATUS_CANCELED:
+            raise Refused(self.RC.FAILURE, "cancelled (stop): the arm holds where it is")
+        if status != GoalStatus.STATUS_SUCCEEDED:
+            r = result.result().result
+            why = getattr(r, "message", "") or getattr(r, "error_string", "")
+            raise Refused(self.RC.FAILURE, f"the move was aborted: {why} (the arm holds)")
         return result.result().result
 
     def send(self, client, goal, what):
@@ -351,6 +361,18 @@ class Treat:
                  "pose": {"position": [round(float(v), 4) for v in p], "orientation": [round(w, 5), round(x, 5), round(y, 5), round(z, 5)]},
                  "goal": [round(float(v), 4) for v in goal], "mm_from_goal": round(off * 1000, 1)})
 
+    def hold(self, req):
+        """Wait `seconds` with the arm where it is (the treat being taken). --real: losing the permit meanwhile latches
+        the stop and returns STOPPED."""
+        seconds = float(req.get("seconds", 5.0))
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if self.a.real and not self.permit["ok"]:
+                self.stopped = f"the permit was lost while holding: {self.permit['why']}"
+                raise Refused(self.RC.FAILURE, f"STOPPED: {self.stopped}. Nothing moves until rearm")
+            time.sleep(0.05)
+        return f"held {seconds:.0f} s", {}
+
     def stop(self, req):
         h = self.goal
         if h is not None:
@@ -485,7 +507,7 @@ def main():
 
     for name, fn in (("ready", t.ready), ("move_pose", t.move_pose), ("move_joints", t.move_joints),
                      ("centre_person", t.centre_person), ("get_hand", t.get_hand), ("find_hand", t.find_hand),
-                     ("plan_treat", t.plan_treat)):
+                     ("plan_treat", t.plan_treat), ("hold", t.hold)):
         serve(name, fn)
     serve("stop", t.stop, exclusive=False)
     serve("rearm", t.rearm, exclusive=False)
@@ -499,7 +521,7 @@ def main():
     executor = MultiThreadedExecutor(num_threads=6, context=robot_ctx)
     executor.add_node(node)
     print(f"treat services up: /perception/treat/{{ready,move_pose,move_joints,centre_person,get_hand,find_hand,"
-          f"plan_treat,stop,rearm,status}}; moves to {'THE REAL ARM' if args.real else f'the simulation (domain {arm_domain})'}; "
+          f"plan_treat,hold,stop,rearm,status}}; moves to {'THE REAL ARM' if args.real else f'the simulation (domain {arm_domain})'}; "
           f"head {'on' if t.head else 'off'}{'; dummy person' if args.dummy else ''}", flush=True)
     try:
         executor.spin()
