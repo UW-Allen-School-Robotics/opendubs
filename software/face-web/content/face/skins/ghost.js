@@ -8,8 +8,14 @@
 // GROOVE (alone a minute: the eyes dance to the beat), SMILE (someone in view), PEEK (after ten seconds of
 // smiling: hide, pop out startled, fierce, cheeky), PUZZLED (head tilted toward the person), EEK! (a
 // "trick or treat" taken, sweat flashing), FOCUS (getting the candy), HAPPY (done) -- and the flame mouth
-// that never stops moving. Which one shows is decided at the end of this file, from the demo runner's
-// state and the face tracker; the drawing above it is the prototype's, unchanged but for the joins.
+// that never stops moving. Which one shows is decided at the end of this file, from the demo day's
+// coordinator, the demo runner and the face tracker; the drawing above it is the prototype's, unchanged
+// but for the joins.
+//
+// WHILE A SHOW DANCES (the coordinator's CHOREO) the ghost dances with it: each of the show's own FACE
+// cues picks a dance look (BEAT POP, TICK, NOD, WAVE LOOK, BOW, SWAY, CREEP, RISE, DROWSY, CHEER, or the
+// GROOVE), on the show's tempo, and the show wears one costume throughout (pumpkin, cat, monster, or the
+// classic black and white). Costumes are this one skin's: a show never needs a SKIN cue for them.
 //
 // Shapes are morphed point to point between keyframes, so every keyframe of a part keeps its structure.
 // The artwork is 617 x 368, the tablet's 1340 x 800 at 5:3, and is scaled to cover the whole screen.
@@ -492,7 +498,7 @@ const eekNow = () => {
 };
 // FOCUS and HAPPY, the demo's faces: on until switched off, one at a time
 let focusOn = false, happyOn = false, focusT0 = 0, happyT0 = 0, focusAmt = 0, happyAmt = 0;
-const busyNow = () => thinking || focusOn || happyOn || taskStage !== "idle" || reviewState !== null;
+const busyNow = () => thinking || focusOn || happyOn || danceOn || taskStage !== "idle" || reviewState !== null;
 const showDemo = (which) => {
   if (faultActive) return;
   focusOn = which === "focus" ? !focusOn : false;
@@ -520,7 +526,7 @@ const applyTaskStage = (stage) => {
 };
 const applyRobotState = (state) => {
   if (["FAULT", "E_STOP", "DEGRADED"].includes(state)) {
-    resetPresentation(); faultActive = true; taskStage = "idle";
+    resetPresentation(); stopDance(); faultActive = true; taskStage = "idle";
   } else if (state === "CLEARED") {
     faultActive = false; applyTaskStage("idle");
   }
@@ -721,15 +727,86 @@ function thinkPose(e) {
 let grooveT0 = -1, grooveAmt = 0, aloneSince = 0;
 const GROOVE_STEPS = ["groove1", "groove2", "groove3", "groove4", "groove5"];
 // -> { pose, wiggle (0..1: how much is groove-5), bob (a dip on each beat), local } at e seconds in, or null when done
-function groove(e) {
+function groove(e, loop = false) {           // loop: a show's groove, which lasts as long as the show
   const B = 60 / ctl.bpm, last = GROOVE_STEPS.length - 1, phraseLen = (GROOVE_STEPS.length + ctl.g5Beats) * B;
-  if (e >= ctl.phrases * phraseLen) return null;
+  if (!loop && e >= ctl.phrases * phraseLen) return null;
   const i = Math.floor(e / phraseLen), local = e - i * phraseLen, k = Math.floor(local / B), inBeat = local - k * B;
   const to = Math.min(k, last);                                   // one keyframe per beat, then groove-5 holds
   const from = k === 0 ? (i === 0 ? 0 : last) : Math.min(k - 1, last);
   const u = ease(clamp01(inBeat / (B * ctl.grooveSnap)));         // snap onto the new keyframe at the beat
   const wiggle = from === last && to === last ? 1 : to === last ? u : from === last ? 1 - u : 0;
   return { pose: mixPose(POSE[GROOVE_STEPS[from]], POSE[GROOVE_STEPS[to]], u), wiggle, bob: Math.exp(-inBeat / B * 6), local };
+}
+
+// ---- DANCE: a palette show is playing (the coordinator's CHOREO). Each FACE cue the show sends picks
+// the look for that stretch (DANCES, at the end of this file), and its arrival is the beat's anchor, so
+// the look stays on the music however late the coordinator's state is read. The costume is worn for the
+// whole show and the colours come off with it.
+let danceOn = false, danceT0 = 0, danceSpec = null, danceAmt = 0, costume = "classic", patrolling = false;
+let cueName = "NEUTRAL", cueT0 = 0, cueSeen = {};
+const BASE_BPM = ctl.bpm;
+const GROOVY = ["groove", "beatpop", "tick"];          // the looks danced over the groove's own frames
+const startDance = (spec, emote) => {
+  if (faultActive) return;
+  resetPresentation(); taskStage = "idle"; setNear(false);
+  danceOn = true; danceSpec = spec || null; danceT0 = now_s();
+  costume = (spec && COSTUMES[spec.costume]) ? spec.costume : "classic";
+  ctl.bpm = (spec && spec.bpm) || BASE_BPM;
+  if (emote) cueName = emote;
+  cueT0 = danceT0; cueSeen = { [cueName]: 1 };         // the emote already on counts as the show's first
+};
+const stopDance = () => { danceOn = false; danceSpec = null; costume = "classic"; ctl.bpm = BASE_BPM; };
+const takeCue = (emote, at) => {
+  if (emote === cueName) return;
+  cueName = emote; cueT0 = Math.min(at, now_s());
+  if (danceOn) cueSeen[emote] = (cueSeen[emote] || 0) + 1;
+};
+// -> { look, e (s since the cue), B (a beat, s), beats (since the cue), frac (within this beat) }
+function danceLook(t) {
+  const list = danceSpec && danceSpec.looks && danceSpec.looks[cueName];
+  const look = list ? list[Math.min(cueSeen[cueName] || 1, list.length) - 1] : (EMOTE_LOOKS[cueName] || "groove");
+  const B = 60 / ctl.bpm, e = Math.max(0, t - cueT0), beats = e / B;
+  return { look, e, B, beats, frac: beats % 1, every: (danceSpec && danceSpec.every) || 8 };
+}
+
+// ---- costumes: what each one adds behind the face, drawn in the art's own coordinates ---------------
+function costumeBack(P) {
+  if (P.rib) {                                 // the pumpkin's ribs, and its stem at the top
+    ctx.save(); ctx.strokeStyle = P.rib; ctx.lineWidth = 7; ctx.lineCap = "round";
+    for (const [x, b] of [[40, -30], [150, -16], [467, 16], [577, 30]]) {
+      ctx.beginPath(); ctx.moveTo(x, -20); ctx.quadraticCurveTo(x + b, ART_H / 2, x, ART_H + 30); ctx.stroke();
+    }
+    ctx.fillStyle = P.stem; ctx.beginPath(); ctx.moveTo(292, -14);
+    ctx.quadraticCurveTo(290, 12, 298, 24); ctx.quadraticCurveTo(309, 30, 320, 23); ctx.quadraticCurveTo(328, 8, 338, -14);
+    ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+  if (P.ear) {                                 // the cat's ears, in the top corners
+    for (const m of [1, -1]) {
+      ctx.save(); if (m < 0) { ctx.translate(ART_W, 0); ctx.scale(-1, 1); }
+      ctx.fillStyle = P.ear; ctx.beginPath(); ctx.moveTo(-12, -12); ctx.lineTo(150, -12); ctx.lineTo(14, 126); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = P.earIn; ctx.beginPath(); ctx.moveTo(18, 4); ctx.lineTo(104, 4); ctx.lineTo(26, 86); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
+  if (P.hair) {                                // the monster's flat-top fringe, its bolts and a stitched scar
+    ctx.save(); ctx.fillStyle = P.hair; ctx.beginPath(); ctx.moveTo(-20, -20); ctx.lineTo(ART_W + 20, -20);
+    for (let i = 0, x = ART_W + 20; x > -20; i++, x -= 32) ctx.lineTo(x - 16, i % 2 ? 26 : 12);
+    ctx.lineTo(-20, 16); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = P.bolt;
+    for (const x of [14, ART_W - 44]) { ctx.fillRect(x, 150, 30, 34); ctx.fillRect(x < ART_W / 2 ? x + 28 : x - 10, 158, 12, 18); }
+    ctx.strokeStyle = P.stitch; ctx.lineWidth = 4; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(84, 60); ctx.lineTo(76, 136);
+    for (let y = 70; y < 136; y += 16) { const x = 84 - (y - 60) * 8 / 76; ctx.moveTo(x - 10, y); ctx.lineTo(x + 10, y + 2); }
+    ctx.stroke(); ctx.restore();
+  }
+}
+function costumeNose(P) {                       // the cat's whiskers, which move with its nose
+  if (!P.whisker) return;
+  ctx.save(); ctx.strokeStyle = P.whisker; ctx.lineWidth = 3; ctx.lineCap = "round";
+  for (const m of [1, -1]) for (const dy of [-6, 8, 22]) {
+    ctx.beginPath(); ctx.moveTo(NOSE_X + m * 46, NOSE_Y + dy); ctx.quadraticCurveTo(NOSE_X + m * 110, NOSE_Y + dy * 1.6 - 6, NOSE_X + m * 170, NOSE_Y + dy * 2.4 - 4); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ---- draw ---------------------------------------------------------------------------------------
@@ -740,17 +817,17 @@ const idleFloat = t => U * 3.5 * Math.sin(t * 1.15);
 function frame(nowMs) {
   clock = nowMs;
   const t = nowMs / 1000, dt = Math.min(0.05, (nowMs - last) / 1000); last = nowMs;
-  const bg = "#fff", ink = "#0b0b0b";
+  const P = COSTUMES[costume] || COSTUMES.classic, bg = P.bg, ink = P.ink;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
   const VX = 0, VY = 0, VW = cv.width, VH = cv.height;
   ctx.save(); ctx.beginPath(); ctx.rect(VX, VY, VW, VH); ctx.clip();
-  ctx.fillStyle = bg; ctx.fillRect(VX, VY, VW, VH);
+  ctx.fillStyle = faultActive ? COSTUMES.classic.bg : bg; ctx.fillRect(VX, VY, VW, VH);
 
   if (faultActive) {
     const s = Math.max(VW / ART_W, VH / ART_H) * ctl.size;
     ctx.setTransform(s, 0, 0, s, VX + (VW - ART_W * s) / 2, VY + (VH - ART_H * s) / 2 + idleFloat(t) * s);
-    ctx.fillStyle = ink;
+    ctx.fillStyle = COSTUMES.classic.ink;
     // Keep the doze-1 expression, including its continuously drifting mouth edge.
     flickerScale = 1;
     paintMouth(POSE.doze1.mouth, t);
@@ -781,22 +858,31 @@ function frame(nowMs) {
   // alone, after a nod or two, look around
   // alone for long enough (and not mid-lookout or mid-nod): groove
   if (!near && !busyNow() && lookT0 < 0 && nodT0 < 0 && grooveT0 < 0 && t - aloneSince >= ctl.grooveAfter) grooveT0 = t;
-  const G = grooveT0 >= 0 ? groove(t - grooveT0) : null;
+  const DL = danceOn ? danceLook(t) : null;
+  // a show's groove keeps going, its beats where the last cue put them
+  const G = DL ? (GROOVY.includes(DL.look) ? groove(DL.e + Math.floor(Math.max(0, cueT0 - danceT0) / DL.B) * DL.B, true) : null)
+    : grooveT0 >= 0 ? groove(t - grooveT0) : null;
+  danceAmt = clamp01(danceAmt + (DL && !GROOVY.includes(DL.look) ? 1 : -1) * dt / 0.35);
   if (grooveT0 >= 0 && !G) { grooveT0 = -1; aloneSince = t; nodCount = 0; nextNod = t + 2; if (reviewState) reviewNext = t + 1; }
   grooveAmt = clamp01(grooveAmt + (G ? 1 : -1) * dt / 0.4);
-  if (!near && !busyNow() && !G && lookT0 < 0 && nodT0 < 0 && nodCount >= nodsTarget && t >= lookAfter) { lookT0 = t; }
+  // patrolling (the coordinator's IDLE_NAV, the base driving): look out, again and again, rather than doze
+  if (!near && !busyNow() && !G && lookT0 < 0 && nodT0 < 0 && (patrolling || nodCount >= nodsTarget) && t >= lookAfter) { lookT0 = t; }
   let blink = 0, phase;
   const L = lookT0 >= 0 ? lookout(t - lookT0) : null;
   if (lookT0 >= 0 && !L) {                    // done: back to dozing, with a new count of nods
     lookT0 = -1; nodCount = 0; nodsTarget = 1 + Math.floor(Math.random() * ctl.nodsBefore);
-    nextNod = t + ctl.aloneEvery * (0.6 + Math.random() * 0.4); lookAfter = Infinity;
+    nextNod = t + ctl.aloneEvery * (0.6 + Math.random() * 0.4); lookAfter = patrolling ? t + 1.5 + Math.random() * 1.5 : Infinity;
     if (reviewState) reviewNext = t + 1;
   }
   if (L) { side = L.side; blink = L.blink; phase = "lookout"; }
-  else { side += (0 - side) * Math.min(1, dt * 6); phase = near ? "attentive" : "doze"; }
+  else {
+    // WAVE LOOK: the eyes follow the waving arm, one side for `every` beats, then the other
+    const to = DL && DL.look === "wavelook" ? (Math.floor(DL.beats / DL.every) % 2 ? -0.9 : 0.9) : 0;
+    side += (to - side) * Math.min(1, dt * (DL ? 4 : 6)); phase = near ? "attentive" : "doze";
+  }
 
   // FOCUS lets the smile go first: the face settles back to doze-1, and only then do the eyes concentrate
-  const smiling = near && !G && !focusOn && t - nearSince >= ctl.smileAfter;
+  const smiling = near && !G && !focusOn && !danceOn && t - nearSince >= ctl.smileAfter;
   if (smiling && smileT0 < 0) { smileT0 = t; nodT0 = -1; }
   if (!smiling) smileT0 = -1;
   smileAmt = clamp01(smileAmt + (smiling ? 1 : -1) * dt / ctl.smileIn);
@@ -804,7 +890,7 @@ function frame(nowMs) {
   if (smiling && visitorLostAt < 0 && !busyNow() && eekT0 < 0 && !peekDone && peekT0 < 0 && smileT0 >= 0 && t - smileT0 >= ctl.peekAfter) { peekT0 = t; peekDone = true; }
   const PK = near && peekT0 >= 0 ? peek(t - peekT0) : null;
   if (peekT0 >= 0 && !PK) { peekT0 = -1; peekPauseUntil = t + 0.6; if (reviewState) reviewNext = t + 1; }
-  if (!L && !G && !smiling && !busyNow() && eekT0 < 0 && nodT0 < 0 && t >= nextNod && (!near || t - nearSince >= ctl.nodAfter)) nodT0 = t;
+  if (!L && !G && !smiling && !patrolling && !busyNow() && eekT0 < 0 && nodT0 < 0 && t >= nextNod && (!near || t - nearSince >= ctl.nodAfter)) nodT0 = t;
   const nod = L ? 0 : nodAmount(t);
   if (nod > 0) phase = "nodding off";
   startle = Math.max(0, startle - dt * 4);
@@ -814,9 +900,11 @@ function frame(nowMs) {
   const focusGo = focusOn && smileAmt < 0.02;          // the smile has gone: now the eyes change
   if (focusOn && !focusGo) focusT0 = t + ctl.focusIn;   // the glancing starts once focus has arrived
   focusAmt = clamp01(focusAmt + (focusGo ? 1 : -1) * dt / (focusGo ? ctl.focusIn : 0.4));
-  happyAmt = clamp01(happyAmt + (happyOn ? 1 : -1) * dt / 0.4);
+  const cheer = !!(DL && DL.look === "cheer");          // CHEER is HAPPY's stars and bat, danced
+  happyAmt = clamp01(happyAmt + (happyOn || cheer ? 1 : -1) * dt / 0.4);
   if (focusAmt > 0) phase = "focus";
   if (happyAmt > 0) phase = "happy";
+  if (DL) phase = `dance · ${DL.look} · ${costume}`;
   const EK = eekT0 >= 0 ? eek(t - eekT0) : null;
   if (eekT0 >= 0 && !EK) { eekT0 = -1; if (taskStage === "accepted") { taskStage = "selected";  } if (reviewState) reviewNext = t + 1; }
   if (EK) { phase = "EEK!"; blinkT0 = -1; nextBlink = Math.max(nextBlink, t + 1); }
@@ -853,6 +941,29 @@ function frame(nowMs) {
     if (smileT0 < 0) se.both = 0;                      // and no giggle on the way out
     pose = mixPose(pose, se.pose, ease(smileAmt));
     giggle += ctl.giggle * se.both * ease(smileAmt) * giggleAt(se.since) * (PK ? 1 - PK.mix : 1);
+  }
+  // the dance's own looks, over the groove (DANCE, above)
+  let danceScale = 1, danceFloat = 0;
+  if (DL) {
+    const pop = Math.exp(-DL.frac * 5), a = ease(danceAmt), L2 = DL.look;
+    if (L2 === "beatpop") { danceScale = 1 + 0.12 * pop; pose = mixPose(pose, POSE.eek, 0.22 * pop); }   // ALERT: pop on every beat
+    if (L2 === "tick" && DL.frac < 0.5) blink = Math.max(blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
+    if (a > 0) {
+      if (L2 === "nod" || L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
+      if (L2 === "nod") danceFloat = U * 7 * Math.sin(Math.PI * DL.beats) * a;        // up on one beat, down on the next
+      if (L2 === "bow") {                                                             // dip, hold, and a slow blink
+        danceFloat = U * 12 * ease(clamp01(DL.e / 1.2)) * a;
+        if (DL.e > 1.6) blink = Math.max(blink, blinkAt((DL.e - 1.6) % 2.4));
+      }
+      if (L2 === "sway") giggle += 1.2 * a * Math.sin(Math.PI * DL.beats);             // SOFT: rock with the beat
+      if (L2 === "wavelook") danceScale = 1 + 0.05 * a;                               // wide open; the side does the looking
+      if (L2 === "creep") {                                                           // SQUINT: the fierce faces, two beats each
+        const i = Math.floor(DL.beats / 2), u = ease(clamp01((DL.beats / 2 - i) * 2));
+        pose = mixPose(pose, mixPose(POSE[i % 2 ? "peek2" : "peek3"], POSE[i % 2 ? "peek3" : "peek2"], u), a);
+      }
+      if (L2 === "rise") { pose = mixPose(pose, POSE.eek, a); danceScale = 1 + 0.08 * a; }   // ALERT: EEK!'s eyes, no sweat
+      if (L2 === "drowsy") pose = mixPose(pose, POSE.doze2, 0.75 * a);                    // SLEEPY: doze-2's lids
+    }
   }
   // the peek, over the smile: eyes shrink away, pop out startled, then the cheeky smile giggles
   let peekScale = 1;
@@ -905,21 +1016,23 @@ function frame(nowMs) {
   flickerScale = 1 + (ctl.smileFlicker - 1) * ease(smileAmt);
   // ---- draw it ----
   const s = Math.max(VW / ART_W, VH / ART_H) * ctl.size;
-  const float = idleFloat(t) + U * ctl.nodHead * (7 * nod - 4 * startle);
+  const float = idleFloat(t) + U * ctl.nodHead * (7 * nod - 4 * startle) + danceFloat;
   ctx.setTransform(s, 0, 0, s, VX + (VW - ART_W * s) / 2, VY + (VH - ART_H * s) / 2 + float * s);
   const layer = (kk, fn) => { ctx.save(); ctx.translate(U * gx * 9 * kk, U * gy * 6 * kk); fn(); ctx.restore(); };
-  ctx.fillStyle = ink;
+  costumeBack(P);
 
   layer(0.35, () => {                                   // the mouth, furthest back
+    ctx.fillStyle = P.mouth || ink;
     paintMouth(pose.mouth, t, ctl.thinkDrop * ease(thinkAmt), thinkSide);
   });
   // Keep the nose aligned with the eyes as the smile fades in and out.
-  layer(0.6 + 0.4 * ease(smileAmt), () => { for (const n of pose.noses) ctx.fill(loopPath(n)); });
+  layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P); });
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
+    ctx.fillStyle = P.eye || ink;
     for (const e of pose.eyes) {
       let cx = 0, cy = 0; const n = e.length / 6;
       for (let i = 0; i < n; i++) { cx += e[6*i+4] / n; cy += e[6*i+5] / n; }
-      const sc = (1 + 0.05 * look + 0.07 * startle) * peekScale * eekScale;
+      const sc = (1 + 0.05 * look + 0.07 * startle) * peekScale * eekScale * danceScale;
       // the giggle rocks the eye about its tip nearest the nose, which stays put
       let px = cx, py = cy, best = Infinity;
       for (let i = 0; i < n; i++) { const d = (e[6*i+4] - NOSE_X) ** 2 + (e[6*i+5] - NOSE_Y) ** 2; if (d < best) { best = d; px = e[6*i+4]; py = e[6*i+5]; } }
@@ -937,7 +1050,16 @@ function frame(nowMs) {
         ctx.beginPath();
         O.open.forEach(([x, y], i) => { const q = O.squint[i], X = x + (q[0] - x) * w, Y = y + (q[1] - y) * w; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
         ctx.closePath(); ctx.fill();
-      } else ctx.fill(loopPath(e));
+      } else {
+        const path = loopPath(e);
+        ctx.fill(path);
+        // inside the eye, clipped to it: the cat's slit pupil, and the pumpkin's candle glow
+        if (P.pupil) { ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(cx + 8 * gx, cy + 6, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+        if (P.glow) {
+          ctx.save(); ctx.clip(path); ctx.globalAlpha = 0.8 + 0.15 * Math.sin(t * 9 + cx);
+          ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
+        }
+      }
       ctx.restore();
     }
   });
@@ -991,7 +1113,7 @@ function frame(nowMs) {
   }
   // EEK!'s sweat: all the strokes draw on together, then vanish from the eye side outward, over and over
   if (EK && EK.sweat > 0) layer(0.8, () => {
-    ctx.strokeStyle = ink; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.strokeStyle = P.line || ink; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round";
     const S = sweatAt(t);
     for (const sw of SWEAT) {
       if (S.phase === "gone") continue;
@@ -1034,13 +1156,19 @@ function configureReview(state) {
 return {
   render(now) { frame(now); },
   visitors(ids, now) { clock = now; updateVisitors(ids); },
-  task(stage, now) { clock = now; reviewState = null; applyTaskStage(stage); },
+  task(stage, now) { clock = now; reviewState = null; stopDance(); applyTaskStage(stage); },
+  // a palette show starts: its DANCES entry (tempo, costume, looks), and the emote already showing
+  dance(spec, emote, now) { clock = now; reviewState = null; startDance(spec, emote); },
+  // one of the show's FACE cues, seen on the face at `at` ms (it may be a little before now)
+  cue(emote, at, now) { clock = now; takeCue(emote, at / 1000); },
+  patrol(on, now) { clock = now; if (on && !patrolling) lookAfter = Math.min(lookAfter, now_s() + 0.5); patrolling = !!on; },
   robot(state, now) { clock = now; reviewState = null; applyRobotState(state); },
   gaze(x,y,now) { clock = now; mouse = {x,y}; },
   // Isolated expression playback for local visual regression tests only.
   preview(state,now=0) { clock = now; configureReview(state); },
   snapshot() { return { phase:lastPhase, taskStage, faultActive, visitorId:currentVisitorId,
-    visitorIds:[...observedVisitorIds], peekDone, peekActive:peekT0>=0, grooveActive:grooveT0>=0 }; },
+    visitorIds:[...observedVisitorIds], peekDone, peekActive:peekT0>=0, grooveActive:grooveT0>=0,
+    dance: danceOn ? danceLook(now_s()).look : null, costume, patrolling }; },
 };
 }
 
@@ -1053,14 +1181,20 @@ return {
 //
 // WHAT DRIVES IT, read from the dashboard this page came from, twice a second while the skin is worn:
 //   GET /api/head/follow       someone in view: the face's own tracker's target, and how old it is
-//   GET /api/architect/state   the Halloween demo runner (software/architect, demo_runner.py), through
-//                              the dashboard's read-only proxy: its state and its last transition
-// Neither is required: with no runner the ghost idles, dozes and greets; with no tracker it only idles.
+//   GET /api/architect/day     the demo day's coordinator (software/architect, demo_day.py): what the
+//                              whole robot is doing (IDLE_NAV, APPROACH, ENGAGED, CANDY, CHOREO, REST,
+//                              PAUSED), and the show it is playing
+//   GET /api/architect/state   the Halloween demo runner (demo_runner.py): its state and last transition,
+//                              for a candy run that is the runner's program rather than a show
+// and, from the face itself, the emote each show cue puts on (read back from the eye's shape: emoteOf).
+// None is required: with nothing to read the ghost idles, dozes and greets; with no tracker it only idles.
 // Nothing here sends anything, and nothing here moves the robot: the expressions are a picture of what
 // the runner already decided, never a cause of it.
 //
 // A harness or the browser's console can drive it with no robot:
 //   window.ghostInputs = { runner: { available: true, state: "RUNNING", since_s: 0.5 }, person: true }
+//   window.ghostInputs = { day: { available: true, state: "CHOREO", show: "wave-and-nod", since_s: 0 } }
+// and `costume` in it dresses the ghost whatever the show (a preview).
 
 export const name = "ghost";
 
@@ -1071,8 +1205,15 @@ const SELECTED_S = 3;               // then SMILE at the person who asked, befor
 const HAPPY_S = 5;                  // HAPPY after a run that ended
 const PUZZLED_S = 5;                // PUZZLED after a run that failed, or a trigger the runner refused
 
-// The runner's state -> the ghost's presentation stage (the renderer's task stages). Pure; the test
-// holds it (tests/test_ghost_skin.mjs). `runner` is /api/architect/state's body, or null.
+// The coordinator's and the runner's state -> the ghost's presentation stage (the renderer's task stages,
+// and `dance`). Pure; the test holds it (tests/test_ghost_skin.mjs). `day` is /api/architect/day's body
+// and `runner` /api/architect/state's, either null. The coordinator comes first:
+//   CANDY, the first EEK_S + SELECTED_S  accepted   EEK!, then SMILE at the person who asked
+//   CANDY after that                     picking    FOCUS (the candy show is running)
+//   ENGAGED just after the candy show    complete   HAPPY ("... ended")
+//     ended, or it stopped part-way      puzzled    PUZZLED ("... aborted", "refused", "never reached")
+//   CHOREO                               dance      the show's dance looks and costume (DANCES)
+// and otherwise the runner's, as before:
 //   RUNNING, the first EEK_S          accepted   EEK! (a "trick or treat" was taken), and then,
 //     and SELECTED_S after it                      for SELECTED_S, SMILE at the person who asked
 //   RUNNING after that                picking    FOCUS (the arm is getting the candy)
@@ -1081,7 +1222,14 @@ const PUZZLED_S = 5;                // PUZZLED after a run that failed, or a tri
 //   GENERATING, CHECK_FAILED,         puzzled    PUZZLED (thinking, or "Hold on, I'm thinking!")
 //   a refused trigger just now
 //   anything else, or no runner       idle       DOZE / LOOKOUT / GROOVE alone; SMILE / PEEK with someone
-export function ghostStage(runner) {
+export function ghostStage(runner, day = null) {
+  if (day && day.available) {
+    const since = Number.isFinite(day.since_s) ? day.since_s : Infinity, why = String(day.why || "");
+    if (day.state === "CANDY") return since < EEK_S + SELECTED_S ? "accepted" : "picking";
+    if (day.state === "CHOREO") return "dance";
+    if (day.state === "ENGAGED" && /\bended$/.test(why) && since < HAPPY_S) return "complete";
+    if (day.state === "ENGAGED" && /\b(aborted|estopped|refused|never reached)\b/i.test(why) && since < PUZZLED_S) return "puzzled";
+  }
   if (!runner || !runner.available) return "idle";
   const since = Number.isFinite(runner.since_s) ? runner.since_s : Infinity;
   switch (runner.state) {
@@ -1099,8 +1247,57 @@ export function personInView(follow) {
   return !!(follow && follow.target && Number.isFinite(follow.target_age_s) && follow.target_age_s < PERSON_FRESH_S);
 }
 
-let renderer = null, canvas = null, timer = null, stage = null;
-const polled = { runner: null, follow: null };
+// THE DANCES: a palette show's id -> its tempo, its costume and the look for each of its FACE cues.
+// `looks[EMOTE]` lists the looks for that emote's first, second... cue in the show (the last repeats);
+// an emote it does not list, and a show not listed, get EMOTE_LOOKS. Tempos and cues are read from the
+// show files (software/choreo/shows/); the three full dances live in the private content repository,
+// so they wear their costume over EMOTE_LOOKS until their cues are read into here.
+export const DANCES = {
+  "wave-and-nod":  { bpm: 120, costume: "pumpkin", looks: { SOFT: ["nod", "bow"], ALERT: ["wavelook"] }, every: 8 },
+  "robotic-smile": { bpm: 123, costume: "cat", looks: { ALERT: ["beatpop"], SLEEPY: ["tick"] } },
+  "celebrate":     { bpm: 120, costume: "monster", looks: { SOFT: ["cheer"] } },
+  "halloween":     { costume: "classic", looks: { SQUINT: ["creep"], ALERT: ["rise"], SLEEPY: ["drowsy"] } },
+  "monster_mash":  { costume: "monster" },
+  "ghostbusters":  { costume: "classic" },
+  "them_bones":    { costume: "classic" },
+};
+export const EMOTE_LOOKS = { NEUTRAL: "groove", ALERT: "beatpop", SQUINT: "creep", SOFT: "sway", SLEEPY: "tick" };
+// The costumes' colours: the face, the ink of its features, and what each costume adds (costumeBack).
+// Black and white is the ghost's own; only a dance puts a costume on.
+export const COSTUMES = {
+  classic: { bg: "#fff", ink: "#0b0b0b" },
+  pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e" },
+  cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", pupil: "#0d0c10",
+             ear: "#1a181e", earIn: "#ff8fb3", whisker: "#d9d6e0", line: "#d9d6e0" },
+  monster: { bg: "#8ccf5e", ink: "#13200c", hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
+};
+
+// A show's id as the palette or ENCORE writes it ("wave-and-nod", "wave_and_nod") -> its DANCES key, or null
+export function danceKey(show) {
+  const k = String(show || "").trim().toLowerCase().replace(/\s+/g, "-");
+  for (const c of [k, k.replace(/_/g, "-"), k.replace(/-/g, "_")]) if (c in DANCES) return c;
+  return k || null;
+}
+
+// The emote on the face, read back from the eye's shape: the head protocol tells a skin the lids and
+// brows an emote made (engine/vocab.js SHAPES and EMOTES), not its name. The lids' bow is the emote's
+// alone; the brow, which a MOVE also nudges, settles a near thing.
+const EMOTE_SHAPE = { NEUTRAL: [0, 0], ALERT: [-0.5, 1], SQUINT: [0.3, -0.45], SOFT: [-0.2, 0.3], SLEEPY: [0.8, -0.6] };
+export function emoteOf(e) {
+  if (!e || !Number.isFinite(e.lidCurve)) return null;
+  let best = null, cost = Infinity;
+  for (const [name, [lc, br]] of Object.entries(EMOTE_SHAPE)) {
+    const c = 4 * (e.lidCurve - lc) ** 2 + ((Number.isFinite(e.browRaise) ? e.browRaise : br) - br) ** 2;
+    if (c < cost) { cost = c; best = name; }
+  }
+  return best;
+}
+const CUE_STEADY_MS = 100;          // a reading held this long is the emote, not a spring passing through
+const CUE_LAG_MS = 150;             // the lids' spring takes about this long to get there from the cue
+
+let renderer = null, canvas = null, timer = null, stage = null, stageShow = null;
+let cueRead = { name: null, t: 0 }, cueTaken = null;
+const polled = { runner: null, follow: null, day: null };
 
 function offline() {          // an offline render (index.html?render=1) has no dashboard to ask
   try { return new URLSearchParams(location.search).get("render") === "1"; } catch { return true; }
@@ -1116,8 +1313,9 @@ async function getJSON(path) {
 function startPolling() {
   if (timer || offline()) return;
   const poll = async () => {
-    const [runner, follow] = await Promise.all([getJSON("/api/architect/state"), getJSON("/api/head/follow")]);
-    polled.runner = runner; polled.follow = follow;
+    const [runner, follow, day] = await Promise.all([getJSON("/api/architect/state"), getJSON("/api/head/follow"),
+                                                     getJSON("/api/architect/day")]);
+    polled.runner = runner; polled.follow = follow; polled.day = day;
   };
   poll(); timer = setInterval(poll, POLL_MS);
 }
@@ -1141,11 +1339,27 @@ export function draw(ctx, e, t) {
   const ms = t * 1000;
   const given = typeof window !== "undefined" ? window.ghostInputs : null;
   const runner = given && "runner" in given ? given.runner : polled.runner;
+  const day = given && "day" in given ? given.day : polled.day;
   const person = given && "person" in given ? !!given.person : personInView(polled.follow);
+  const coming = !!(day && day.available && (day.state === "APPROACH" || day.state === "ENGAGED"));
 
-  const next = ghostStage(runner);
-  if (next !== stage) { stage = next; renderer.task(next, ms); }
-  renderer.visitors(person ? ["in-view"] : [], ms);   // one tracked person: the tracker gives no identities
+  // the show's cues, as the face shows them: a new emote held CUE_STEADY_MS, dated back by CUE_LAG_MS
+  const emote = emoteOf(e);
+  if (emote !== cueRead.name) cueRead = { name: emote, t: ms };
+  else if (emote && emote !== cueTaken && ms - cueRead.t >= CUE_STEADY_MS) { cueTaken = emote; renderer.cue(emote, cueRead.t - CUE_LAG_MS, ms); }
+
+  const next = ghostStage(runner, day);
+  const show = next === "dance" ? danceKey(day.show) : null;
+  if (next !== stage || show !== stageShow) {
+    stage = next; stageShow = show;
+    if (next === "dance") {
+      const spec = { ...(DANCES[show] || {}), ...(given && given.costume ? { costume: given.costume } : {}) };
+      renderer.dance(spec, cueTaken, ms);
+    } else renderer.task(next, ms);
+  }
+  renderer.patrol(!!(day && day.available && day.state === "IDLE_NAV" && day.nav === "patrol"), ms);
+  // someone in view, or the base on its way to someone: one tracked person (the tracker gives no identities)
+  renderer.visitors(person || coming ? ["in-view"] : [], ms);
   if (person) renderer.gaze(e.gazeX, e.gazeY, ms);    // the engine's own gaze, already on that person
   renderer.render(ms);
 
@@ -1156,8 +1370,12 @@ export function draw(ctx, e, t) {
   return true;
 }
 
+// What the ghost is doing now, for a harness or the browser's console (the engine never calls it).
+export function snapshot() { return renderer ? renderer.snapshot() : null; }
+
 export function stop() {
   if (timer) clearInterval(timer);
-  timer = null; renderer = null; stage = null;
-  polled.runner = polled.follow = null;
+  timer = null; renderer = null; stage = null; stageShow = null;
+  cueRead = { name: null, t: 0 }; cueTaken = null;
+  polled.runner = polled.follow = polled.day = null;
 }

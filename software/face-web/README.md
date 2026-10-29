@@ -50,28 +50,32 @@ video tracks. Tracking (`tracking: tablet` on the Head & face page) loads MediaP
 
 A content code skin for the Halloween demo: a ghost with ten expressions (DOZE, LOOKOUT, GROOVE,
 SMILE, PEEK, EEK!, FOCUS, HAPPY, PUZZLED for THINK, and the flame mouth that never stops). Which one
-shows follows the face tracker (someone in view) and the ARCHITECT demo runner (a "trick or treat"
-taken, the arm getting the candy, done, or could not). **The state machine, with every expression
+shows follows the demo day's coordinator (`demo_day.py`: patrolling, going to someone, a show, the
+candy), the face tracker (someone in view) and the ARCHITECT demo runner. While a palette show plays,
+the ghost dances with it: each of the show's FACE cues picks a dance look on the show's tempo, and the
+show wears one costume throughout (pumpkin, cat, monster or the classic black and white), all in this
+one skin, so a show needs no SKIN cue (`DANCES` in `ghost.js`). **The state machine, with every expression
 animated** (tabs: V1, the design; V2, as built): [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
 (download it and open it in a browser; it needs nothing else).
 
 | | |
 |---|---|
-| `content/face/skins/ghost.js` | **added.** The skin, one file: the drawing, and `ghostStage()`, which picks the expression from the runner's state. Imports nothing from the engine |
-| `tests/test_ghost_skin.mjs` | **added.** `ghostStage()` row by row, and when someone counts as in view |
+| `content/face/skins/ghost.js` | **added.** The skin, one file: the drawing, `ghostStage()`, which picks the expression from the coordinator's and the runner's state, and `DANCES`, each show's tempo, costume and looks. Imports nothing from the engine |
+| `tests/test_ghost_skin.mjs` | **added.** `ghostStage()` row by row, the dances' table, reading the emote back from the eye, and when someone counts as in view |
 | `tests/conformance.sh` | **changed.** Runs the test above |
-| `../kiosk-dashboard/backend/architect_proxy.py` | **added.** `GET /api/architect/state`: the runner's state, read-only, from the dashboard the face already talks to (the runner on 127.0.0.1:8098 is out of the tablet's reach) |
+| `../kiosk-dashboard/backend/architect_proxy.py` | **added.** `GET /api/architect/day` (the coordinator, 127.0.0.1:8096) and `GET /api/architect/state` (the runner, 127.0.0.1:8098), read-only, from the dashboard the face already talks to; neither is in the tablet's reach |
 | `../kiosk-dashboard/backend/app.py` | **changed** (a shared path). Includes that router |
-| `../kiosk-dashboard/backend/tests/test_architect_proxy.py` | **added.** The route, and a runner that is not there reading as `{"available": false}` |
+| `../kiosk-dashboard/backend/tests/test_architect_proxy.py` | **added.** The routes, and a service that is not there reading as `{"available": false}` |
 | `../../notes/design/face-halloween-ghost-states.html` | **added.** The state machine above |
 
 No engine file is touched. A reserved state (E_STOP, DEGRADED) still draws the default eyes.
 
 To put it on the robot, copy `ghost.js` to `face/skins/` in the robot's content folder
-(`$OPENDUBS_SHOWS_DIR`), then send `SKIN ghost`. Without the demo runner it still dozes, looks
-around, dances and smiles at people; EEK!, FOCUS and HAPPY need the runner. To try it in a browser
-with no robot, set its inputs from the console:
-`window.ghostInputs = { runner: { available: true, state: "RUNNING", since_s: 0.5 }, person: true }`.
+(`$OPENDUBS_SHOWS_DIR`), then send `SKIN ghost`. Without the coordinator or the runner it still dozes,
+looks around, dances and smiles at people; EEK!, FOCUS, HAPPY and the shows' dances need one of them. To
+try it in a browser with no robot, set its inputs from the console:
+`window.ghostInputs = { day: { available: true, state: "CHOREO", show: "wave-and-nod", since_s: 0 } }`
+(add `costume: "cat"` to dress it whatever the show).
 
 ## Render a show offline
 

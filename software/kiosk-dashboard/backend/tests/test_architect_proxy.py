@@ -1,5 +1,5 @@
-"""The demo runner's state for the face (architect_proxy.py): what the ghost skin reads, and that a runner
-that is not there reads as "not there", never as a stale state."""
+"""The demo runner's and the coordinator's state for the face (architect_proxy.py): what the ghost skin
+reads, and that a service that is not there reads as "not there", never as a stale state."""
 import os
 import sys
 
@@ -30,3 +30,14 @@ def test_the_last_change_and_a_recent_refusal_are_worked_out_on_the_runners_cloc
                    "last": "run_ended", "refused_s": 1.5}
     assert ap.summarise({"state": "IDLE", "events": []}, now=0)["last"] is None
     assert ap.summarise({"error": "?"}, now=0) == {"available": False}
+
+
+def test_the_coordinator_reads_as_its_state_or_as_not_there(monkeypatch):
+    monkeypatch.setattr(ap, "_day_state", lambda: None)
+    app = FastAPI()
+    app.include_router(ap.router)
+    assert TestClient(app).get("/api/architect/day").json() == {"available": False}
+    got = ap.summarise_day({"state": "CHOREO", "since_s": 2.0, "why": "a random pick", "show": "wave-and-nod",
+                            "person": None, "nav": "stop", "random": ["wave-and-nod"]})
+    assert got == {"available": True, "state": "CHOREO", "since_s": 2.0, "why": "a random pick",
+                   "show": "wave-and-nod", "person": None, "nav": "stop"}

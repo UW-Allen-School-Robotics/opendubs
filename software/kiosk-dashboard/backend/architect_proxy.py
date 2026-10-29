@@ -9,13 +9,20 @@ state here, from the dashboard the face page already came from:
   GET /api/architect/state   {"available": true, "state", "since_s", "runs", "last", "refused_s"}
                              or {"available": false} when the runner is not running or not answering
 
+  GET /api/architect/day     the demo day's coordinator (demo_day.py, 127.0.0.1:8096): {"available": true,
+                             "state", "since_s", "why", "show", "person", "nav"} or {"available": false}
+
 `last` is the event of the runner's last state change (run_started, run_ended, run_failed, ...), and
 `refused_s` how long ago it last refused or ignored a "trick or treat" (the listener's "Hold on, I'm
 thinking!"), null if not recently. Both are worked out here, on the runner's own clock, so the face never
 compares its clock with the robot's.
 
-READ-ONLY, and only this one call: nothing reaches the runner's POST routes (heard, trigger, stop) this
-way. A face can only look, never start or stop a run. This is the first piece of the ARCHITECT page's
+The coordinator decides what the whole robot is doing on the day (IDLE_NAV, APPROACH, ENGAGED, CANDY,
+CHOREO, REST, PAUSED), and its candy show is a palette show, which the runner never sees (dev.sh's
+default, CANDY_RUNNER=0): so the face reads both, the coordinator first.
+
+READ-ONLY, and only these two calls: nothing reaches the runner's POST routes (heard, trigger, stop) or
+the coordinator's (request, pause, resume) this way. A face can only look, never start or stop a run. This is the first piece of the ARCHITECT page's
 proxy the runner's README plans under /api/architect/; that page's own calls can join it here.
 """
 from __future__ import annotations
@@ -29,18 +36,27 @@ import urllib.request
 from fastapi import APIRouter
 
 RUNNER_URL = os.environ.get("OPENDUBS_ARCHITECT_URL", "http://127.0.0.1:8098")
+DAY_URL = os.environ.get("OPENDUBS_DAY_URL", "http://127.0.0.1:8096")
 TIMEOUT_S = 1.0                 # the face asks twice a second; a slow runner is an absent one
 REFUSED = ("trigger_refused", "trigger_ignored")
 
 router = APIRouter()
 
 
-def _runner_state() -> dict | None:
+def _get_state(base: str) -> dict | None:
     try:
-        with urllib.request.urlopen(f"{RUNNER_URL}/api/state", timeout=TIMEOUT_S) as r:
+        with urllib.request.urlopen(f"{base}/api/state", timeout=TIMEOUT_S) as r:
             return json.loads(r.read() or b"null")
     except (urllib.error.URLError, OSError, ValueError):
         return None
+
+
+def _runner_state() -> dict | None:
+    return _get_state(RUNNER_URL)
+
+
+def _day_state() -> dict | None:
+    return _get_state(DAY_URL)
 
 
 def summarise(st: dict | None, now: float) -> dict:
@@ -63,3 +79,15 @@ def summarise(st: dict | None, now: float) -> dict:
 @router.get("/api/architect/state")
 def architect_state() -> dict:
     return summarise(_runner_state(), time.time())
+
+
+def summarise_day(st: dict | None) -> dict:
+    """The coordinator's /api/state -> what the face needs: its state, how long, why, and the show."""
+    if not isinstance(st, dict) or not isinstance(st.get("state"), str):
+        return {"available": False}
+    return {"available": True, **{k: st.get(k) for k in ("state", "since_s", "why", "show", "person", "nav")}}
+
+
+@router.get("/api/architect/day")
+def architect_day() -> dict:
+    return summarise_day(_day_state())
