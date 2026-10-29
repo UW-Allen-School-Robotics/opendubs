@@ -63,7 +63,7 @@
   // the items this page plays: a video page leaves out a song alone; a sound page plays only what is heard
   const plays = (v) => ROLE === "both" || (ROLE === "video" ? !v.audio : v.lead_kind === "audio");
   const silent = ROLE === "video";                  // a video page never makes sound
-  let device = null, lastWsMsg = 0;
+  let device = null, lastWsMsg = 0, soundRefused = false;
   if (q.get("hud")) hud.style.display = "block";
   if (q.get("video")) {
     video.src = q.get("video"); video.hidden = false; video.muted = !q.get("sound");
@@ -278,7 +278,13 @@
       // still loading, as a stall (opendubs2 2026-10-28: "ran out of video at -0.2 s", the Boom muted)
       keepVideo.dry = 0;
       video.currentTime = want; video.muted = !!show.muted || silent;
-      video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });   // a browser may refuse sound
+      const withSound = !video.muted;
+      // a browser may refuse sound (autoplay, no click on the page yet): it plays muted, and the page says so
+      // at once, or a desktop page is a silent show that nobody is told about
+      video.play().then(() => { if (withSound && soundRefused) { soundRefused = false; readDevice(); } }, (e) => {
+        if (withSound && e && e.name === "NotAllowedError" && !soundRefused) { soundRefused = true; readDevice(); }
+        video.muted = true; video.play().catch(() => {});
+      });
       keepVideo.synced = now;
       return st;
     }
@@ -509,7 +515,7 @@
                    // the audio lead this page used for the last show it played, and where it came from
                    audio_lead_ms: leadFor.id ? Math.round(leadFor.s * 1000) : undefined,
                    audio_lead_from: leadFor.id ? leadFor.from : undefined,
-                   sound: video.muted && !video.paused ? "muted" : "on" } });
+                   sound: video.muted && !video.paused ? "muted" : "on", sound_refused: soundRefused } });
   }
   // every 5 s on a device that answers; elsewhere, after 3 misses, once a minute (a refused connection
   // to 127.0.0.1 is logged by the browser each time)

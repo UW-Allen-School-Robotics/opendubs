@@ -103,7 +103,8 @@ PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "a
                "audio_latency_ms": (int, float), "audio_lead_ms": (int, float), "audio_lead_from": str,
                "audio_setting": str,   # the output CHOSEN on the box (auto, hdmi, jack, usb, bt); audio_output is the one playing
                "audio_why": str,       # with audio_output "none": why the box has no sound (#591)
-               "role": str}            # what the page plays: ROLES, from its ?role= (default "both")
+               "role": str,            # what the page plays: ROLES, from its ?role= (default "both")
+               "sound_refused": bool}  # the browser refused to play its sound (autoplay): it plays muted
 # A page's role: "video" (the picture, always muted), "sound" (the heard items, no picture) or "both" (as
 # every page did before roles: a stage Pi's). Kept on its report, its head start and its stall, so the
 # runner can count readiness and sound per role.
