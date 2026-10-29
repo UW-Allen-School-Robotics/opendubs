@@ -19,9 +19,20 @@ right arm to it with the arm service's `reach_pose` action, and exit.
              model's `ready` pose (--no-return: it stays). Exit 0 if it reached the pose and got home, 1 if not.
              Ctrl-C at any point cancels what is running, the arm holds where it is, and no further move is made.
 
-Only the simulation: the goal goes to --sim-domain, which must differ from the robot's. --dummy: no camera and no head, a
-scripted person in arm_mount who raises a hand after 2 s (for the action path without anyone in frame). --dry-run: all
-but the goal.
+By default only the simulation: the goals go to --sim-domain, which must differ from the robot's. --dummy: no camera and
+no head, a scripted person in arm_mount who raises a hand after 2 s (for the action path without anyone in frame).
+--dry-run: all but the goals.
+
+--real (treat_follow.sh reach-real): THE REAL RIGHT ARM, for supervised testing, the same steps with these changes:
+  - the goals go to the real arm service (opendubs-arm@right) on the robot's domain; nothing is sent to the simulation
+  - the head stays still (--no-head) and the real arms' clearance rule is on (--arm-check)
+  - reach_pose at REAL_SPEED rad/s at most, REAL_STANDOFF m short of the palm at least (`ready` takes no speed: it moves
+    at the service's default, ~0.68 rad/s with the driver's max_velocity at 1.0)
+  - before the first move it prints HOLD THE DEADMAN and waits (--deadman-wait-s) until CH5 is MANUAL or AUTO, the e-stop
+    is clear and CH6 is held, as the arm service's own gate reads them (guards.motion_still_permitted, 10 times a second)
+  - from then on, the moment any of them stops permitting motion (the deadman released) the running goal is cancelled,
+    NOTHING more is sent, and the script ends (exit 4): it never moves again after a release
+The service must already be started, supervised and activated, and be running a checkout with the command action.
 """
 
 import argparse
@@ -40,6 +51,14 @@ import grasp_to_sim as g2s  # noqa: E402
 from hand_follow import ARM_FRAME, SHOULDER, Frames, HeadTilt, PositionIk, fmt, neck_host_from_env  # noqa: E402
 from treat_brain import SIDES, HandCapture, HeadLaw, HeadParams, Offer, OfferParams, reach_goal  # noqa: E402
 from treat_follow import Head  # noqa: E402
+
+
+REAL_SPEED = 0.3       # rad/s: --real's reach_pose joint speed at most (the service's default is ~0.68)
+REAL_STANDOFF = 0.20   # m: --real stops at least this short of the palm
+
+
+class PermitLost(Exception):
+    """--real: CH5, the e-stop or the deadman stopped permitting motion."""
 
 
 DUMMY_Z = float(os.environ.get("TREAT_DUMMY_Z", "1.10"))   # the scripted palm's height in arm_mount, m
@@ -83,6 +102,8 @@ def main():
                     help="keep the follower's rule that the head moves only while both REAL arms' positions are known and "
                          "neither shoulder is raised. Off by default: V1 is for the simulation, where the real arm service "
                          "is usually off and nothing publishes them (the head then never moved)")
+    ap.add_argument("--real", action="store_true", help="THE REAL RIGHT ARM, supervised testing (above)")
+    ap.add_argument("--deadman-wait-s", type=float, default=120.0, help="--real: s to wait for the deadman before giving up")
     ap.add_argument("--dummy", action="store_true", help="no camera, no head: a scripted person (above)")
     ap.add_argument("--dry-run", action="store_true", help="everything but the goal")
     ap.add_argument("--robot-domain", type=int, default=int(os.environ.get("ROS_DOMAIN_ID", "0")))
@@ -94,8 +115,17 @@ def main():
                     help="stay at the treat: no `ready` afterwards")
     args = ap.parse_args()
     args.head = args.head and not args.dummy
-    if args.sim_domain == args.robot_domain:
-        raise SystemExit("--sim-domain must differ from the robot's domain: V1 sends its goal to the simulated arm only")
+    if args.real:
+        if args.dummy:
+            ap.error("--real and --dummy together: a scripted person must not drive the real arm")
+        args.head, args.arm_check = False, True
+        args.speed = min(args.speed or REAL_SPEED, REAL_SPEED)
+        args.standoff = max(args.standoff, REAL_STANDOFF)
+        action_domain = args.robot_domain
+    else:
+        if args.sim_domain == args.robot_domain:
+            raise SystemExit("--sim-domain must differ from the robot's domain: without --real the goals go to the simulated arm only")
+        action_domain = args.sim_domain
 
     os.environ.setdefault("FASTDDS_BUILTIN_TRANSPORTS", "UDPv4")
     import rclpy
@@ -170,11 +200,49 @@ def main():
                  if s in SIDES and d and d.get("followable") and d.get("xyz")}
         return shoulders, palms
 
+    # --real: the arm service's own gate (CH5 MANUAL or AUTO, the e-stop clear, CH6 held), read 10 times a second
+    permit = {"ok": False, "why": "not read yet", "armed": False}
+
+    def watch_permit():
+        sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
+        import guards
+        while True:
+            try:
+                r = guards.robot_state(timeout=0.2)
+                ok = guards.motion_still_permitted(state=lambda _u: r)
+                why = None if ok else f"CH5 {r.get('ch5')}, e-stop {r.get('estop')}, deadman {r.get('deadman')}"
+            except Exception as error:  # noqa: BLE001 -- unknown is no
+                ok, why = False, f"the dashboard does not answer ({type(error).__name__})"
+            permit.update(ok=ok, why=why)
+            time.sleep(0.1)
+
+    def check_permit():
+        """--real, once armed: raise PermitLost the moment motion is no longer permitted."""
+        if args.real and permit["armed"] and not permit["ok"]:
+            raise PermitLost(permit["why"])
+
+    if args.real:
+        threading.Thread(target=watch_permit, daemon=True).start()
+
     code, t0 = 3, time.monotonic()
     try:
         # 0. READY first, every run: the arm starts from the same known pose (the IK's orientation assumes it)
         if not args.dry_run:
-            if args.arm_socket:
+            if args.real:
+                print("REAL ARM. HOLD THE DEADMAN NOW (CH5 MANUAL or AUTO, the e-stop clear). Nothing moves until it is "
+                      "held; letting go at any time stops the arm and ends this script.", flush=True)
+                deadline, last = time.monotonic() + args.deadman_wait_s, None
+                while not permit["ok"] and time.monotonic() < deadline:
+                    if permit["why"] != last:
+                        print(f"  waiting: {permit['why']}", flush=True)
+                        last = permit["why"]
+                    time.sleep(0.1)
+                if not permit["ok"]:
+                    print(f"the deadman was not held in {args.deadman_wait_s:.0f} s: nothing was sent", flush=True)
+                    return 4
+                permit["armed"] = True
+                print("deadman held: starting (release it to stop)", flush=True)
+            elif args.arm_socket:
                 sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
                 import arm_client
                 try:
@@ -185,20 +253,24 @@ def main():
             from opendubs_arm_interfaces.action import ArmCommand
             from rclpy.action import ActionClient
             sim_ctx = Context()
-            rclpy.init(context=sim_ctx, domain_id=args.sim_domain)
+            rclpy.init(context=sim_ctx, domain_id=action_domain)
             sim_node = Node("treat_reach_client", context=sim_ctx)
             g2s.spin_in_thread(rclpy, sim_node, sim_ctx)
             client = ActionClient(sim_node, ArmCommand, "/right_arm/command")
             if not client.wait_for_server(timeout_sec=10.0):
-                print(f"no /right_arm/command on domain {args.sim_domain}: is the simulated arm service up, with "
-                      "opendubs_arm_interfaces built and sourced?", flush=True)
+                print(f"no /right_arm/command on domain {action_domain}: is the "
+                      + ("real arm service up, on a checkout with the command action and opendubs_arm_interfaces built "
+                         "where it runs?" if args.real else
+                         "simulated arm service up, with opendubs_arm_interfaces built and sourced?"), flush=True)
                 return 1
             names = {0: "SUCCESS", 1: "FAILURE", 2: "INVALID_INPUT", 5: "NOT_FOUND (out of reach)"}
 
             def command(name, params):
                 """One ArmCommand goal, its feedback printed: (accepted, result code or None). Ctrl-C or no result in
                 --result-s cancels it, and a cancel holds the arm where it is (the service's own rule)."""
-                print(f"{name} {json.dumps(params)} -> /right_arm/command (domain {args.sim_domain})", flush=True)
+                check_permit()
+                print(f"{name} {json.dumps(params)} -> /right_arm/command (domain {action_domain}"
+                      + (", THE REAL ARM)" if args.real else ")"), flush=True)
                 sent = client.send_goal_async(ArmCommand.Goal(name=name, params=json.dumps(params)),
                                               feedback_callback=lambda fb: print(f"  {fb.feedback.stage}", flush=True))
                 deadline = time.monotonic() + 10.0
@@ -213,7 +285,13 @@ def main():
                 deadline = time.monotonic() + args.result_s
                 try:
                     while not result.done() and time.monotonic() < deadline:
+                        check_permit()
                         time.sleep(0.05)
+                except PermitLost:
+                    print(f"motion no longer permitted: cancelling {name} (the arm holds where it is)", flush=True)
+                    handle.cancel_goal_async()
+                    time.sleep(0.5)
+                    raise
                 except KeyboardInterrupt:
                     print(f"interrupted: cancelling {name} (the arm holds where it is)", flush=True)
                     handle.cancel_goal_async()
@@ -247,6 +325,7 @@ def main():
                 settled = args.dummy or (msg is not None and msg.get("shoulder_mid") is not None)
             if settled:
                 break
+            check_permit()
             time.sleep(0.05)
         if not settled:
             print(f"nobody settled on in {args.find_s:.0f} s" + (f" (head: {head.status()['why']})" if head else ""), flush=True)
@@ -275,6 +354,7 @@ def main():
                     f = frame_in_arm(msg)
                     if f is not None:
                         got = capture.update(f[1], f[0])
+            check_permit()
             time.sleep(0.01)
         if head is not None:
             head.stop()                                  # the head stays where it is (the lease lapses)
@@ -288,7 +368,7 @@ def main():
             print("--dry-run: no goal sent", flush=True)
             return 0
 
-        # 3. REACH, the simulated arm only
+        # 3. REACH
         params = {"position": [round(float(v), 4) for v in goal]}
         if args.orientation == "ik":
             ik = PositionIk(args.model, "right")          # starts at the model's `ready`, where the arm service starts
@@ -312,12 +392,19 @@ def main():
         # HOME: the arm moved (or tried to): leave the treat there for --treat-s, then back to `ready` by the same
         # action. Ctrl-C during the wait or the move stops it where it is: no move is made after an interrupt.
         print(f"holding for {args.treat_s:.0f} s for the treat to be taken, then back to ready (Ctrl-C: stay)", flush=True)
-        time.sleep(args.treat_s)
+        end = time.monotonic() + args.treat_s
+        while time.monotonic() < end:
+            check_permit()
+            time.sleep(0.05)
         _, home = command("ready", {})
         if home != 0:
             print("the arm did not get back to ready: it holds where it is", flush=True)
             return 1
         return code
+    except PermitLost as lost:
+        print(f"STOPPED: motion is no longer permitted ({lost}). Nothing more is sent; the arm holds where it is.",
+              flush=True)
+        return 4
     except KeyboardInterrupt:
         return 130
     finally:

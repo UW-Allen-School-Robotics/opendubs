@@ -14,6 +14,9 @@
 #   treat_follow.sh reach [options]     V1, one shot (treat_reach.py): the tracker and the simulated arm started if not
 #                                       running (no follower), the head centres the person (THE HEAD MOVES), a raised and
 #                                       still hand is sent once to the SIMULATED arm's reach_pose action; then it exits
+#   treat_follow.sh reach-real [opts]   the same on THE REAL RIGHT ARM (treat_reach.py --real): the head still, slow, and
+#                                       nothing moves until the deadman is held; letting go ends it. Needs the real arm
+#                                       service started, supervised and activated, on a checkout with the command action
 #
 # It shares the camera, the tracker and the simulated arm with hand_follow.sh, and refuses to start while that
 # follower runs: two followers would fight over right/target and the head.
@@ -121,11 +124,20 @@ case "${cmd}" in
     ros
     exec python3 -u "${HERE}/treat_reach.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@"
     ;;
+  reach-real)
+    if alive "${PID}" || alive "${GRASP_SIM_DIR}/follow.pid"; then
+      echo "a follower is running: stop it first ($0 down, or TERM ${PID})" >&2; exit 1
+    fi
+    arm_interfaces
+    "${HERE}/hand_stack.sh" up
+    ros
+    exec python3 -u "${HERE}/treat_reach.py" --real "$@"
+    ;;
   run)
     ros
     exec python3 -u "${HERE}/treat_follow.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@"
     ;;
   *)
-    sed -n '2,20p' "$0"; exit 1
+    sed -n '2,23p' "$0"; exit 1
     ;;
 esac
