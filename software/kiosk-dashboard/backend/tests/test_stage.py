@@ -80,6 +80,7 @@ def test_a_page_reports_its_screen_sound_and_power_and_only_those():
         page.send_text(json.dumps({"page": {"device": "stage-pi", "audio_output": "usb", "under_voltage_since_boot": True,
                                             "screen_connected": True, "screen_mode": "3840x1080@60",
                                             "viewport": [3840, 1080], "dpr": 1, "clock_err_ms": 0.4, "sound": "on",
+                                            "sound_refused": True,
                                             "secret": "x", "under_voltage_now": "yes", "dpr_": True}}))
         page.send_text(json.dumps({"ping": 1.0}))       # a round trip, so the report has been handled
         page.receive_text()
@@ -88,6 +89,7 @@ def test_a_page_reports_its_screen_sound_and_power_and_only_those():
     assert info[0]["viewport"] == [3840, 1080] and info[0]["screen_mode"] == "3840x1080@60"
     assert "secret" not in info[0] and "under_voltage_now" not in info[0]      # unknown, or the wrong type: dropped
     assert info[0]["role"] == "both"                                            # none said: as every page before roles
+    assert info[0]["sound_refused"] is True
     assert c.get("/api/stage").json()["pages_info"] == []                        # the page has gone
 
 
