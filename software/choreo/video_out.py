@@ -616,7 +616,7 @@ class StageShow:
         self.id = f"stage@{time.time():.3f}"
         m = music or {}
         self.beat = ({"offset_s": float(m.get("offset_s") or 0.0), "bpm": float(m["bpm"])} if m.get("bpm") else None)
-        self.failed = self.lost = None
+        self.failed = self.lost = self.late = None
         self.done, self._clock, self._stop, self._thread, self.seeks = False, None, threading.Event(), None, 0
         self._end_status, self._loaded = None, False
         self.buffer_s = float(buffer_s or SETTINGS_DEFAULTS["stage_buffer_s"])
@@ -735,6 +735,35 @@ class StageShow:
 
     def waiting_for(self) -> str:
         return f"the stage video (buffering, {self.buffered:.0f} of {self.need:.0f} s)"
+
+    def start_with_ready(self, why: str) -> bool:
+        """Not every page loaded in time: start with the ones that did, when they cover the show — some ready
+        page carries the picture (role video or both), if the show has one, and some ready page carries the
+        sound (sound or both), if its sound is on the stage. True: the show starts so, the late pages logged
+        (each still joins on the show's clock when it can). False: they don't cover it (always, with one page):
+        the caller drops the stage video, as before. Every page an equal peer: one slow page no longer costs
+        the others their show."""
+        try:
+            got = self.out._get()
+        except Exception:  # noqa: BLE001
+            return False
+        mine = [p for p in (got.get("preload") or []) if isinstance(p, dict) and p.get("id") == self.id]
+        n = int(got.get("pages") or 0)
+        ready = [p for p in mine if p.get("ready")]
+        if not ready or len(ready) >= n:
+            return False
+        picture = any(not it.get("audio") for it in self.items)
+        heard = any((it.get("lead_kind") or ("audio" if it.get("audio") else "video")) == "audio" for it in self.items)
+        if picture and not any(page_role(p) != "sound" for p in ready):
+            return False
+        if heard and not any(page_role(p) != "video" for p in ready):
+            return False
+        late = [f"a {page_role(p)} page ({float(p.get('buffered_s') or 0):.0f} of {float(p.get('need_s') or 0):.0f} s)"
+                for p in mine if not p.get("ready")] + ["a page that never reported"] * (n - len(mine))
+        self.late = f"{len(ready)} of {n} stage pages ready ({why}); started without " + ", ".join(late)
+        self.preloaded = True
+        self.log("video_warning", output="stage", note=self.late + ": each joins on the show's clock when it can")
+        return True
 
     def drop(self, why: str):
         """Not loaded in time: the pages are stopped and the show runs without its stage video (the tablet

@@ -1506,6 +1506,9 @@ class Runner:
                           "catches up on the show's clock")
                 for sv in [sv for sv in media if hasattr(sv, "drop") and not sv.ready()]:
                     why = f"{sv.waiting_for()} after {wait_s:g} s"
+                    if hasattr(sv, "start_with_ready") and sv.start_with_ready(why):
+                        self.video_note = f"video on stage: {sv.late}"   # the ready pages play; the late join
+                        continue
                     if isinstance(show.doc.get("video"), dict) and show.doc["video"].get("required") is True:
                         # @fault SHOW_VIDEO_NOT_READY
                         return self._end(REFUSED, "SHOW_VIDEO_NOT_READY", f"video on stage: {why}")

@@ -664,6 +664,45 @@ r, end, _ = armed(PreStage(buffered=12.0), required=True, press_at=95.0)
 check("... unless the show requires its video: refused, SHOW_VIDEO_NOT_READY, with how far it got",
       end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY") and "12 of 25 s" in end[2], end)
 
+
+class MixedStage(PreStage):
+    """Several pages, each with its own head start and role (stage.js ?role=)."""
+    def __init__(self, pres):
+        super().__init__(pages=len(pres))
+        self.pres = pres
+
+    def _get(self):
+        sid = self.made.id if getattr(self, "made", None) else None
+        return {"pages": self.n, "preload": [dict(p, id=sid, need_s=25.0) for p in self.pres],
+                "stalls": [dict(x, id=sid) for x in self.stalls]}
+
+
+def pre(ready, role="both", buffered=None):
+    return {"ready": ready, "role": role, "buffered_s": 25.0 if ready else (buffered or 12.0), "local": False}
+
+
+r, end, lines = armed(MixedStage([pre(True), pre(False)]), required=True, press_at=95.0)
+check("two pages, one still buffering past the wait: the show starts with the ready one, the late one named, "
+      "the stage video kept (every page an equal peer) — even for a show that requires its video",
+      end[0] == "COMPLETED" and not r.videos[0].dropped and "1 of 2 stage pages ready" in (r.video_note or "")
+      and "a both page (12 of 25 s)" in (r.video_note or "") and not any(m["op"] == "stop" and m.get("cut")
+                                                                            for m in r.videos[0].out.sent[:-1]),
+      (end, r.video_note))
+r, end, _ = armed(MixedStage([pre(True, "video"), pre(False, "sound")]), press_at=95.0)
+check("... a picture-only page ready, the sound page late, a show with no sound on the stage: it starts",
+      end[0] == "COMPLETED" and not r.videos[0].dropped, (end, r.video_note))
+r, end, _ = armed(MixedStage([pre(False, "video"), pre(True, "sound")]), required=True, press_at=95.0)
+check("... no ready page carries the picture: refused as before (SHOW_VIDEO_NOT_READY)",
+      end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY"), end)
+so = MixedStage([pre(True, "video"), pre(False, "sound")])
+sh = so.make_show([{"t": 0.0, "end_t": 40.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip",
+                    "lead_kind": "audio"}], None)
+sh.begin()
+so.wait_for("load")
+check("... the video carries the sound and no ready page plays sound: not started with the ready pages",
+      sh.start_with_ready("late") is False and not sh.ready(), sh.late)
+sh.end("COMPLETED")
+
 print()
 if FAILS:
     for x in FAILS:
