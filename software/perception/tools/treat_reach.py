@@ -180,6 +180,8 @@ def main():
                          "joint trajectory")
     ap.add_argument("--max-up", type=float, default=0.35, help="m: the reach goal at most this above the arm's shoulder")
     ap.add_argument("--head-pan", action="store_true", help="pan as well as tilt to centre the torso")
+    ap.add_argument("--head-aim-deg", type=float, default=15.0,
+                    help="hold the person's shoulders this far ABOVE the picture's centre (deg): the head looks lower, so a hand held out at the waist is in frame (15 by default; 0: the shoulders centred, as before)")
     ap.add_argument("--neck-host", default=None)
     ap.add_argument("--head-quiet-s", type=float, default=0.35)
     ap.add_argument("--head-lease-ms", type=int, default=600)
@@ -271,7 +273,7 @@ def main():
         if not host:
             raise SystemExit("no neck host: set OPENDUBS_HEAD_NECK_HOST or --neck-host, or run with --no-head")
         mode = {"m": "watch"}
-        head = Head(HeadTilt(host, None, args, arms_clear), HeadLaw(HeadParams(pan=args.head_pan)), lambda: mode["m"])
+        head = Head(HeadTilt(host, None, args, arms_clear), HeadLaw(HeadParams(pan=args.head_pan, aim_deg=args.head_aim_deg)), lambda: mode["m"])
         threading.Thread(target=head.run, daemon=True).start()
         if not args.real:
             head.start()                                 # --real: only after the first `ready` (step 1)

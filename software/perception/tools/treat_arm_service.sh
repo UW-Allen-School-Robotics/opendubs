@@ -33,7 +33,8 @@ SOCK_DIR=/run/opendubs-arm
 SOCK=$SOCK_DIR/opendubs-arm-service-right.sock
 RUN=/tmp/treat-arm-kiosk
 SERVICE=$D/repo/software/openarm/gafro/arm_service.py
-CFG=$(sed -n 's/^OPENDUBS_ARM_CONFIG=//p' /etc/opendubs/arm-service.env | tail -1)
+# the robot's own config, or (present in $D) the same with the right gripper on: TREAT_ARM_CONFIG overrides both
+CFG=${TREAT_ARM_CONFIG:-$( [ -f "$D/openarm-gafro-right-gripper.yaml" ] && echo "$D/openarm-gafro-right-gripper.yaml" || sed -n 's/^OPENDUBS_ARM_CONFIG=//p' /etc/opendubs/arm-service.env | tail -1)}
 
 ctl() {
   sudo -n -u kiosk env OPENDUBS_ARM_SOCKET_DIR=$SOCK_DIR bash -c \
@@ -64,7 +65,7 @@ case "${1:-}" in
       >/dev/null 2>&1 </dev/null &
     for _ in $(seq 1 60); do grep -q -E "holding the right arm|Traceback" $RUN/arm-service.log 2>/dev/null && break; sleep 1; done
     grep -v "more than one kinematic chain" $RUN/arm-service.log | tail -5 || true
-    if pid=$(running); then echo "up (pid $pid), code $(cat $D/repo/REVISION): holding the arm, nothing moved"; else echo "did not start: see $RUN/arm-service.log" >&2; exit 1; fi
+    if pid=$(running); then echo "up (pid $pid), code $(cat $D/repo/REVISION), config $CFG: holding the arm, nothing moved"; else echo "did not start: see $RUN/arm-service.log" >&2; exit 1; fi
     if grep -qi "no arm command action" $RUN/arm-service.log; then echo "WARNING: the command action is NOT served (interfaces not loaded)" >&2; fi
     ;;
   down)

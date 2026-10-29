@@ -24,6 +24,9 @@ THE SERVICES, /perception/treat/<name>; each returns when its step has ended (do
                                                          (plan_jaws); data: joints, pose, mm from the goal
   hold           {"seconds"?: 5}                         waits with the arm where it is (the treat); --real: a lost
                                                          permit meanwhile latches the stop and returns STOPPED
+  gripper_open   {"position"?: 0.044}                    the gripper open (m of finger travel; 0.044 fully open)
+  gripper_close  {"position"?: 0.0}                      the gripper shut; one that stops on something (a candy) is a
+                                                         success: data "holding": true
   stop           {}                                      cancels any running move (the arm holds) and stops the head
   rearm          {}                                      --real: clears the stop that a lost permit latched
   status         (RobotQuery)                            mode, permit, stopped, busy, the arm's joints, the head
@@ -374,6 +377,46 @@ class Treat:
             time.sleep(0.05)
         return f"held {seconds:.0f} s", {}
 
+    def grip(self, req, position, closing):
+        """The gripper's own action (/right_gripper_controller/gripper_cmd, control_msgs/GripperCommand): `position` in
+        metres of finger travel, 0 shut, gripper.TRAVEL (0.044) open, gated as every move. A close that stops on
+        something before it gets there is ABORTED as stalled by the arm service: for gripper_close that is the candy
+        held, a success. On the real arm the gripper is driven only if its hardware config has use_gripper."""
+        from action_msgs.msg import GoalStatus
+        from control_msgs.action import GripperCommand
+        self.motion_gate()
+        goal = GripperCommand.Goal()
+        goal.command.position = float(req.get("position", position))
+        goal.command.max_effort = float(req.get("max_effort", 0.0))
+        handle = self.send(self.grip_client, goal, "gripper_cmd")
+        result = handle.get_result_async()
+        deadline = time.monotonic() + float(req.get("timeout_s", 10.0))
+        try:
+            while not result.done() and time.monotonic() < deadline:
+                if self.watch_during(handle):
+                    time.sleep(0.5)
+                    raise Refused(self.RC.FAILURE, f"STOPPED: {self.stopped}. Nothing moves until rearm")
+                time.sleep(0.05)
+        finally:
+            self.goal = None
+        if not result.done():
+            handle.cancel_goal_async()
+            raise Refused(self.RC.TIMEOUT, "the gripper did not finish: cancelled")
+        status, r = result.result().status, result.result().result
+        mm = round(float(r.position) * 1000, 1)
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            return f"gripper {'closed' if closing else 'open'} at {mm} mm", {"position_mm": mm, "holding": False}
+        if closing and status == GoalStatus.STATUS_ABORTED and r.stalled:
+            return f"gripper closed on something at {mm} mm (holding it)", {"position_mm": mm, "holding": True}
+        why = "cancelled" if status == GoalStatus.STATUS_CANCELED else ("stalled" if r.stalled else "did not reach")
+        raise Refused(self.RC.FAILURE, f"the gripper {why} at {mm} mm")
+
+    def gripper_open(self, req):
+        return self.grip(req, 0.044, closing=False)
+
+    def gripper_close(self, req):
+        return self.grip(req, 0.0, closing=True)
+
     def stop(self, req):
         h = self.goal
         if h is not None:
@@ -467,6 +510,8 @@ def main():
     arm_node.create_subscription(JointState, "/joint_states", t.on_arm_joints, 10)
     t.arm_client = ActionClient(arm_node, ArmCommand, "/right_arm/command")
     t.traj_client = ActionClient(arm_node, FollowJointTrajectory, "/right_controller/follow_joint_trajectory")
+    from control_msgs.action import GripperCommand
+    t.grip_client = ActionClient(arm_node, GripperCommand, "/right_gripper_controller/gripper_cmd")
     g2s.spin_in_thread(rclpy, arm_node, arm_ctx)
     if args.real:
         threading.Thread(target=t.watch_permit, daemon=True).start()
@@ -511,7 +556,8 @@ def main():
 
     for name, fn in (("ready", t.ready), ("move_pose", t.move_pose), ("move_joints", t.move_joints),
                      ("centre_person", t.centre_person), ("get_hand", t.get_hand), ("find_hand", t.find_hand),
-                     ("plan_treat", t.plan_treat), ("hold", t.hold)):
+                     ("plan_treat", t.plan_treat), ("hold", t.hold),
+                     ("gripper_open", t.gripper_open), ("gripper_close", t.gripper_close)):
         serve(name, fn)
     serve("stop", t.stop, exclusive=False)
     serve("rearm", t.rearm, exclusive=False)
@@ -525,7 +571,7 @@ def main():
     executor = MultiThreadedExecutor(num_threads=6, context=robot_ctx)
     executor.add_node(node)
     print(f"treat services up: /perception/treat/{{ready,move_pose,move_joints,centre_person,get_hand,find_hand,"
-          f"plan_treat,hold,stop,rearm,status}}; moves to {'THE REAL ARM' if args.real else f'the simulation (domain {arm_domain})'}; "
+          f"plan_treat,hold,gripper_open,gripper_close,stop,rearm,status}}; moves to {'THE REAL ARM' if args.real else f'the simulation (domain {arm_domain})'}; "
           f"head {'on' if t.head else 'off'}{'; dummy person' if args.dummy else ''}", flush=True)
     try:
         executor.spin()

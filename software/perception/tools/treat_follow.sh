@@ -12,7 +12,8 @@
 #   treat_follow.sh run [options]       the follower in the foreground (what `up` starts); options: treat_follow.py -h
 #   treat_follow.sh services [opts]     the treat steps as ROS 2 services (treat_services.py) in the background:
 #                                       /perception/treat/{ready,move_pose,move_joints,centre_person,get_hand,find_hand,
-#                                       plan_treat,hold,stop,rearm,status}. Simulation by default (the tracker and the
+#                                       plan_treat,hold,gripper_open,gripper_close,stop,rearm,status}. Simulation by
+#                                       default (the tracker and the
 #                                       simulated arm started too); --real [--head --left-stowed] for THE REAL ARM
 #   treat_follow.sh services-down       that node stopped
 #   treat_follow.sh sequence [opts]     treat_sequence.py: the services called in order, as `reach` runs
@@ -178,6 +179,6 @@ case "${cmd}" in
     exec python3 -u "${HERE}/treat_follow.py" --sim-domain "${GRASP_SIM_DOMAIN}" "$@"
     ;;
   *)
-    sed -n '2,30p' "$0"; exit 1
+    sed -n '2,31p' "$0"; exit 1
     ;;
 esac

@@ -88,6 +88,8 @@ def parse_args():
     # the head
     ap.add_argument("--no-head", dest="head", action="store_false", help="leave the head alone (the arm follows once a torso is seen)")
     ap.add_argument("--head-pan", action="store_true", help="pan as well as tilt to centre the torso (default: tilt only)")
+    ap.add_argument("--head-aim-deg", type=float, default=15.0,
+                    help="hold the person's shoulders this far ABOVE the picture's centre (deg): the head looks lower, so a hand held out at the waist is in frame (15 by default; 0: the shoulders centred, as before)")
     ap.add_argument("--neck-host", default=None, help="default OPENDUBS_HEAD_NECK_HOST (environment or /etc/opendubs/robot.env)")
     ap.add_argument("--head-tilt-min", type=float, default=71.0)
     ap.add_argument("--head-tilt-max", type=float, default=108.0)
@@ -265,7 +267,7 @@ def main():
         host = args.neck_host or neck_host_from_env()
         if not host:
             raise SystemExit("no neck host: set OPENDUBS_HEAD_NECK_HOST or --neck-host, or run with --no-head")
-        law = HeadLaw(HeadParams(tilt_min=args.head_tilt_min, tilt_max=args.head_tilt_max, pan=args.head_pan,
+        law = HeadLaw(HeadParams(tilt_min=args.head_tilt_min, tilt_max=args.head_tilt_max, pan=args.head_pan, aim_deg=args.head_aim_deg,
                                  gain=args.head_gain, wait_s=args.head_wait_s, lock_deg=args.head_lock_deg))
         head = Head(HeadTilt(host, None, args, arms_clear), law, lambda: brain.mode)
         threading.Thread(target=head.run, daemon=True).start()

@@ -4,7 +4,8 @@ Nothing else: no topics, no polling; each call's data goes into the next call's 
   treat_follow.sh sequence [options]
   treat_follow.sh call NAME [JSON]        one service, sent once and waited for (`--call`)
 
-  ready -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> hold -> ready
+  gripper_close -> ready -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> gripper_open
+  -> hold -> ready
 
 The services decide real arm or simulation, and keep the safety: on the real arm a released deadman latches a stop and
 every later move is refused, so this sequence ends at the first refusal. Hold the deadman BEFORE starting it (the real
@@ -16,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import time
 
 SUCCESS, NOT_FOUND = 0, 5
 
@@ -28,6 +30,8 @@ def main():
     ap.add_argument("--no-jaws-level", dest="jaws", action="store_false", help="move_pose to the IK's pose instead")
     ap.add_argument("--speed", type=float, default=None, help="rad/s (the services cap it on the real arm)")
     ap.add_argument("--no-return", dest="return_home", action="store_false", help="stay at the treat")
+    ap.add_argument("--no-gripper", dest="gripper", action="store_false",
+                    help="leave the gripper alone (no close before ready, no open at the treat)")
     ap.add_argument("--call-s", type=float, default=150.0, help="s to wait for one service call")
     ap.add_argument("--call", nargs="+", metavar=("NAME", "JSON"),
                     help="call ONE service and print its answer (sent once, never resent: perception_call.sh resends an "
@@ -40,12 +44,21 @@ def main():
     rclpy.init()
     node = rclpy.create_node("treat_sequence")
 
+    clients = {}
+
     def call(name, req=None):
-        """(result code, message, data) of /perception/treat/<name>: sent once, waited for."""
+        """(result code, message, data) of /perception/treat/<name>: sent once, waited for. Each client is made once and
+        given half a second after the service is found: a request sent the moment it is can lose its reply (the
+        first gripper_close in the simulation waited 150 s for one that never came; perception_call.py settles too)."""
         kind = RobotQuery if name == "status" else RobotCommand
-        client = node.create_client(kind, f"/perception/treat/{name}")
-        if not client.wait_for_service(timeout_sec=10.0):
-            raise SystemExit(f"no /perception/treat/{name}: are the treat services up? (treat_follow.sh services)")
+        client = clients.get(name)
+        if client is None:
+            client = clients[name] = node.create_client(kind, f"/perception/treat/{name}")
+            if not client.wait_for_service(timeout_sec=10.0):
+                raise SystemExit(f"no /perception/treat/{name}: are the treat services up? (treat_follow.sh services)")
+            settle = time.monotonic() + 0.5
+            while time.monotonic() < settle:
+                rclpy.spin_once(node, timeout_sec=0.05)
         request = RobotQuery.Request() if kind is RobotQuery else RobotCommand.Request(req=json.dumps(req or {}))
         future = client.call_async(request)
         rclpy.spin_until_future_complete(node, future, timeout_sec=args.call_s)
@@ -66,6 +79,11 @@ def main():
             return code
 
         speed = {"speed": args.speed} if args.speed else {}
+
+        if args.gripper:
+            code, _, data = call("gripper_close")
+            if code != SUCCESS:
+                return 4 if data.get("stopped") else 1
 
         code, _, data = call("ready")
         if code != SUCCESS:
@@ -89,6 +107,14 @@ def main():
             if args.return_home:
                 call("ready")
             return 1
+        if args.gripper:
+            code, _, data = call("gripper_open")
+            if code != SUCCESS:
+                if data.get("stopped"):
+                    return 4
+                if args.return_home:
+                    call("ready")
+                return 1
         if not args.return_home:
             return 0
 
