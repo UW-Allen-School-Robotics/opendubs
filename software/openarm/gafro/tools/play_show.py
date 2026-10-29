@@ -180,7 +180,7 @@ def main(argv=None) -> int:
             print("  peak speed (rad/s):          " + "  ".join(f"{j + 1}: {np.abs(rates[:, j]).max():.2f}" for j in range(7)))
             if closest:
                 print(f"Closest approach along the whole path in the lane's twin: {closest[0]:.1f} mm ({closest[1]}); refused below {args.min_clearance_mm:g} mm. "
-                      "The twin was 6 deg optimistic on the one pose measured on the robot.")
+                      "The twin agrees with the hand measurement to about half a degree; the floor is not a margin.")
             print(f"Played by a position controller (the motor's PD and the driver's gravity feed-forward): anchor gain {args.gain:g} /s, anchor within {args.leash:g} rad of the arm, "
                   f"offset gain {args.offset_gain:g} /s up to {args.max_lead:g} rad, "
                   f"{'planned rate fed forward' if not args.no_feedforward else 'no rate feed-forward'}. Only this arm; the show's other slots are not played.\n"

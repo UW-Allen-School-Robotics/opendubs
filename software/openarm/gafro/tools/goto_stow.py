@@ -47,7 +47,7 @@ def plan_text(side, start, target, speed, closest, minimum_mm) -> str:
     delta = np.degrees(target - start)
     rows = "\n".join(f"  joint {j + 1}: {np.degrees(start[j]):+7.2f} deg  ->  {np.degrees(target[j]):+7.2f} deg   (moves {delta[j]:+6.2f} deg)" for j in range(7))
     near = (f"Closest approach along the straight line in the lane's twin: {closest[0]:.1f} mm ({closest[1]}); refused below {minimum_mm:g} mm. "
-            "The twin was 6 deg optimistic on the one pose measured on the robot.") if closest else "The clearance was NOT checked (--skip-clearance)."
+            "The twin agrees with the hand measurement to about half a degree; the floor is not a margin.") if closest else "The clearance was NOT checked (--skip-clearance)."
     return (f"The {side} arm goes to its stow pose in position mode, the largest joint at {speed:g} rad/s "
             f"(about {np.abs(target - start).max() / speed:.0f} s):\n{rows}\n{near}\n"
             "The head and the camera mount are not in the model: head tracking must be OFF with the neck centred, and you judge the path by eye.\n"

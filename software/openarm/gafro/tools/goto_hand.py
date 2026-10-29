@@ -62,7 +62,7 @@ def plan_text(side, plan, speed, closest, minimum_mm) -> str:
     rows = "\n".join(f"  joint {j + 1}: {np.degrees(q0[j]):+7.2f} deg  ->  {np.degrees(q1[j]):+7.2f} deg   (moves {np.degrees(q1[j] - q0[j]):+6.2f} deg)" for j in range(7))
     s, g_, e = plan["start"][:3] * 1000, plan["goal"][:3] * 1000, plan["end"][:3] * 1000
     near = (f"Closest approach along the straight line in the lane's twin: {closest[0]:.1f} mm ({closest[1]}); refused below {minimum_mm:g} mm. "
-            "The twin was 6 deg optimistic on the one pose measured on the robot.") if closest else "The clearance was NOT checked (--skip-clearance)."
+            "The twin agrees with the hand measurement to about half a degree; the floor is not a margin.") if closest else "The clearance was NOT checked (--skip-clearance)."
     return (f"The {side} hand moves by {np.round(g_ - s, 1)} mm (model frame: x forward, y left, z up), orientation held. iLQR planned it in milliseconds;\n"
             f"predicted hand error at the end {np.round(e - g_, 1)} mm, orientation drift {plan['orientation_drift']:.4f}{' (seeded from an elbow bend: a singular start)' if plan['seeded'] else ''}.\n"
             f"Driven in position mode as a straight joint-space line, the largest joint at {speed:g} rad/s "
