@@ -1139,7 +1139,7 @@ function frame(nowMs) {
       ctx.translate(0, U * 3 * grooveBob);                     // the eyes dip on each beat
       ctx.translate(cx, cy);
       // NOD: flatter than SMILE's, and tipped so the inner end, by the nose, sits a little lower
-      if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 15 * Math.PI / 180 * nodFlip);
+      if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 28 * Math.PI / 180 * nodFlip);
       ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 1.62 * nodFlip)); ctx.translate(-cx, -cy);
       if (happyOutline) {
         // HAPPY fully in, nothing over it: the eye from its matched outlines, open -> squinted by the blink
