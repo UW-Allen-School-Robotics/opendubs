@@ -596,10 +596,12 @@ function lookout(e) {                         // -> { side, blink } at e seconds
 let smileT0 = -1, smileAmt = 0, smileLastE = 0;   // smileLastE: where the eye cycle was, so it fades out from there
 const SMILE_CYCLE = ["smile1", "smile2", "smile3", "smile2"];
 // -> { pose, both }: the cycle's pose e seconds after the smile began, and how much of it is "both eyes"
-// (smile-2), which is what giggles. Both eyes hold longer than one.
-function smileEyes(e) {
+// (smile-2), which is what giggles. Both eyes hold longer than one. `other` starts it on the other eye
+// (smile-3), so SMILE steps danced back to back take turns, one eye then the other.
+function smileEyes(e, other = false) {
   const M = ctl.smileMorph, hold = (k) => (k === "smile2" ? ctl.smileBoth : ctl.smileHold);
   const cycle = SMILE_CYCLE.reduce((a, k) => a + hold(k) + M, 0);
+  if (other) e += hold("smile1") + hold("smile2") + 2 * M;
   let r = e % cycle, i = 0;
   while (r >= hold(SMILE_CYCLE[i]) + M) { r -= hold(SMILE_CYCLE[i]) + M; i++; }
   const from = SMILE_CYCLE[i], to = SMILE_CYCLE[(i + 1) % 4];
@@ -779,7 +781,8 @@ function danceLook(t) {
     let i = 0; while (i + 1 < steps.length && steps[i + 1][0] <= s) i++;
     const name = steps[i][1], e = Math.max(0, s - steps[i][0]), g = Math.max(0, s - off);
     const swaps = [i, i + 1].filter((k) => k > 0 && k < steps.length && wear(k) !== wear(k - 1)).map((k) => steps[k][0] - s);
-    return { look: LOOK_AS[name] || name, name, e, B, beats: e / B, frac: (g / B) % 1, every, g, costume: wear(i), swaps };
+    let run = 0; while (i - run > 0 && steps[i - run - 1][1] === name) run++;   // how many of this look just before it
+    return { look: LOOK_AS[name] || name, name, e, B, beats: e / B, frac: (g / B) % 1, every, g, costume: wear(i), swaps, run };
   }
   const list = danceSpec && danceSpec.looks && danceSpec.looks[cueName];
   const name = list ? list[Math.min(cueSeen[cueName] || 1, list.length) - 1] : (EMOTE_LOOKS[cueName] || "groove");
@@ -1009,7 +1012,7 @@ function frame(nowMs) {
       if (L2 === "sway") giggle += 1.2 * a * Math.sin(Math.PI * DL.beats);             // SOFT: rock with the beat
       if (L2 === "wavelook" || L2 === "wave-r" || L2 === "wave-l") danceScale = 1 + 0.05 * a;   // wide open; the side does the looking
       if (L2 === "smile") {                                                           // SMILE's own eyes and giggle, danced
-        const se = smileEyes(DL.e);
+        const se = smileEyes(DL.e, (DL.run || 0) % 2 === 1);
         pose = mixPose(pose, se.pose, a); giggle += ctl.giggle * se.both * a * giggleAt(se.since);
       }
       const sway2 = 0.5 - 0.5 * Math.cos(Math.PI * DL.beats / 2);                    // there and back, two beats each way
