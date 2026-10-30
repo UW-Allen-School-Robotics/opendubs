@@ -182,6 +182,11 @@ class Coordinator:
 
     def _enter(self, state: str, why: str) -> None:
         old, self.state, self.since, self.why = self.state, state, self.clock(), why
+        if state == "PAUSED" and hasattr(self.nav, "pause"):
+            try:
+                self.nav.pause()                 # first: the nav may not drive, and a free base is left free
+            except Exception as e:  # noqa: BLE001
+                self._log("nav_error", what="pause", error=str(e))
         if state not in MOVING:
             self._stop_base()
         if state == "PAUSED":
@@ -549,38 +554,49 @@ class StubNav:
 class HoundNav:
     """The robot's nav stack (hound_nav's robot_bridge.py, in opendubs-gates-sim), behind the four calls.
 
-    THE CONTRACT the bridge needs (2026-10-29: proposed, not yet in it; until it is, still() is never
-    true while the nav holds the base, so no show and no candy is granted, which is the safe failure):
+    THE BASE IS TAKEN, NOT ASKED FOR (2026-10-29). The bridge renews its `nav` lease whenever it knows where it
+    is, so nothing it can be asked stops it. stop() takes the base over instead, with the base selector's own
+    rules (base_selector.py): the operator's release ({"owner": "*"}, which frees the base whoever holds it),
+    then at once a claim as `demo_day`, renewed every RENEW_S. The selector never takes the base from a live
+    holder, so while it is ours the nav's claims are refused and its commands go nowhere, and the handover
+    sends one zero command first. If the nav wins the race, the takeover is tried again. patrol() releases
+    it, the nav's next renewal takes it back, and its mission, still running all along, carries on.
 
-      /hound_nav/hold  std_msgs/Bool, transient local. True: stop the mission, send one zero Twist and
-                       RELEASE the base (/base/release {"owner": "nav"}), and claim nothing until False.
-                       False: claim the base again and carry on with the mission.
+    still() is true only when the base is OURS and /odom, fresh, says it is not moving: until the takeover has
+    landed, no show and no candy is granted. The base is taken from the nav or from nobody, never from another
+    owner (a teleop, a show's tracker): then still() stays false and the coordinator waits.
 
-    What it reads, all already on the robot: /base/owner (the base selector's, 2 Hz) and /odom (the
-    drive bridge's; its twist is in base_link). still() is true only when the base is not the nav's
-    and /odom, fresh, says it is not moving: a nav that ignores the hold, or keeps renewing its lease,
-    is never "still", so a later deadman press can never drive it under the arm.
+    /hound_nav/hold (std_msgs/Bool, transient local) is still published, held or not: the topic asked of the
+    bridge (sidtalia/hound_nav#1), so that once it honours it the nav's planner stops too, not only its wheels.
 
-    patrol() is "carry on": the mission itself (which waypoints, looping) is set on the nav's own page.
-    approach() holds the base for now: the bridge takes goals only from its page, so the robot waits
-    where it is and a visitor is ENGAGED by walking up. The coordinator never claims the base itself:
-    a show's dance tracker must be able to take it."""
+    approach() holds the base for now: the bridge takes goals only from its page, so the robot waits where it
+    is and a visitor is ENGAGED by walking up."""
 
-    OWNER = "nav"
+    NAV = "nav"                  # the bridge's owner name
+    OURS = "demo_day"
+    TTL_S = 2.0                  # our claim's lease, renewed every RENEW_S
+    RENEW_S = 0.5
+    RETAKE_S = 1.0               # a takeover the nav won is tried again after this
     ODOM_STALE_S = 0.6           # /odom is ~8.7 Hz
-    OWNER_STALE_S = 1.5          # /base/owner is 2 Hz
+    OWNER_STALE_S = 1.5          # /base/owner is 2 Hz, and on every change
     STILL_LIN = 0.02             # m/s
     STILL_ANG = 0.05             # rad/s
     RESEND_S = 1.0               # the hold is said again this often, so a restarted bridge hears it
 
-    def __init__(self, log=None, publish=None, clock=time.monotonic):
-        """`publish(bool)` sends the hold; None: ROS (start())."""
-        self._log_fn, self.publish, self.clock = log, publish, clock
+    def __init__(self, log=None, publish=None, claim=None, release=None, clock=time.monotonic):
+        """`publish(bool)` sends the hold, `claim(dict)` and `release(dict)` the selector's messages; None: ROS
+        (start())."""
+        self._log_fn, self.publish, self.claim, self.release, self.clock = log, publish, claim, release, clock
         self.lock = threading.Lock()
         self.hold, self.doing = True, None       # held until told to patrol: a coordinator starting never drives
         self.owner, self.owner_at = None, None
         self.twist, self.odom_at = None, None
-        self.sent_at = None
+        self.sent_at, self.renewed_at, self.took_at = None, None, None
+        self.paused = False                      # paused: taken from the nav only, a free base left free
+
+    def _log(self, event: str, **kw) -> None:
+        if self._log_fn:
+            self._log_fn({"t": round(time.time(), 3), "event": event, **kw})
 
     # ---- what the robot says
     def on_owner(self, data: str) -> None:
@@ -589,23 +605,48 @@ class HoundNav:
         except ValueError:
             return
         with self.lock:
-            self.owner, self.owner_at = owner, self.clock()
+            was, self.owner, self.owner_at = self.owner, owner, self.clock()
+        if owner != was:
+            self._log("base_owner", owner=owner, was=was)
 
     def on_odom(self, vx: float, vy: float, wz: float) -> None:
         with self.lock:
             self.twist, self.odom_at = (vx, vy, wz), self.clock()
 
-    # ---- the four calls
+    # ---- the base
+    def _take(self) -> None:
+        """Ours if it is the nav's or nobody's: the operator's release, then our claim."""
+        with self.lock:
+            owner, self.took_at = self.owner, self.clock()
+        if owner not in (self.NAV, None, self.OURS):
+            return                               # someone else's (a teleop, a show): not taken from them
+        if owner is None and self.paused:
+            return                               # paused: a free base stays free (teleop, the Shows page)
+        if owner == self.NAV:
+            self.release({"owner": "*"})
+            time.sleep(0.05)                     # the release first: the two are on different topics
+        self.claim({"owner": self.OURS, "ttl_s": self.TTL_S})
+        with self.lock:
+            self.renewed_at = self.clock()
+        self._log("base_take", from_owner=owner)
+
+    def _give(self) -> None:
+        with self.lock:
+            ours, self.renewed_at = self.owner == self.OURS, None
+        self.release({"owner": self.OURS})
+        if ours:
+            self._log("base_give")
+
     def _set(self, hold: bool, what: str, **kw) -> None:
         with self.lock:
             changed = hold != self.hold or self.sent_at is None
             self.hold = hold
         if changed:
             self._send()
+            self._take() if hold else self._give()
         if self.doing != what:
             self.doing = what
-            if self._log_fn:
-                self._log_fn({"t": round(time.time(), 3), "event": "nav", "did": what, "hold": hold, **kw})
+            self._log("nav", did=what, hold=hold, **kw)
 
     def _send(self) -> None:
         with self.lock:
@@ -613,17 +654,45 @@ class HoundNav:
         self.publish(hold)
 
     def tick(self) -> None:
-        """Say the hold again every RESEND_S (the ROS thread's timer)."""
-        if self.sent_at is None or self.clock() - self.sent_at >= self.RESEND_S:
+        """The ROS thread's timer: renew our claim while held, take the base back if the nav won it, say the hold."""
+        now = self.clock()
+        with self.lock:
+            hold, owner, renewed, took = self.hold, self.owner, self.renewed_at, self.took_at
+        if hold:
+            if self.paused and owner != self.OURS and renewed is None:
+                if owner == self.NAV and (took is None or now - took >= self.RETAKE_S):
+                    self._take()
+            elif owner == self.OURS or (renewed is not None and now - renewed < self.RETAKE_S):
+                if renewed is None or now - renewed >= self.RENEW_S:
+                    self.claim({"owner": self.OURS, "ttl_s": self.TTL_S})
+                    with self.lock:
+                        self.renewed_at = now
+            elif took is None or now - took >= self.RETAKE_S:
+                self._take()
+        if self.sent_at is None or now - self.sent_at >= self.RESEND_S:
             self._send()
 
+    # ---- the four calls, and the pause
+    def pause(self) -> None:
+        """The coordinator paused: the nav still may not drive (taken from it whenever it claims), but a free
+        base is left free, and ours is given up."""
+        self.paused = True
+        self._set(True, "paused")
+        with self.lock:
+            ours = self.owner == self.OURS
+        if ours:
+            self._give()
+
     def patrol(self) -> None:
+        self.paused = False
         self._set(False, "patrol")
 
     def approach(self, person: Person, standoff_m: float) -> None:
         self._set(True, "wait for them", **person.doc(), standoff_m=standoff_m)
 
     def stop(self) -> None:
+        if self.paused:
+            return                               # pause() has said how; a stop while paused changes nothing
         self._set(True, "stop")
 
     def still(self) -> bool:
@@ -631,8 +700,8 @@ class HoundNav:
         with self.lock:
             if not self.hold:
                 return False
-            if self.owner_at is None or now - self.owner_at > self.OWNER_STALE_S or self.owner == self.OWNER:
-                return False                     # unknown, or the nav still holds the base: it may drive
+            if self.owner_at is None or now - self.owner_at > self.OWNER_STALE_S or self.owner != self.OURS:
+                return False                     # not ours (yet): the nav, or anyone, may still drive it
             if self.odom_at is None or now - self.odom_at > self.ODOM_STALE_S:
                 return False
             vx, vy, wz = self.twist
@@ -656,18 +725,24 @@ class HoundNav:
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                              reliability=ReliabilityPolicy.RELIABLE)
         pub = node.create_publisher(Bool, hold_topic, latched)
+        claim_pub = node.create_publisher(String, "/base/claim", 10)
+        release_pub = node.create_publisher(String, "/base/release", 10)
         self.publish = lambda hold: pub.publish(Bool(data=bool(hold)))
+        self.claim = lambda d: claim_pub.publish(String(data=json.dumps(d)))
+        self.release = lambda d: release_pub.publish(String(data=json.dumps(d)))
         node.create_subscription(String, "/base/owner", lambda m: self.on_owner(m.data), latched)
 
         def odom(m):
             t = m.twist.twist
             self.on_odom(t.linear.x, t.linear.y, t.angular.z)
         node.create_subscription(Odometry, "/odom", odom, qos_profile_sensor_data)
-        node.create_timer(0.2, self.tick)
+        node.create_timer(0.1, self.tick)
         ex = SingleThreadedExecutor(context=ctx)
         ex.add_node(node)
         threading.Thread(target=ex.spin, daemon=True).start()
-        self._send()                             # held from the start
+        time.sleep(1.0)                          # the latched /base/owner first, then take what the hold says
+        self._send()
+        self._take() if self.hold else self._give()
         return self
 
 

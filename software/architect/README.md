@@ -469,17 +469,18 @@ On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh da
 
 **What is real and what is a stub (2026-10-27):**
 - **The nav is a stub by default** (`StubNav`): it logs what it would do and moves nothing.
-  `NAV=hound` (`--nav hound`, `HoundNav`) drives the robot's nav stack instead: hound_nav's
-  `robot_bridge.py`, in `opendubs-gates-sim`, which holds the base as `nav` and patrols a looping
-  mission set on its own page (port 8081). The coordinator tells it to hold and carry on over
-  **`/hound_nav/hold`** (`std_msgs/Bool`, transient local): True stops the mission, sends one zero
-  Twist and releases the base; False claims it again and carries on. **The bridge does not have that
-  topic yet (2026-10-29), so it is a request to its owner.** Until it does, `still()` stays false while
-  the nav holds the base, so no candy and no show is ever granted: the safe failure, and why the boot
-  unit keeps the stub. `still()` is the nav having let go of the base (`/base/owner`) and `/odom` at
-  rest, both fresh. `approach()` holds the base for now (the bridge takes goals only from its page),
-  so a visitor is engaged by walking up. The coordinator never claims the base itself, so a show's
-  dance tracker can.
+  `NAV=hound` (`--nav hound`, `HoundNav`) runs with the robot's nav stack, Sid's hound_nav (`opendubs-nav.service`,
+  started from the dashboard; `robot_bridge.py` holds the base as `nav` and patrols a looping mission set on its
+  page, port 8081). Its bridge renews its lease whenever it knows where it is, so nothing can ask it to stop:
+  **the coordinator takes the base instead** (2026-10-29). To stop it, the base selector's operator release
+  (`{"owner": "*"}`) and at once a claim as `demo_day`, renewed every 0.5 s; while it is ours the selector refuses
+  the nav's claims and forwards none of its commands, and the handover sends one zero command first. A race the
+  nav wins is taken again. For patrol it is released, the nav's next renewal takes it back, and its mission,
+  running all along, carries on. `still()` is the base being ours with `/odom` at rest, so candy is granted only
+  then. Never taken from another owner (a teleop, a show's tracker). PAUSED gives a free base up (teleop and the
+  Shows page may have it) but still takes it from the nav. `/hound_nav/hold` (`std_msgs/Bool`) is published too,
+  the topic asked of the bridge (sidtalia/hound_nav#1), so that once the bridge honours it the planner stops as
+  well. `approach()` holds the base: the bridge takes goals only from its page, so a visitor walks up.
 - **Who is near** comes from the perception services (`/perception/locate "person"`, in the chassis
   frame) until the skeleton feed has a message type.
 - **The shows** are the real palette, started as the Shows page starts them, with `start: deadman`.

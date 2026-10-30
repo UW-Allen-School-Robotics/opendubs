@@ -245,67 +245,121 @@ class Rest(unittest.TestCase):
             dd.arms_away(pos, dd.RosArms.SIDES)
 
 
+class Selector:
+    """base_selector.Lease's rules: a claim is granted when the base is free or already the claimant's, never
+    taken from a live holder; a release frees it for its holder or for "*"."""
+
+    def __init__(self, owner=None):
+        self.owner, self.log, self.nav = owner, [], None
+
+    def _say(self):
+        if self.nav:
+            self.nav.on_owner('{"owner": %s}' % ("null" if self.owner is None else '"%s"' % self.owner))
+
+    def claim(self, d):
+        self.log.append(("claim", d["owner"]))
+        if self.owner in (None, d["owner"]):
+            self.owner = d["owner"]
+        self._say()
+
+    def release(self, d):
+        self.log.append(("release", d["owner"]))
+        if d["owner"] in (self.owner, "*"):
+            self.owner = None
+        self._say()
+
+
 class Hound(unittest.TestCase):
-    """HoundNav (2026-10-29): the nav is told to hold and carry on, and the base counts as still only
-    when the nav has let go of it and /odom says it is not moving."""
+    """HoundNav (2026-10-29): the base is TAKEN from the nav for the candy (the operator's release, then our
+    claim, renewed), given back to it for patrol, and counts as still only when it is ours and /odom at rest."""
 
     def setUp(self):
-        self.clock, self.sent = Clock(), []
-        self.nav = dd.HoundNav(publish=self.sent.append, clock=self.clock)
+        self.clock, self.sent, self.sel = Clock(), [], Selector(owner="nav")
+        self.nav = dd.HoundNav(publish=self.sent.append, claim=self.sel.claim, release=self.sel.release,
+                               clock=self.clock)
+        self.sel.nav = self.nav
+        self.sel._say()
+        self.nav.on_odom(0.0, 0.0, 0.0)
 
-    def fresh(self, owner="nav", vx=0.0, wz=0.0):
-        self.nav.on_owner('{"owner": %s}' % ("null" if owner is None else '"%s"' % owner))
-        self.nav.on_odom(vx, 0.0, wz)
-
-    def test_patrol_lifts_the_hold_and_stop_sets_it_once(self):
+    def test_stop_takes_the_base_from_the_nav_and_patrol_gives_it_back(self):
         self.nav.patrol()
+        self.sel.owner = "nav"; self.sel._say()             # the nav drives
         self.nav.stop()
-        self.nav.stop()
-        self.assertEqual(self.sent, [False, True])
-
-    def test_still_needs_the_nav_to_let_go_of_the_base_and_odom_at_rest(self):
-        self.nav.stop()
-        self.fresh(owner="nav")
-        self.assertFalse(self.nav.still())                  # it ignored the hold, or has not released yet
-        self.fresh(owner=None, vx=0.3)
-        self.assertFalse(self.nav.still())                  # released, still rolling
-        self.fresh(owner=None)
+        self.assertEqual(self.sel.log[-2:], [("release", "*"), ("claim", "demo_day")])
+        self.assertEqual(self.sel.owner, "demo_day")
         self.assertTrue(self.nav.still())
-        self.fresh(owner="show")                            # a show's dance tracker may hold it
-        self.assertTrue(self.nav.still())
+        self.nav.patrol()
+        self.assertEqual((self.sel.log[-1], self.sel.owner), (("release", "demo_day"), None))
+        self.assertFalse(self.nav.still())
 
-    def test_stale_or_unknown_is_not_still_and_patrolling_is_not_still(self):
+    def test_ours_is_renewed_and_the_navs_claims_are_refused_meanwhile(self):
         self.nav.stop()
-        self.assertFalse(self.nav.still())                  # nothing heard yet
-        self.fresh(owner=None)
+        self.sel.claim({"owner": "nav"})                    # the bridge renews as ever: refused
+        self.assertEqual(self.sel.owner, "demo_day")
+        n = len(self.sel.log)
+        self.clock.t += dd.HoundNav.RENEW_S
+        self.nav.tick()
+        self.assertEqual(self.sel.log[n:], [("claim", "demo_day")])
+
+    def test_a_race_the_nav_won_is_taken_again(self):
+        self.nav.stop()
+        self.sel.owner = "nav"; self.sel._say()             # its renewal landed between the release and our claim
+        self.assertFalse(self.nav.still())
+        self.clock.t += dd.HoundNav.RETAKE_S
+        self.nav.tick()
+        self.assertEqual(self.sel.owner, "demo_day")
+
+    def test_never_taken_from_another_owner_and_then_not_still(self):
+        self.sel.owner = "teleop"; self.sel._say()
+        self.nav.stop()
+        self.clock.t += 5.0
+        self.nav.tick()
+        self.assertEqual(self.sel.owner, "teleop")
+        self.assertNotIn(("release", "*"), self.sel.log)
+        self.assertFalse(self.nav.still())
+
+    def test_rolling_or_stale_is_not_still(self):
+        self.nav.stop()
+        self.nav.on_odom(0.3, 0.0, 0.0)
+        self.assertFalse(self.nav.still())
+        self.nav.on_odom(0.0, 0.0, 0.0)
         self.clock.t += 1.0                                 # /odom gone quiet
         self.assertFalse(self.nav.still())
-        self.fresh(owner=None)
-        self.nav.patrol()
-        self.assertFalse(self.nav.still())
 
-    def test_the_hold_is_said_again_for_a_bridge_that_restarted(self):
+    def test_paused_a_free_base_stays_free_but_the_nav_is_still_kept_off(self):
+        self.nav.stop()
+        self.nav.pause()
+        self.assertIsNone(self.sel.owner)                   # ours given up: teleop, the Shows page may have it
+        self.clock.t += 5.0
+        self.nav.tick()
+        self.assertIsNone(self.sel.owner)
+        self.sel.owner = "nav"; self.sel._say()             # the nav claims it back while paused
+        self.clock.t += dd.HoundNav.RETAKE_S
+        self.nav.tick()
+        self.assertEqual(self.sel.owner, "demo_day")
+
+    def test_the_hold_is_still_said_for_a_bridge_that_honours_it(self):
+        self.nav.patrol()
         self.nav.stop()
         self.clock.t += dd.HoundNav.RESEND_S
         self.nav.tick()
-        self.assertEqual(self.sent, [True, True])
+        self.assertEqual(self.sent[-3:], [False, True, True])
 
-    def test_an_approach_holds_the_base(self):
-        self.nav.patrol()
-        self.nav.approach(dd.Person(2.0, 0.0), 1.2)
-        self.assertEqual(self.sent[-1], True)
-
-    def test_candy_is_refused_while_the_nav_keeps_the_base(self):
+    def test_patrol_candy_patrol_with_the_coordinator(self):
         co = dd.Coordinator(self.nav, People(), Palette(), Safety(), "candy_show", ["monster_mash"],
                             clock=self.clock, rng=random.Random(0))
         co.still_wait_s = 0.05
         co.tick()
-        self.assertEqual(self.sent[-1], False)              # patrolling
-        self.fresh(owner="nav")
-        self.assertEqual(co.request("candy"), (False, "the base did not come to rest"))
-        self.assertEqual(self.sent[-1], True)               # ... and told to hold
-        self.fresh(owner=None)
-        self.assertTrue(co.request("candy")[0])
+        self.sel.owner = "nav"; self.sel._say()             # patrolling: the nav has it
+        self.assertTrue(co.request("candy")[0])             # taken, still: granted
+        self.assertEqual((co.state, self.sel.owner), ("CANDY", "demo_day"))
+        co.palette.now = "candy_show"; co.tick()
+        co.palette.now = None; co.tick()                    # the run ends: with a visitor, still held
+        self.assertEqual((co.state, self.sel.owner), ("ENGAGED", "demo_day"))
+        for _ in range(int((dd.ENGAGED_S + 1) / dd.TICK_S)):
+            self.clock.t += dd.TICK_S
+            co.tick()
+        self.assertEqual((co.state, self.sel.owner), ("IDLE_NAV", None))   # given back: the nav takes it
 
 
 class Day(unittest.TestCase):
