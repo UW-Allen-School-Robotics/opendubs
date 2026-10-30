@@ -98,5 +98,29 @@ ok(!ghost.personInView({ target: [0.5, 0.5, 0.9], target_age_s: 3 }), "a stale t
 ok(!ghost.personInView({ target: null, target_age_s: null }), "no target: nobody");
 ok(!ghost.personInView(null), "no tracker answer: nobody");
 
+// Every look a timeline may hold draws, in every costume. A look that throws freezes the face on its last
+// frame with no error anyone sees: FOCUS danced did, asking for a pose that doesn't exist. Drawn on a
+// canvas that does nothing, so this checks only that a frame completes.
+{
+  const nothing = new Proxy(function () {}, { get: (_, k) => k === "getTransform" ? () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 })
+    : k === "isPointInPath" ? () => true : nothing, apply: () => nothing, set: () => true });
+  globalThis.Path2D ??= class { moveTo() {} lineTo() {} bezierCurveTo() {} quadraticCurveTo() {} closePath() {} ellipse() {} rect() {} };
+  globalThis.OffscreenCanvas ??= class { constructor(w, h) { this.width = w; this.height = h; } getContext() { return nothing; } };
+  globalThis.window ??= {};
+  const out = new Proxy({ canvas: { width: 640, height: 360 } }, { get: (o, k) => (k in o ? o[k] : () => {}) });
+  let clock = 0;
+  for (const c of ghost.TIMELINE.costumes) {
+    const steps = ghost.TIMELINE.looks.map((l, i) => [i * 2, l, c]);
+    let broke = "";
+    for (let s = 0; s < steps.length * 2 && !broke; s += 1 / 15) {
+      window.ghostInputs = { day: { available: true, state: "CHOREO", show: "celebrate", since_s: s }, person: false, steps };
+      try { ghost.draw(out, { side: "left" }, (clock += 1 / 15)); } catch (e) { broke = `${steps[Math.floor(s / 2)][1]}: ${e.message}`; }
+    }
+    ok(!broke, `every look draws in the ${c} costume`, broke);
+  }
+  ghost.stop();
+  delete window.ghostInputs;
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nall ghost-skin checks passed");
 process.exit(failed ? 1 : 0);

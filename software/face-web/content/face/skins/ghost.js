@@ -1028,7 +1028,7 @@ function frame(nowMs) {
     giggle += ctl.giggle * se.both * ease(smileAmt) * giggleAt(se.since) * (PK ? 1 - PK.mix : 1);
   }
   // the dance's own looks, over the groove (DANCE, above)
-  let danceScale = 1, danceFloat = 0, riseSweat = 0;
+  let danceScale = 1, danceFloat = 0, riseSweat = 0, danceFocus = 0, danceFocusLook = 0;
   if (DL && !jumped) for (const dt2 of DL.swaps) blink = Math.max(blink, blinkAt(QUICK.close - dt2));   // not on a scrub
   if (DL) {
     const pop = Math.exp(-DL.frac * 5), a = ease(danceAmt), L2 = DL.look;
@@ -1048,7 +1048,7 @@ function frame(nowMs) {
         pose = mixPose(pose, se.pose, a); giggle += ctl.giggle * se.both * a * giggleAt(se.since);
       }
       const sway2 = 0.5 - 0.5 * Math.cos(Math.PI * DL.beats / 2);                    // there and back, two beats each way
-      if (L2 === "focus") pose = mixPose(pose, mixPose(POSE.focus1, POSE.focus2, sway2), a);     // the glance at the basket
+      if (L2 === "focus") { pose = mixPose(pose, POSE.focus, a); danceFocus = a; danceFocusLook = sway2; }   // FOCUS, its highlights glancing to the beat
       if (L2 === "puzzled") pose = mixPose(pose, mixPose(POSE.think1, POSE.think2, sway2), a);   // the puzzled tilt, rocking
       if (L2 === "creep") {                                                           // SQUINT: the fierce faces, two beats each
         const i = Math.floor(DL.beats / 2), u = ease(clamp01((DL.beats / 2 - i) * 2));
@@ -1210,9 +1210,11 @@ function frame(nowMs) {
     ctx.fillStyle = ink; for (const [x, y, rr] of HAPPY_DOTS) { ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
   });
-  if (focusAmt > 0) {
+  const focusShown = Math.max(focusAmt, danceFocus);
+  if (focusAmt <= 0) focusLook = danceFocusLook;
+  if (focusShown > 0) {
     layer(1, () => {
-      ctx.save(); ctx.globalAlpha = ease(focusAmt) ** 2; ctx.fillStyle = bg;
+      ctx.save(); ctx.globalAlpha = ease(focusShown) ** 2; ctx.fillStyle = bg;
       FOCUS_LIGHTS.focus1.forEach((a, i) => {
         const b = FOCUS_LIGHTS.focus2[i], m = (k) => a[k] + (b[k] - a[k]) * focusLook;
         ctx.beginPath(); ctx.ellipse(m(0), m(1), m(2), m(3), m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
@@ -1222,7 +1224,7 @@ function frame(nowMs) {
     layer(0.8, () => {
       const [sx, sy] = FOCUS_SPARKLE_C, tw = ctl.sparkle;
       const k = 1 + tw * 0.22 * Math.sin(t * 4.1), rot = tw * 0.18 * Math.sin(t * 2.3);
-      ctx.save(); ctx.globalAlpha = ease(focusAmt);          // solid black: it twinkles by size and turn only
+      ctx.save(); ctx.globalAlpha = ease(focusShown);        // solid black: it twinkles by size and turn only
       ctx.translate(sx, sy); ctx.rotate(rot); ctx.scale(k, k); ctx.translate(-sx, -sy);
       ctx.fillStyle = ink; ctx.fill(FOCUS_SPARKLE); ctx.restore();
     });
