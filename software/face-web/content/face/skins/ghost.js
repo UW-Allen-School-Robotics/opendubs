@@ -956,9 +956,9 @@ function frame(nowMs) {
   const LK = DL && DL.look === "lookout" ? lookout(DL.e % (2 * ctl.turn + 2 * ctl.hold + ctl.sweep)) : null;
   if (L || LK) { side = (L || LK).side; blink = (L || LK).blink; phase = "lookout"; }
   else {
-    // WAVE LOOK: the eyes follow the waving arm, one side for `every` beats, then the other
-    // (wave-r and wave-l: one arm, the right or the left)
-    const to = !DL ? 0 : DL.look === "wavelook" ? (Math.floor(DL.beats / DL.every) % 2 ? -0.9 : 0.9)
+    // WAVE LOOK: the eyes sweep side to side with the waving, there and back every four beats
+    // (wave-r and wave-l: they hold on one arm, the right or the left)
+    const to = !DL ? 0 : DL.look === "wavelook" ? 0.9 * Math.sin(Math.PI * DL.beats / 2)
       : DL.look === "wave-r" ? 0.9 : DL.look === "wave-l" ? -0.9 : 0;
     side += (to - side) * Math.min(1, dt * (DL ? 4 : 6)); phase = near ? "attentive" : "doze";
   }
