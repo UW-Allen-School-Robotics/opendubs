@@ -13,6 +13,8 @@ gafro_robot.GafroRobot plans every move on the twin, as before; only how a goal 
                                                        one shut on nothing is reported, not an error (a gripper closed
                                                        to travel), so the program decides what a miss means
     the hand-off      get_hand or find_hand, plan_treat, move_joints, hold, gripper_open, ready   (TreatRobot)
+    the whole visit   Archit's treat_sequence.py, run as it is (treat_sequence(), below): ready, the candy from the
+                      bucket, his line on the Jabra, find_hand (his node runs the head), the hand-off, ready
     a cancel          /perception/treat/stop           the arm holds where it is
 
 The node keeps its own gates (on the real arm: CH5, the e-stop and the deadman for every motion, a lost permit
@@ -24,6 +26,9 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import signal
+import subprocess
 import threading
 import time
 
@@ -34,6 +39,11 @@ SUCCESS, NOT_FOUND = 0, 5
 TRAVEL_M = 0.044                     # the finger's full travel (gafro/gripper.py TRAVEL)
 OPEN_FROM = 0.5                      # an opening from this up is "open"; below it, "closed"
 SPEED = 0.4                          # rad/s, the fastest joint's peak in move_joints (the node's default)
+#: Archit's sequence (software/perception/tools/treat_sequence.py on daphne/treat-gripper), mounted by dev.sh
+SEQUENCE = os.environ.get("OPENDUBS_ARCHITECT_TREAT_SEQUENCE", "/treat/software/perception/tools/treat_sequence.py")
+#: Its exit codes (its docstring): 0 done, 1 a step failed, 2 no hand held out, 3 nobody found, 4 stopped or the
+#: deadman not held, 130 interrupted (it calls `stop`)
+NO_HAND, NOBODY, STOPPED, INTERRUPTED = 2, 3, 4, 130
 
 
 class R:
@@ -184,4 +194,40 @@ def treat_robot_class():
             self.move_arm_to_named_pose(side, "ready")
             return {"released": True, "reason": f"placed at the palm {got.get('palm')}"}
 
+        def treat_sequence(self, say: str = "") -> dict:
+            """Archit's whole visit, his script run as it is on the services' domain: its lines go to the log, a stop
+            here is his Ctrl-C (he calls `stop`; the arm holds). Nobody or no hand: released False, the arm at ready
+            with the candy; anything else that fails raises."""
+            self._permit("treat_sequence")
+            cmd = ["python3", "-u", SEQUENCE]
+            cmd += ["--say", say, "--say-url", self.say_url] if say and self.say_url else ["--no-say"]
+            env = dict(os.environ, ROS_DOMAIN_ID=str(self.treat_domain))
+            proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            lines = []
+
+            def read():
+                for line in proc.stdout:
+                    lines.append(line.rstrip())
+                    self.log({"event": "treat_sequence", "line": line.rstrip()})
+            reader = threading.Thread(target=read, daemon=True)
+            reader.start()
+            interrupted = False
+            while proc.poll() is None:
+                if self.stopped() and not interrupted:
+                    proc.send_signal(signal.SIGINT)
+                    interrupted = True
+                time.sleep(0.1)
+            reader.join(timeout=2.0)
+            code, last = proc.returncode, (lines[-1] if lines else "")
+            self.log({"event": "treat_sequence_done", "exit": code})
+            if code == 0:
+                return {"released": True, "reason": "handed over (treat_sequence.py)"}
+            if code in (NO_HAND, NOBODY):
+                return {"released": False, "reason": last or ("no hand held out" if code == NO_HAND else "nobody found")}
+            if code in (STOPPED, INTERRUPTED) or interrupted:
+                raise MotionRefused(f"treat_sequence: stopped ({last})")
+            raise MotionRefused(f"treat_sequence: a step failed, exit {code} ({last})")
+
+    TreatRobot.say_url = None                # the listener's POST /api/say (demo_runner --say-url)
+    TreatRobot.treat_domain = 0              # the services' ROS domain
     return TreatRobot

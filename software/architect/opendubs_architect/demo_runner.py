@@ -615,6 +615,7 @@ def main(argv=None) -> int:
                                  log=lambda ev: print(json.dumps(ev), flush=True))
         namespace = {k: v for k, v in namespace_for(robot).items() if k in primitives and k != "say"}
         after_run = robot.release_head            # say: the listener's voice, below (the arm service has none)
+        robot.say_url = a.say_url                 # treat_sequence's line goes there too
     else:
         from opendubs_architect import live_arms
         namespace, _client = cfg.make_live_namespace()

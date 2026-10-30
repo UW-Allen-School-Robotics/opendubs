@@ -436,8 +436,8 @@ What it took:
 | unit | what | dev.sh |
 |---|---|---|
 | `archit-architect-camera` | the colour image for the ARCHITECT tab | `camera` |
-| `archit-architect-treat` | Archit's services on the real right arm (`--real --no-head`) and his hand tracker, from `TREAT_REPO` (a checkout of `daphne/treat-gripper`) | `treat` |
-| `archit-architect-runner` | the runner, `candy_gafro.py`, through those services (`TREAT_DOMAIN=0`) | `gafro` |
+| `archit-architect-treat` | Archit's services on the real right arm (`--real --head --left-stowed`: his node runs the head) and his hand tracker, from `TREAT_REPO` (a checkout of `daphne/treat-gripper`) | `treat` |
+| `archit-architect-runner` | the runner, `candy_treat.py` (Archit's `treat_sequence.py` as one call, `treat_sequence()`; with no hand, the candy back in the bucket), through those services (`TREAT_DOMAIN=0`) | `gafro` |
 | `archit-architect-listener` | the Jabra, in runner mode, asking the coordinator first (`DAY=1`, no `SHOW`) | `listen` |
 | `archit-architect-day` | the coordinator, its candy the runner's program (`CANDY_RUNNER=1`), no rest show (the idle pose is `ready`), no random picks (the shows go through the show runner, which refuses any gripper cue on gafro) | `day` |
 
@@ -445,9 +445,9 @@ None of them moves anything at boot. Before the demo, with someone at the e-stop
 
 ```sh
 sudo arm up --supervise          # tobi's arm services (never at boot, on purpose), then, the deadman held:
-sudo arm activate right          # the right arm to ready
+sudo arm activate right          # the right arm to ready (the left at stow: his node runs the head with --left-stowed)
 curl -X POST 127.0.0.1:8096/api/resume
-# the runner arms candy_gafro.py itself at start (ARM_AT_START=1, the offer, check and approval of a spoken
+# the runner arms candy_treat.py itself at start (ARM_AT_START=1, the offer, check and approval of a spoken
 # "hand out candy" and "yes"); a new program still needs them
 # then each visitor: "OpenDubs ... trick or treat", the deadman held
 ```

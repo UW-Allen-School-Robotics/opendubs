@@ -249,6 +249,9 @@ class OpenDubsRobotClient:
         return self._call("place_in_hand", {"arm": api.check_arm(arm), "timeout_s": float(timeout_s)},
                           wait_s=float(timeout_s))
 
+    def treat_sequence(self, say: str = "") -> dict:
+        return self._call("treat_sequence", {"say": str(say)}, wait_s=60.0)
+
     # ------------------------------------------------------------------
     # Head and expression
     # ------------------------------------------------------------------

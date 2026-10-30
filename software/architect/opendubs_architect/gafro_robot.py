@@ -626,6 +626,7 @@ def make(config, deadman_held, stopped, dashboard: str = "http://127.0.0.1:8080"
     if treat_domain is not None:
         from opendubs_architect import treat_calls
         ros, cls = treat_calls.TreatCalls(ros, treat_domain), treat_calls.treat_robot_class()
+        cls.treat_domain = int(treat_domain)
     missing = ros.wait_for_servers()
     if missing:
         raise SystemExit(f"gafro backend: the arm service does not serve {', '.join(missing)} on ROS domain "

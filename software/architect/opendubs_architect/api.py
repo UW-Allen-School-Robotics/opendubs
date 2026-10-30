@@ -41,6 +41,7 @@ PRIMITIVES = (
     ("set_gripper_width",         "control/set_gripper_width",         "command"),
     ("reset_robot",               "control/reset_robot",               "command"),
     ("place_in_hand",             "control/place_in_hand",             "command"),
+    ("treat_sequence",            "control/treat_sequence",            "command"),
     ("wait",                      "control/wait",                      "command"),
     ("set_head_pose",             "head/set_head_pose",                "command"),
     ("say",                       "head/say",                          "command"),
@@ -57,7 +58,7 @@ PRIMITIVE_NAMES = tuple(name for name, _, _ in PRIMITIVES)
 #: control steps, and they are the ones the robot refuses without the deadman.
 MOTION_PRIMITIVES = frozenset({
     "move_ee_to_pose", "move_ee_to_rel_pose", "move_arm_to_named_pose", "set_gripper_width",
-    "reset_robot", "place_in_hand", "navigate_to", "move_base_rel",
+    "reset_robot", "place_in_hand", "treat_sequence", "navigate_to", "move_base_rel",
 })
 
 #: ResultCode values: robot_api_interfaces/msg/ResultCode.msg, kept identical to the perception
@@ -260,6 +261,13 @@ place_in_hand(arm: str, timeout_s: float = 15.0)
     for a stable hand. Returns {"released": bool, "reason": str}; released is False when no
     stable hand appeared in time (the gripper is still closed and the arm has retracted).
 
+treat_sequence(say: str = "")
+    The whole trick-or-treat hand-off as one call (the right arm): from ready, take a candy from
+    the bucket, say `say` (nothing when empty), find the person and the hand they hold out,
+    reach toward it, open, and go back to ready. Returns {"released": bool, "reason": str};
+    released is False when nobody or no hand was found (the arm is at ready, still holding
+    the candy).
+
 wait(seconds: float)
     Hold still for `seconds` (0 to 10) before the next call, e.g. a pause before letting go.
     Returns True.
@@ -316,7 +324,7 @@ PROFILES = {
     "gafro": ("get_current_joints", "get_current_ee_pose", "get_current_gripper_width", "get_workspace",
               "get_named_poses", "move_ee_to_pose", "move_ee_to_rel_pose", "move_arm_to_named_pose",
               "set_gripper_width", "reset_robot", "wait", "set_head_pose", "get_hand_pose", "place_in_hand",
-              "say"),
+              "treat_sequence", "say"),
 }
 
 _ENTRY = re.compile(r"^([a-z_]+)\(")

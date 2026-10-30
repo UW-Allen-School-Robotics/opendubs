@@ -13,10 +13,11 @@ below are in [README.md](README.md). This page is the how-to.
 Jabra ─▶ listener ──"trick or treat"──▶ coordinator ── takes the base from the nav, checks it is still
                                               │ grants the candy
                                               ▼
-                           ARCHITECT runner (candy_gafro.py, planned on the twin)
+                           ARCHITECT runner (candy_treat.py: runs Archit's treat_sequence.py)
                                               │ /perception/treat/* (ROS 2 services)
                                               ▼
                        Archit's treat node ──▶ tobi's arm service (the right arm, its gripper)
+                                         ├──▶ the head (finding the person)
                                          └──▶ Archit's hand tracker (the palm held out)
 ```
 
@@ -79,7 +80,7 @@ software/architect/tools/dev.sh status        # all five: active
 - **`NAV=hound`:** the coordinator takes the base from Sid's nav for the candy and gives it back afterwards. Leave it out for the stub, which moves nothing.
 
 At boot, or after this:
-- The runner **arms `candy_gafro.py` by itself**. You hear its summary, then "Approved. Say trick or treat."
+- The runner **arms `candy_treat.py` by itself**. You hear its summary, then "Approved. Say trick or treat."
 - The coordinator starts **PAUSED**.
 
 Nothing moves until someone brings the arms up and resumes the coordinator. Installing again
@@ -98,6 +99,7 @@ With **someone at the e-stop**, the stage and the bucket in place, and the area 
 sudo arm up --supervise           # tobi's arm services, both arms; holds them where they are
 # CH5 in AUTO, hold the deadman (CH6):
 sudo arm activate right           # the right arm to ready (refused when it is far from stow or ready: `sudo arm park right` first)
+sudo arm status left              # the left arm must be at stow: Archit's node runs the head with --left-stowed
 curl -X POST 127.0.0.1:8080/api/nav/start     # Sid's nav, if patrolling; its mission is set on his page (port 8081)
 curl -X POST 127.0.0.1:8096/api/resume        # the coordinator: patrol, then candy on "trick or treat"
 ```
@@ -115,12 +117,12 @@ sudo arm status right                 # supervised: yes
 
 1. **The deadman is held all the time.** It's what lets the base patrol and the arm move, and letting go stops both.
 2. The visitor says **"OpenDubs … trick or treat"**. Within a metre or so of the Jabra is best.
-3. The coordinator takes the base and waits until it's still. The robot greets them, then:
-   - the head tips down;
-   - the arm goes out behind and over the bucket, opens wide, goes down to just above the candy, and closes on one;
-   - it lifts out and goes to the side.
-4. **The hand-off:** the robot says "Now hold out your hand for your treat!" on the Jabra. The visitor stands **about 1–1.2 m from the robot's front** and holds a hand out, **palm up, at about 1 m off the floor**, and keeps it still. The robot reaches toward the hand (stopping 30 cm short of the palm), holds 3 s, opens, and goes back to `ready`.
-   - A hand that's lower, nearer or further than that can't be reached. The candy then goes back into the bucket, and every run ends with the gripper open.
+3. The coordinator takes the base and waits until it's still. The robot greets them, then runs Archit's sequence:
+   - the arm goes from `ready` straight down into the bucket (the gripper already open), closes on a candy, and goes back to `ready`;
+   - it says "Now hold out your hand for your treat!" on the Jabra;
+   - the head tilts fully up, then finds the person and centres them.
+4. **The hand-off:** the visitor stands **about 1–1.2 m from the robot's front** and holds a hand out, **palm up, at about 1 m off the floor**, and keeps it still. The robot reaches toward the hand, opens, holds 5 s, and goes back to `ready`.
+   - With nobody found or no hand held out, the candy goes back into the bucket, so every run ends with the gripper open.
 5. After the run the base stays held for 20 s, then patrol carries on.
 
 Stop everything: release the deadman, or press the e-stop. `curl -X POST 127.0.0.1:8096/api/pause`

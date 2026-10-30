@@ -233,6 +233,43 @@ class Treat(unittest.TestCase):
         t = self.calls((1, "the gripper did not move (still 43.0 mm open)", '{"stopped": null}'))
         self.assertFalse(t.grip("right", 0.0).result().reached_goal)
 
+    def sequence(self, body, stopped=lambda: False, say_url="http://127.0.0.1:8099/api/say"):
+        """treat_sequence() over a stand-in for Archit's treat_sequence.py: (result or the error, its argv)."""
+        import tempfile
+        from opendubs_architect import treat_calls as tc
+        d = tempfile.mkdtemp()
+        script, argv = os.path.join(d, "treat_sequence.py"), os.path.join(d, "argv")
+        with open(script, "w") as fh:
+            fh.write(f"import sys, time\nopen({argv!r}, 'w').write(' '.join(sys.argv[1:]))\n{body}\n")
+        robot = tc.treat_robot_class().__new__(tc.treat_robot_class())
+        robot.deadman_held, robot.stopped, robot.log, robot.say_url = (lambda: True), stopped, (lambda ev: None), say_url
+        old, tc.SEQUENCE = tc.SEQUENCE, script
+        try:
+            got = robot.treat_sequence(say="Hold out your hand")
+        except MotionRefused as e:
+            got = e
+        finally:
+            tc.SEQUENCE = old
+        return got, open(argv).read()
+
+    def test_the_whole_visit_is_archits_sequence_and_its_exit_code_says_how_it_went(self):
+        got, argv = self.sequence("print('ready: at ready')")
+        self.assertTrue(got["released"])
+        self.assertEqual(argv, "--say Hold out your hand --say-url http://127.0.0.1:8099/api/say")
+        got, _ = self.sequence("print('find_hand: no hand held out in 10 s'); sys.exit(2)")
+        self.assertEqual(got, {"released": False, "reason": "find_hand: no hand held out in 10 s"})
+        self.assertFalse(self.sequence("sys.exit(3)")[0]["released"])
+        self.assertIsInstance(self.sequence("sys.exit(4)")[0], MotionRefused)
+        self.assertIsInstance(self.sequence("raise SystemExit('no /perception/treat/ready')")[0], MotionRefused)
+        self.assertEqual(self.sequence("pass", say_url=None)[1], "--no-say")
+
+    def test_a_stop_is_the_sequences_ctrl_c(self):
+        t0 = time.monotonic()
+        got, _ = self.sequence("try:\n    time.sleep(30)\nexcept KeyboardInterrupt:\n    sys.exit(130)",
+                               stopped=lambda: time.monotonic() - t0 > 0.5)
+        self.assertIsInstance(got, MotionRefused)
+        self.assertLess(time.monotonic() - t0, 10)
+
 
 class Cancel(unittest.TestCase):
     def test_arm_at_start_offers_checks_and_approves_the_fixed_program(self):

@@ -13,7 +13,7 @@
 #                                  (archit-architect-arms, robot_node.py). FAKE ARMS by default: nothing
 #                                  moves. ARMS=ros for the real arms (see below)
 #   dev.sh gafro                   the runner on TOBI'S ARM SERVICE (the gafro backend, gafro_robot.py): a fixed
-#                                  program (PROGRAM, default examples/candy_gafro.py), approved on its page or by
+#                                  program (PROGRAM, default examples/candy_treat.py: Archit's treat_sequence.py), approved on its page or by
 #                                  voice ("yes"), run on each "trick or treat", one action goal per call. The arm
 #                                  service (arm_service.py run, supervised and activated) must be up on the
 #                                  robot's domain, and nothing else drive that arm meanwhile. THE ARM AND THE HEAD
@@ -25,7 +25,8 @@
 #                                  socket, taken to ready and left there, and the /joint_states merge beside it. Archit's recipe
 #                                  (software/perception/tools/grasp_to_sim.sh sim, archit/treat-follow-ros), without his follow
 #   dev.sh treat [stop]            Archit's trick-or-treat services on the REAL right arm (treat_services.py --real
-#                                  --no-head, /perception/treat/*, domain 0) and his hand tracker (hand_stack.sh up),
+#                                  --head --left-stowed, /perception/treat/*, domain 0: his node runs the head, and the
+#                                  left arm must be at stow) and his hand tracker (hand_stack.sh up),
 #                                  from TREAT_REPO (default the daphne/treat-gripper worktree: his archit/treat-follow-ros
 #                                  with the gripper through the arm service's open_gripper / close_gripper). Moves
 #                                  nothing by itself; every motion needs CH5, the e-stop and the deadman. What
@@ -168,6 +169,9 @@ run() {  # $1: show or live; then the runner's arguments
   fi
   local publish="--publish /data/shows"
   [ "${backend}" = gafro ] && publish=""
+  # TREAT_DOMAIN: Archit's checkout, read-only, for treat_sequence() (treat_calls.py runs his treat_sequence.py)
+  [ "${backend}" = gafro ] && [ -n "${TREAT_DOMAIN:-}" ] \
+    && args+=(-v "${TREAT_REPO:-$HOME/opendubs/.claude/worktrees/treat-gripper}:/treat:ro")
   if [ "${backend}" = live ]; then
     publish=""
     [ "${ARMS:-fake}" = ros ] && domain=0
@@ -369,7 +373,7 @@ treat() {  # $1: start (default) or stop. Archit's services and hand tracker, on
   fi
   DATA="${pdata}" "${tools}/hand_stack.sh" up      # the tracker, on the running camera driver
   local cmd="set +u; source /opt/gafro/setup.bash; source '${ws}/install/setup.bash'; set -a; . /etc/opendubs/ros-dds.env; set +a
-    export ROS_DOMAIN_ID=0; exec python3 -u '${tools}/treat_services.py' --real --no-head"
+    export ROS_DOMAIN_ID=0; exec python3 -u '${tools}/treat_services.py' --real --head --left-stowed"
   if [ "${FOREGROUND:-0}" = 1 ]; then
     echo $$ > "${pidf}"; exec bash -c "${cmd}" 2>&1 | tee "${DATA}/treat.log"
   fi
@@ -475,7 +479,7 @@ case "${1:-}" in
     [ -n "${TREAT_DOMAIN:-}" ] && sim="${sim} --treat-domain ${TREAT_DOMAIN}"
     # ARM_AT_START=1: the program armed at start, with no one to say yes (the boot unit's way)
     [ "${ARM_AT_START:-0}" = 1 ] && sim="${sim} --arm-at-start"
-    run gafro --agent program --program "/work/${PROGRAM:-software/architect/examples/candy_gafro.py}" ${sim}
+    run gafro --agent program --program "/work/${PROGRAM:-software/architect/examples/candy_treat.py}" ${sim}
     ;;
   dry)
     run show --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"

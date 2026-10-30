@@ -108,6 +108,11 @@ class DryRunRobot:
         self._opening[arm] = 1.0
         return {"released": True, "reason": "dry-run"}
 
+    def treat_sequence(self, say=""):
+        self._log("treat_sequence", say=say)
+        self._opening["right"] = 1.0
+        return {"released": True, "reason": "dry-run"}
+
     # Head and expression
     def set_head_pose(self, pan_deg, tilt_deg):
         self._log("set_head_pose", float(pan_deg), float(tilt_deg))
