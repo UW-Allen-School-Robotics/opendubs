@@ -1035,7 +1035,7 @@ function frame(nowMs) {
     if (L2 === "beatpop") { danceScale = 1 + 0.12 * pop; pose = mixPose(pose, POSE.eek, 0.22 * pop); }   // ALERT: pop on every beat
     if (L2 === "tick" && DL.frac < 0.5) blink = Math.max(blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
     if (a > 0) {
-      if (L2 === "nod" || L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
+      if (L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
       if (L2 === "nod") danceFloat = U * 7 * Math.sin(Math.PI * DL.beats) * a;        // up on one beat, down on the next
       if (L2 === "bow") {                                                             // dip, hold, and a slow blink
         danceFloat = U * 12 * ease(clamp01(DL.e / 1.2)) * a;
@@ -1125,9 +1125,10 @@ function frame(nowMs) {
   const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DL && DL.look === "creep" && danceAmt > 0.5);
   // TICK's half-shut eyes are plain: no cat's pupil or pumpkin's glow in the squint
   const squint = DL && DL.look === "tick" && DL.frac < 0.5;
-  // NOD's crescents bow the other way from SMILE's (a shallow cup, not an arch): the eye turned over as it
-  // comes in, through flat
+  // NOD: the eyes blink down to their lower half (a half-moon, flat side up) on every beat and open between,
+  // tipped so the inner end, by the nose, sits lower
   const nodFlip = DL && DL.look === "nod" ? ease(danceAmt) : 0;
+  const nodShut = nodFlip * clamp01(0.5 + 0.9 * Math.cos(2 * Math.PI * (DL ? DL.frac : 0)));
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
     for (const e of pose.eyes) {
@@ -1141,9 +1142,12 @@ function frame(nowMs) {
       ctx.translate(px, py); ctx.rotate(giggle * GIGGLE_DEG * Math.PI / 180); ctx.translate(-px, -py);
       ctx.translate(0, U * 3 * grooveBob);                     // the eyes dip on each beat
       ctx.translate(cx, cy);
-      // NOD: flatter than SMILE's, and tipped so the inner end, by the nose, sits a little lower
       if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 28 * Math.PI / 180 * nodFlip);
-      ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 1.62 * nodFlip)); ctx.translate(-cx, -cy);
+      ctx.scale(sc, sc * (1 - 0.88 * blink)); ctx.translate(-cx, -cy);
+      if (nodShut > 0) {                                       // NOD's lid: down to the eye's middle
+        let top = Infinity; for (let i = 0; i < n; i++) top = Math.min(top, e[6*i+5]);
+        ctx.beginPath(); ctx.rect(-ART_W, top + (cy - top + 4) * nodShut, 3 * ART_W, 3 * ART_H); ctx.clip();
+      }
       if (happyOutline) {
         // HAPPY fully in, nothing over it: the eye from its matched outlines, open -> squinted by the blink
         const side = cx < ART_W / 2 ? 0 : 1, O = happyOutlines()[side], w = happyBlink;
@@ -1163,7 +1167,7 @@ function frame(nowMs) {
         // (the fierce faces keep it; otherwise only where the eye holds the whole slit: a squint, a wink's
         // crescent or a half-shut eye is the cat's eye colour alone, never a cut-off piece of pupil)
         const px = cx + 8 * gx, py = cy + 6;
-        if (P.pupil && !squint && (fierce || holds(path, [[px, py], [px, py - 46], [px, py + 46], [px - 9, py], [px + 9, py]]))) {
+        if (P.pupil && !squint && nodShut < 0.2 && (fierce || holds(path, [[px, py], [px, py - 46], [px, py + 46], [px - 9, py], [px + 9, py]]))) {
           ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(px, py, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
         }
         // in TICK an eye that is squinted (half shut on the beat, or the groove's wink under it) is the socket
