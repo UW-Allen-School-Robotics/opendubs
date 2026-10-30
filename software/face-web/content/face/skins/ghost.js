@@ -1224,8 +1224,13 @@ function frame(nowMs) {
       ctx.save(); ctx.globalAlpha = ease(focusShown) ** 2; ctx.fillStyle = P.glow || P.pupil || bg;
       FOCUS_LIGHTS.focus1.forEach((a, i) => {
         const b = FOCUS_LIGHTS.focus2[i], m = (k) => a[k] + (b[k] - a[k]) * focusLook;
-        const rx = P.pupil && a[2] > 12 ? m(2) * 0.42 : m(2);
-        ctx.beginPath(); ctx.ellipse(m(0), m(1), rx, m(3), m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
+        if (!P.pupil) { ctx.beginPath(); ctx.ellipse(m(0), m(1), m(2), m(3), m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill(); return; }
+        if (i % 2) return;                     // the cat: each eye's pair drawn from its big one
+        // a bigger slit, and the dot below it on the slit's own long axis, a little gap between
+        const ang = m(4) * Math.PI / 180, rx = m(2) * 0.55, ry = m(3) * 1.3, r = 8, gap = 5;
+        const dx = -Math.sin(ang), dy = Math.cos(ang), d = ry + gap + r;
+        ctx.beginPath(); ctx.ellipse(m(0), m(1), rx, ry, ang, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(m(0) + dx * d, m(1) + dy * d, r, 0, Math.PI * 2); ctx.fill();
       });
       ctx.restore();
     });
