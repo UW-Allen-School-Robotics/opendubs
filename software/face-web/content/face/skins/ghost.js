@@ -1036,9 +1036,8 @@ function frame(nowMs) {
     if (L2 === "tick" && DL.frac < 0.5) blink = Math.max(blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
     if (a > 0) {
       if (L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
-      // NOD: a blink on every beat into SMILE's crescent (turned over, below), only part way so it stays
-      // full rather than a thin banana, opening between beats
-      if (L2 === "nod") pose = mixPose(pose, POSE.smile2, 0.72 * a * clamp01(0.5 + 0.9 * Math.cos(2 * Math.PI * DL.frac)));
+      // NOD: SMILE's crescent (turned over, below), blinked into and open again, once every two beats
+      if (L2 === "nod") pose = mixPose(pose, POSE.smile2, a * clamp01(0.5 + 0.9 * Math.cos(Math.PI * DL.g / DL.B)));
       if (L2 === "nod") danceFloat = U * 7 * Math.sin(Math.PI * DL.beats) * a;        // up on one beat, down on the next
       if (L2 === "bow") {                                                             // dip, hold, and a slow blink
         danceFloat = U * 12 * ease(clamp01(DL.e / 1.2)) * a;
@@ -1145,7 +1144,7 @@ function frame(nowMs) {
       ctx.translate(0, U * 3 * grooveBob);                     // the eyes dip on each beat
       ctx.translate(cx, cy);
       if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 28 * Math.PI / 180 * nodFlip);
-      ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 1.8 * nodFlip)); ctx.translate(-cx, -cy);
+      ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 1.62 * nodFlip)); ctx.translate(-cx, -cy);
       if (happyOutline) {
         // HAPPY fully in, nothing over it: the eye from its matched outlines, open -> squinted by the blink
         const side = cx < ART_W / 2 ? 0 : 1, O = happyOutlines()[side], w = happyBlink;
