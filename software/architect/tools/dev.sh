@@ -371,7 +371,9 @@ treat() {  # $1: start (default) or stop. Archit's services and hand tracker, on
     ( set +u; source /opt/ros/jazzy/setup.bash; cd "${ws}" && colcon build --packages-select robot_api_interfaces opendubs_arm_interfaces >/dev/null ) \
       || { echo "dev.sh: building the interfaces in ${ws} failed" >&2; exit 1; }
   fi
-  DATA="${pdata}" "${tools}/hand_stack.sh" up      # the tracker, on the running camera driver
+  # the tracker, on the running camera driver, from his checkout: REPO here is ours, which has no hand_tracker,
+  # and the container exited at once (2026-10-30)
+  REPO="${repo}" DATA="${pdata}" "${tools}/hand_stack.sh" up
   local cmd="set +u; source /opt/gafro/setup.bash; source '${ws}/install/setup.bash'; set -a; . /etc/opendubs/ros-dds.env; set +a
     export ROS_DOMAIN_ID=0; exec python3 -u '${tools}/treat_services.py' --real --head --left-stowed"
   if [ "${FOREGROUND:-0}" = 1 ]; then
