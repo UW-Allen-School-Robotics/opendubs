@@ -1028,7 +1028,7 @@ function frame(nowMs) {
     giggle += ctl.giggle * se.both * ease(smileAmt) * giggleAt(se.since) * (PK ? 1 - PK.mix : 1);
   }
   // the dance's own looks, over the groove (DANCE, above)
-  let danceScale = 1, danceFloat = 0;
+  let danceScale = 1, danceFloat = 0, riseSweat = 0;
   if (DL && !jumped) for (const dt2 of DL.swaps) blink = Math.max(blink, blinkAt(QUICK.close - dt2));   // not on a scrub
   if (DL) {
     const pop = Math.exp(-DL.frac * 5), a = ease(danceAmt), L2 = DL.look;
@@ -1054,7 +1054,12 @@ function frame(nowMs) {
         const i = Math.floor(DL.beats / 2), u = ease(clamp01((DL.beats / 2 - i) * 2));
         pose = mixPose(pose, mixPose(POSE[i % 2 ? "peek2" : "peek3"], POSE[i % 2 ? "peek3" : "peek2"], u), a);
       }
-      if (L2 === "rise") { pose = mixPose(pose, POSE.eek, a); danceScale = 1 + 0.08 * a; }   // ALERT: EEK!'s eyes, no sweat
+      if (L2 === "rise") {                     // EEK! danced: the idle EEK!'s pop and jolt into its face, then held, sweating
+        const R = eek(Math.min(DL.e, EEK_IN + ctl.eekHold * 0.5));
+        pose = mixPose(pose, POSE.eek, a * R.mix); danceScale = 1 + (R.scale - 1 + 0.08) * a;
+        startle = Math.max(startle, clamp01(1 - DL.e * 3));
+        riseSweat = a * R.sweat;
+      }
       if (L2 === "drowsy") pose = mixPose(pose, POSE.doze2, 0.75 * a);                    // SLEEPY: doze-2's lids
     }
   }
@@ -1223,13 +1228,15 @@ function frame(nowMs) {
     });
   }
   // EEK!'s sweat: all the strokes draw on together, then vanish from the eye side outward, over and over
-  if (EK && EK.sweat > 0) layer(0.8, () => {
+  // (EEK! danced too, in every costume but the cat's)
+  const sweat = Math.max(EK ? EK.sweat : 0, P.whisker ? 0 : riseSweat);
+  if (sweat > 0) layer(0.8, () => {
     ctx.strokeStyle = P.line || ink; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round";
     const S = sweatAt(t);
     for (const sw of SWEAT) {
       if (S.phase === "gone") continue;
       const g = sweatGeometry(sw);
-      ctx.save(); ctx.globalAlpha = EK.sweat;
+      ctx.save(); ctx.globalAlpha = sweat;
       if (S.phase === "draw") {                       // drawing itself on from its starting end
         strokeStretches(sw.path, g.L, S.u > 0.005 ? [[0, S.u * g.L]] : []);
       } else {                                        // going, from the eye side outward, drifting away
