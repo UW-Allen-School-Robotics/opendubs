@@ -54,7 +54,9 @@ shows follows the demo day's coordinator (`demo_day.py`: patrolling, going to so
 candy), the face tracker (someone in view) and the ARCHITECT demo runner. While a palette show plays,
 the ghost dances with it. Each short show has its own timeline of the ghost's expressions and dance
 looks, at the show's time and on its beats, in costumes that change within the show (pumpkin, cat,
-monster or the classic black and white); another show's FACE cues pick its looks. All of it is this one
+monster or the classic black and white); each step fades into the next (softly, quicker into the
+startled faces), from the show's time alone, so a scrub shows what the robot will. Another show's FACE
+cues pick its looks. All of it is this one
 skin, so a show needs no SKIN cue (`DANCES` in `ghost.js`). **The state machine, with every expression
 animated** (tabs: V1, the design; V2, as built; V3, the demo day, with the short shows danced whole): [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
 (download it and open it in a browser; it needs nothing else).
@@ -62,7 +64,7 @@ animated** (tabs: V1, the design; V2, as built; V3, the demo day, with the short
 | | |
 |---|---|
 | `content/face/skins/ghost.js` | **added.** The skin, one file: the drawing, `ghostStage()`, which picks the expression from the coordinator's and the runner's state, and `DANCES`, each show's tempo, costume and looks. Imports nothing from the engine |
-| `tests/test_ghost_skin.mjs` | **added.** `ghostStage()` row by row, the dances' table, reading the emote back from the eye, and when someone counts as in view |
+| `tests/test_ghost_skin.mjs` | **added.** `ghostStage()` row by row, the dances' table, reading the emote back from the eye, when someone counts as in view, every look drawing in every costume, and each show's steps fading in without a jump |
 | `tests/conformance.sh` | **changed.** Runs the test above |
 | `../kiosk-dashboard/backend/architect_proxy.py` | **added.** `GET /api/architect/day` (the coordinator, 127.0.0.1:8096) and `GET /api/architect/state` (the runner, 127.0.0.1:8098), read-only, from the dashboard the face already talks to; neither is in the tablet's reach |
 | `../kiosk-dashboard/backend/app.py` | **changed** (a shared path). Includes that router |
