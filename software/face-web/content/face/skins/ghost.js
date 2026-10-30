@@ -847,6 +847,21 @@ function costumeNose(P, noses) {                // the cat's whiskers: out to ei
   }
   ctx.restore();
 }
+// The cat's fangs: two, hanging from the mouth's upper edge towards its corners, inside the mouth (the
+// path paintMouth just drew, which this leaves as it is for the tongue)
+function costumeFangs(P, mouth) {
+  ctx.save(); ctx.clip(); ctx.fillStyle = P.fang;
+  for (const fx of [ART_W * 0.22, ART_W * 0.78]) {
+    let top = 0, best = Infinity;
+    for (let i = 0; i < MOUTH_SIDE; i++) { const d = Math.abs(mouth[2 * i] - fx); if (d < best) { best = d; top = mouth[2 * i + 1]; } }
+    const f = new Path2D(), w = 19, h = 62, y = top - 8;     // from just above the edge, so no gap shows
+    f.moveTo(fx - w, y); f.lineTo(fx + w, y);
+    f.quadraticCurveTo(fx + w * 0.7, y + h * 0.55, fx, y + h);   // curving in to the point
+    f.quadraticCurveTo(fx - w * 0.7, y + h * 0.55, fx - w, y);
+    ctx.fill(f);
+  }
+  ctx.restore();
+}
 // The cat's tongue: in a mouth opened wide, at the bottom of it in the middle, clipped to the mouth (the
 // path paintMouth just drew). It grows in as the mouth opens past a doze's or a smile's.
 function costumeTongue(P, mouth) {
@@ -1132,6 +1147,7 @@ function frame(nowMs) {
   layer(0.35, () => {                                   // the mouth, furthest back
     ctx.fillStyle = P.mouth || ink;
     paintMouth(pose.mouth, t, ctl.thinkDrop * ease(thinkAmt), thinkSide);
+    if (P.fang) costumeFangs(P, pose.mouth);
     if (P.tongue) costumeTongue(P, pose.mouth);
   });
   // Keep the nose aligned with the eyes as the smile fades in and out.
@@ -1434,7 +1450,7 @@ export const COSTUMES = {
   classic: { bg: "#fff", ink: "#0b0b0b" },
   pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 17,
              sweets: ["#ffd23f", "#fff09a", "#ffe45c", "#ffc928"], bat: "#ffd23f" },
-  cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", tongue: "#e2557f", sparkle: "#ffd23f", pupil: "#0d0c10",
+  cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", tongue: "#e2557f", fang: "#f4e8c1", sparkle: "#ffd23f", pupil: "#0d0c10",
              ear: "#1a181e", earIn: "#ff8fb3", whisker: "#d9d6e0", line: "#d9d6e0" },
   monster: { bg: "#8ccf5e", ink: "#13200c", sparkle: "#ffd23f", sparkleRight: true, hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
 };
