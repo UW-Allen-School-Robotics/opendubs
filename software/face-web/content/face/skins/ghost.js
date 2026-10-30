@@ -973,7 +973,10 @@ function frame(nowMs) {
   const PK = near && peekT0 >= 0 ? peek(t - peekT0) : null;
   if (peekT0 >= 0 && !PK) { peekT0 = -1; peekPauseUntil = t + 0.6; if (reviewState) reviewNext = t + 1; }
   if (!L && !G && !smiling && !patrolling && !busyNow() && eekT0 < 0 && nodT0 < 0 && t >= nextNod && (!near || t - nearSince >= ctl.nodAfter)) nodT0 = t;
-  const nod = L ? 0 : nodAmount(t);
+  // DOZE danced: the idle doze's lids sinking (fighting it), then held, and its web spun out with them
+  const dozing = DL && DL.look === "drowsy" ? ease(danceAmt) * (() => { const u = clamp01(DL.e / Math.min(ctl.nodDroop, 1.2));   // quicker: a step is short
+    return clamp01(u * u * (3 - 2 * u) - 0.10 * Math.sin(u * Math.PI * 2.5) * u * (1 - u) * 2); })() : 0;
+  const nod = L ? 0 : Math.max(nodAmount(t), dozing);
   if (nod > 0) phase = "nodding off";
   startle = Math.max(0, startle - dt * 4);
   if (G) phase = "groove";
