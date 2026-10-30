@@ -85,9 +85,21 @@ class Treat:
         self.permit = {"ok": False, "why": "not read yet"}
         self.real_j2 = {"value": {}, "at": 0.0}
         self.arm_joints = {"q": None, "at": 0.0}
+        # Built once (each loads the model: 0.1-0.36 s and 0.12 s on the Thor, 2026-10-30), not per call
         self.ik = PositionIk(args.model, "right")
+        self.ik_as_built = (self.ik.d.qpos.copy(), self.ik.posture.copy())
+        sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
+        import engage
+        self.paths = engage.PathCheck(args.model, JOINTS)
         self.frames = None if args.dummy else Frames(rclpy, robot_node, "joints")
         self.head = None
+
+    def fresh_ik(self):
+        """The IK, put back as it was built: its solve() starts from its last solution, so each plan starts as a newly
+        built one would."""
+        self.ik.d.qpos[:] = self.ik_as_built[0]
+        self.ik.posture = self.ik_as_built[1].copy()
+        return self.ik
 
     # -- inputs --------------------------------------------------------------------------------------------------------
 
@@ -237,8 +249,6 @@ class Treat:
         from builtin_interfaces.msg import Duration
         from control_msgs.action import FollowJointTrajectory
         from trajectory_msgs.msg import JointTrajectoryPoint
-        sys.path.insert(0, os.path.join(HERE, "..", "..", "openarm", "gafro"))
-        import engage
         if "joints" in req:
             q1 = np.array([float(v) for v in req["joints"]])
         elif "joints_deg" in req:
@@ -251,7 +261,7 @@ class Treat:
         if self.arm_joints["q"] is None or time.monotonic() - self.arm_joints["at"] > 0.5:
             raise Refused(self.RC.SERVICE_NOT_RUNNING, "no current joints from the arm (/joint_states)")
         q0 = self.arm_joints["q"].copy()
-        refusal = engage.PathCheck(self.a.model, JOINTS).refusal(q0, q1)
+        refusal = self.paths.refusal(q0, q1)
         if refusal:
             raise Refused(self.RC.FAILURE, f"the straight path collides ({refusal}): nothing sent")
         vmax = self.speed(req) or 0.4
@@ -356,7 +366,7 @@ class Treat:
         standoff = max(float(req.get("standoff", self.a.standoff)), REAL_STANDOFF if self.a.real else 0.0)
         max_up = min(float(req.get("max_up", self.a.max_up)), REAL_MAX_UP) if self.a.real else float(req.get("max_up", self.a.max_up))
         goal = reach_goal(palm, SHOULDER, standoff=standoff, max_up=max_up)
-        ik = PositionIk(self.a.model, "right")
+        ik = self.fresh_ik()
         if req.get("jaws_level", True):
             found = plan_jaws(ik, goal, np.radians(CANDY_Q_DEG))
             if found is None:

@@ -25,6 +25,8 @@ import sys
 import time
 
 SUCCESS, NOT_FOUND = 0, 5
+SEQUENCE_SERVICES = ("ready", "move_pose", "gripper_close", "find_hand", "plan_treat", "move_joints", "gripper_open",
+                     "hold", "stop")
 
 # The candy bucket, from Daphne's candy_gafro.py (daphne/halloween, measured on opendubs2 2026-10-28/29): the bucket
 # stage's right edge, the rim at z 0.553 and the candy piled 2 cm below it, in her chassis frame. Here in arm_mount,
@@ -75,19 +77,27 @@ def main():
 
     clients = {}
 
-    def call(name, req=None):
-        """(result code, message, data) of /perception/treat/<name>: sent once, waited for. Each client is made once and
-        given half a second after the service is found: a request sent the moment it is can lose its reply (the
-        first gripper_close in the simulation waited 150 s for one that never came; perception_call.py settles too)."""
-        kind = RobotQuery if name == "status" else RobotCommand
-        client = clients.get(name)
-        if client is None:
+    def connect(names):
+        """A client for each of `names` not made yet, each waited for, then half a second ONCE for them all: a request
+        sent the moment its service is found can lose its reply (the first gripper_close in the simulation waited 150 s
+        for one that never came; perception_call.py settles too). Made before the run, so no step pays it (2026-10-30:
+        plan_treat and move_joints each waited 0.5 s on their first call, between the hand and the arm moving)."""
+        new = [n for n in names if n not in clients]
+        for name in new:
+            kind = RobotQuery if name == "status" else RobotCommand
             client = clients[name] = node.create_client(kind, f"/perception/treat/{name}")
             if not client.wait_for_service(timeout_sec=10.0):
                 raise SystemExit(f"no /perception/treat/{name}: are the treat services up? (treat_follow.sh services)")
+        if new:
             settle = time.monotonic() + 0.5
             while time.monotonic() < settle:
                 rclpy.spin_once(node, timeout_sec=0.05)
+
+    def call(name, req=None):
+        """(result code, message, data) of /perception/treat/<name>: sent once, waited for."""
+        kind = RobotQuery if name == "status" else RobotCommand
+        connect([name])
+        client = clients[name]
         request = RobotQuery.Request() if kind is RobotQuery else RobotCommand.Request(req=json.dumps(req or {}))
         future = client.call_async(request)
         rclpy.spin_until_future_complete(node, future, timeout_sec=args.call_s)
@@ -108,6 +118,7 @@ def main():
             return code
 
         speed = {"speed": args.speed} if args.speed else {}
+        connect(SEQUENCE_SERVICES)
 
         code, _, data = call("ready")
         if code != SUCCESS:
