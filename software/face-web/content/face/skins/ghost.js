@@ -1505,20 +1505,30 @@ export function personInView(follow) {
 // get EMOTE_LOOKS. The three full dances live in the private content repository, so they wear their
 // costume over EMOTE_LOOKS until their timelines are written here.
 export const DANCES = {
-  // bars 1-2 nod with the head; 3-4 watch the right hand wave, 5-6 the left; 7-8 reach out; the chord
+  // The three short shows' steps were drawn in ENCORE (the Face pane's ghost lane, "Copy for the skin").
+  // wave-and-nod: nod with the head; SMILE through every costume; the waves; FOCUS, EEK!, HAPPY; the bow
   "wave-and-nod":  { bpm: 120, offset: 0.5, costume: "pumpkin", every: 8,
                      looks: { SOFT: ["nod", "bow"], ALERT: ["wavelook"] },
-                     steps: [[0, "smile"], [0.5, "nod"], [4.5, "wave-r", "cat"], [8.5, "wave-l"], [12.5, "happy"], [16.5, "bow"]] },
-  // the intro wakes and looks round (bars 1-4); the right hand waves, then the left (5-8); the pumps
-  // (9-12); raise the roof (13-14); reach out, and a happy chirp (15-16)
+                     steps: [[0, "nod"], [1.66, "smile", "monster"], [2.659, "smile", "classic"],
+                             [3.286, "smile", "cat"], [3.912, "smile", "pumpkin"], [4.5, "wave-r", "cat"],
+                             [5.55, "wave-r", "monster"], [5.794, "wave-r", "cat"], [6.548, "wave-l", "cat"],
+                             [8.5, "wave-l"], [10.542, "focus"], [11.412, "rise"], [11.784, "rise", "classic"],
+                             [12.5, "happy"], [14.536, "focus"], [15.286, "focus", "cat"], [16.411, "bow"],
+                             [17.536, "bow", "monster"]] },
+  // robotic-smile: asleep, then it wakes and looks round; FOCUS; the waves; the pumps; TICK; EEK! and
+  // HAPPY run through the costumes
   "robotic-smile": { bpm: 123, offset: 1.625, costume: "cat",
                      looks: { ALERT: ["beatpop"], SLEEPY: ["tick"] },
-                     steps: [[0, "doze"], [1.625, "lookout"], [5.527, "peek"], [9.429, "wave-r"], [13.331, "wave-l", "pumpkin"],
-                             [17.233, "beatpop"], [21.135, "tick", "pumpkin"], [25.037, "eek"], [28.939, "happy", "pumpkin"]] },
-  // a grab that worked: startled, then delighted; arms up at 4 s, home at 9 s
+                     steps: [[0, "doze", "classic"], [1.893, "lookout"], [3.135, "lookout", "classic"], [6.06, "focus"],
+                             [9.429, "wave-r"], [13.331, "wave-l", "pumpkin"], [17.233, "beatpop"],
+                             [21.135, "tick", "pumpkin"], [25.037, "eek"], [25.919, "eek", "classic"],
+                             [26.773, "eek", "monster"], [27.87, "eek", "pumpkin"], [28.939, "happy", "pumpkin"],
+                             [30.43, "happy", "cat"], [31.772, "happy", "monster"], [33.357, "happy", "classic"]] },
+  // celebrate: a grab that worked: startled, then delighted
   "celebrate":     { bpm: 120, costume: "monster",
                      looks: { SOFT: ["cheer"] },
-                     steps: [[0, "eek"], [1.5, "smile"], [4, "happy", "pumpkin"], [7, "beatpop", "cat"], [9, "bow"]] },
+                     steps: [[0, "eek"], [1.381, "smile"], [2.276, "tick"], [4, "happy", "pumpkin"],
+                             [7, "beatpop", "cat"], [9, "bow"]] },
   "halloween":     { costume: "classic", looks: { SQUINT: ["creep"], ALERT: ["rise"], SLEEPY: ["drowsy"] } },
   "monster_mash":  { costume: "monster" },
   "ghostbusters":  { costume: "classic" },

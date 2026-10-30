@@ -120,30 +120,37 @@ ok(!ghost.personInView(null), "no tracker answer: nobody");
   }
   ghost.stop();
 
-  // And a show's steps hand over smoothly: played at 30 fps, the eyes never jump in one frame at a step's
-  // start (each step's look used to replace the last at once). Meant to be sudden, and left out: into
-  // EEK! and PEEK, waking from DOZE, and BEAT POP's own pop on the beat.
+  // And a show's steps hand over smoothly: played at 30 fps, the eyes never jump in one frame as a step
+  // starts (each step's look used to replace the last at once). What a step adds, over the look before
+  // it simply carrying on (a SMILE mid-wink is its own movement), is what's measured. Meant to be
+  // sudden, and left out: into EEK! and PEEK (by either name), waking from DOZE, and BEAT POP's pop.
   const change = (a, b) => Math.max(...a.map((e, i) => Math.max(...Array.from(e, (v, j) => Math.abs(v - b[i][j])))));
+  const play = (show, steps, from, to) => {    // the eyes, frame by frame from `from` to `to` s
+    ghost.stop();
+    const frames = [];
+    for (let f = Math.round(from * 30); f <= Math.round(to * 30); f++) {
+      window.ghostInputs = { day: { available: true, state: "CHOREO", show, since_s: f / 30 }, person: false, steps };
+      ghost.draw(out, { side: "left" }, (clock += 1 / 30));
+      frames.push(ghost.snapshot().eyes.map((e) => Array.from(e)));
+    }
+    return frames;
+  };
   for (const show of ["wave-and-nod", "robotic-smile", "celebrate"]) {
     const steps = ghost.TIMELINE.steps(show);
-    let before = null, worst = "", most = 0;
-    for (let f = 0; f <= (steps[steps.length - 1][0] + 0.5) * 30; f++) {
-      const s = f / 30;
-      window.ghostInputs = { day: { available: true, state: "CHOREO", show, since_s: s }, person: false, steps };
-      ghost.draw(out, { side: "left" }, (clock += 1 / 30));
-      const eyes = ghost.snapshot().eyes.map((e) => Array.from(e));
-      const k = steps.findIndex((st) => st[0] <= s + 1e-6 && s - st[0] < 0.1);   // a step that has just started
-      if (before && k > 0) {
-        const [from, to] = [steps[k - 1][1], steps[k][1]];
-        const meant = to === "eek" || to === "peek" || from === "doze" || from === "beatpop" || to === "beatpop";
-        const d = change(before, eyes);
-        if (!meant && d > most) { most = d; worst = `${from} → ${to} at ${steps[k][0]} s`; }
+    let worst = "", most = 0;
+    for (let k = 1; k < steps.length; k++) {
+      const [from, to] = [steps[k - 1][1], steps[k][1]];
+      if (["eek", "rise", "peek", "creep"].includes(to) || from === "doze" || from === "beatpop" || to === "beatpop") continue;
+      const t0 = steps[k][0], a0 = Math.max(0, t0 - 0.5);
+      const now = play(show, steps, a0, t0 + 0.07), alone = play(show, steps.filter((_, i) => i !== k), a0, t0 + 0.07);
+      for (let i = now.length - 3; i < now.length; i++) {
+        const d = change(now[i - 1], now[i]) - change(alone[i - 1], alone[i]);
+        if (d > most) { most = d; worst = `${from} → ${to} at ${t0} s`; }
       }
-      before = eyes;
     }
     ok(most <= 12, `${show}: each step fades in from the last, no jump`, worst ? `${worst}: ${most.toFixed(0)}` : "");
-    ghost.stop();
   }
+  ghost.stop();
   delete window.ghostInputs;
 }
 
