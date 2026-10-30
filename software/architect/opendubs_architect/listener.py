@@ -670,11 +670,9 @@ def main(argv=None) -> int:
                     "confirm a spotter hit (about 2 s of speech, only after a hit; off by default)")
     ap.add_argument("--show-audio", action="store_true", help="show mode: hold the dashboard's show-audio role, "
                     "so shows' music plays on the Jabra (show_music.py), mixed with the robot's speech")
-    ap.add_argument("--day", metavar="URL", help="show mode: the demo day's coordinator (demo_day.py, e.g. "
-                    "http://127.0.0.1:8096), asked before the candy show and given spoken show requests")
+    ap.add_argument("--day", metavar="URL", help="the demo day's coordinator (demo_day.py, e.g. http://127.0.0.1:8096), "
+                    "asked before every candy run (the show, or the runner's program) and given spoken show requests")
     a = ap.parse_args(argv)
-    if a.day and not a.show:
-        ap.error("--day needs --show (the candy show)")
     if a.show_audio and not a.show:
         ap.error("--show-audio needs --show")
     os.environ["OPENDUBS_VOICE_MODELS"] = a.models      # speech.py and vad.py read it

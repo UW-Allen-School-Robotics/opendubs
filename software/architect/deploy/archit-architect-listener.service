@@ -4,7 +4,7 @@
 # @...@ fields are filled in then; this file in the repo is the template.
 [Unit]
 Description=ARCHITECT test: the Jabra listener: "trick or treat" asks the coordinator, then plays the candy show (container archit-architect-listener)
-After=docker.service sound.target archit-architect-day.service
+After=docker.service sound.target archit-architect-day.service archit-architect-runner.service
 Requires=docker.service
 StartLimitIntervalSec=0
 
@@ -14,7 +14,8 @@ User=@USER@
 Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1
 # START=held: the candy show counts down at once while the supervisor's deadman is held (it is,
 # through patrol), and waits for a fresh press when it is not.
-Environment=SHOW=@SHOW@ DAY=1 PROGRAM=@PROGRAM@ SHOW_AUDIO=1 START=held
+# The mode's settings (dev.sh mode_env): MODE=show, the candy show; MODE=gafro, the runner's program
+Environment=@MODE_ENV@
 ExecStartPre=-/usr/bin/sudo -n /usr/bin/docker rm -f archit-architect-listener
 ExecStart=@REPO@/software/architect/tools/dev.sh listen
 ExecStop=/usr/bin/sudo -n /usr/bin/docker stop -t 5 archit-architect-listener

@@ -12,7 +12,8 @@ StartLimitIntervalSec=0
 Type=simple
 User=@USER@
 Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1
-Environment=SHOW=@SHOW@ PAUSED=1
+# The mode's settings (dev.sh mode_env): MODE=show, the candy show; MODE=gafro, the runner's program, no random picks
+Environment=@MODE_ENV@
 ExecStartPre=-/usr/bin/sudo -n /usr/bin/docker rm -f archit-architect-day
 ExecStart=@REPO@/software/architect/tools/dev.sh day
 ExecStop=/usr/bin/sudo -n /usr/bin/docker stop -t 5 archit-architect-day

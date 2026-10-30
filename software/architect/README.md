@@ -427,6 +427,31 @@ What it took:
 - **The head** stopped 1.5 deg short of 25 deg down; it counts as settled within 2.5.
 - **The hand tracker** is Archit's, started by hand (`hand_stack.sh up`): nothing starts it at boot.
 
+### At boot, on the arm service (MODE=gafro, 2026-10-29)
+
+`MODE=gafro dev.sh install` installs five TEST units, all as the installing user, from this checkout:
+
+| unit | what | dev.sh |
+|---|---|---|
+| `archit-architect-camera` | the colour image for the ARCHITECT tab | `camera` |
+| `archit-architect-treat` | Archit's services on the real right arm (`--real --no-head`) and his hand tracker, from `TREAT_REPO` (a checkout of `daphne/treat-gripper`) | `treat` |
+| `archit-architect-runner` | the runner, `candy_gafro.py`, through those services (`TREAT_DOMAIN=0`) | `gafro` |
+| `archit-architect-listener` | the Jabra, in runner mode, asking the coordinator first (`DAY=1`, no `SHOW`) | `listen` |
+| `archit-architect-day` | the coordinator, its candy the runner's program (`CANDY_RUNNER=1`), no rest show (the idle pose is `ready`), no random picks (the shows go through the show runner, which refuses any gripper cue on gafro) | `day` |
+
+None of them moves anything at boot. Before the demo, with someone at the e-stop:
+
+```sh
+sudo arm up --supervise          # tobi's arm services (never at boot, on purpose), then, the deadman held:
+sudo arm activate right          # the right arm to ready
+curl -X POST 127.0.0.1:8096/api/resume
+# "OpenDubs, hand out candy" ... "yes": the program is armed until the runner restarts
+# then each visitor: "OpenDubs ... trick or treat", the deadman held
+```
+
+The runner retries every 10 s until the arm service answers. `MODE=show dev.sh install` (or `SHOW=...`) goes back
+to the candy show and removes the two gafro units.
+
 ## The demo day: one coordinator, one thing at a time
 
 On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh day`, on

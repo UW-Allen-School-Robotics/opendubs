@@ -24,6 +24,12 @@
 #                                  (the robot's installed copy, /opt/opendubs/arm) on its own ROS domain (GAFRO_DOMAIN, 78) and
 #                                  socket, taken to ready and left there, and the /joint_states merge beside it. Archit's recipe
 #                                  (software/perception/tools/grasp_to_sim.sh sim, archit/treat-follow-ros), without his follow
+#   dev.sh treat [stop]            Archit's trick-or-treat services on the REAL right arm (treat_services.py --real
+#                                  --no-head, /perception/treat/*, domain 0) and his hand tracker (hand_stack.sh up),
+#                                  from TREAT_REPO (default the daphne/treat-gripper worktree: his archit/treat-follow-ros
+#                                  with the gripper through the arm service's open_gripper / close_gripper). Moves
+#                                  nothing by itself; every motion needs CH5, the e-stop and the deadman. What
+#                                  TREAT_DOMAIN=0 dev.sh gafro calls. MediaPipe's models in PERCEPTION_DATA/models/mediapipe
 #   dev.sh kws                     fetch the listener's keyword-spotter model into $DATA/models, once
 #   dev.sh butler                  fetch the butler's voice (bm_george, British English) into $DATA/models, once
 #   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner;
@@ -102,6 +108,10 @@ DAY_NAME=archit-architect-day
 DETACH=-d
 [ "${FOREGROUND:-0}" = 1 ] && DETACH=""
 UNITS=(archit-architect-camera archit-architect-listener archit-architect-day)
+# MODE=gafro (dev.sh install): the candy run is ARCHITECT's program on tobi's arm service through Archit's
+# services, not a show: two more units, the listener in runner mode and the coordinator on the runner
+ALL_UNITS=(archit-architect-camera archit-architect-treat archit-architect-runner archit-architect-listener archit-architect-day)
+[ "${MODE:-show}" = gafro ] && UNITS=("${ALL_UNITS[@]}")
 PERCEPTION_CAMERA=archit-perception-camera
 # Every ROS container takes the robot's DDS profile (software/ros, provision-ros.sh; ros-dds.env):
 # UDP over loopback only, so the traffic stays on the Thor and no discovery multicast reaches the
@@ -169,7 +179,7 @@ run() {  # $1: show or live; then the runner's arguments
   # reset_robot (2026-10-24). The robot's profile has no shared memory; the shared namespace stays as
   # cheap insurance.
   need_dds
-  ${DOCKER} run -d --rm --name "${NAME}" --network host --ipc shareable \
+  ${DOCKER} run ${DETACH} --rm --name "${NAME}" --network host --ipc shareable \
     -e ROS_DOMAIN_ID="${domain}" "${DDS[@]}" \
     -e HOME=/data/home -w /data/home \
     -e OPENDUBS_ARCHITECT_PROFILE="${profile}" -e OPENDUBS_ARCHITECT_BACKEND="${backend}" -e OPENDUBS_ARCHITECT_DATA=/data \
@@ -240,6 +250,10 @@ day() {  # the coordinator: reads the palette and the perception services, drive
   [ "${PAUSED:-0}" = 1 ] && args="${args} --start-paused"
   [ -n "${NAV:-}" ] && args="${args} --nav ${NAV}"                  # hound: the robot's nav stack (HoundNav)
   [ "${CANDY_RUNNER:-0}" = 1 ] && args="${args} --candy-runner http://127.0.0.1:${PORT}"
+  # REST=<routine> the rest show, REST= none. With CANDY_RUNNER the arm's idle pose is the arm service's
+  # `ready`, where every run ends, so there is no rest show unless REST names one
+  [ "${CANDY_RUNNER:-0}" = 1 ] && [ -z "${REST+x}" ] && REST=""
+  [ -n "${REST+x}" ] && args="${args} --rest '${REST}'"
   need_dds
   ${DOCKER} run ${DETACH} --rm --name "${DAY_NAME}" --network host \
     -e ROS_DOMAIN_ID=0 "${DDS[@]}" -e PYTHONPATH=/work/software/architect \
@@ -285,11 +299,31 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
   echo "what it hears, live: ssh -L 8099:127.0.0.1:8099 <you>@opendubs2, then http://localhost:8099/"
 }
 
+mode_env() {  # $1: a unit; its mode's settings (an Environment= value) for MODE=show (default) or gafro
+  case "${MODE:-show}:$1" in
+    show:archit-architect-listener) echo "SHOW=${SHOW} DAY=1 PROGRAM=${PROGRAM:-software/architect/examples/bucket_offer.py} SHOW_AUDIO=1 START=held" ;;
+    show:archit-architect-day)      echo "SHOW=${SHOW} PAUSED=1" ;;
+    # the random picks off ("EVERY" a day): the shows go through the show runner, which refuses any gripper cue
+    # on gafro (the dashboard reports no gripper there yet)
+    gafro:archit-architect-listener) echo "DAY=1" ;;
+    gafro:archit-architect-day)      echo "CANDY_RUNNER=1 PAUSED=1 \"EVERY=86400 86400\"" ;;
+    *) echo "MODE=${MODE:-show}" ;;
+  esac
+}
+
 install_units() {  # the boot units: deploy/*.service with this checkout, DATA, SHOW and the user filled in
-  [ -n "${SHOW:-}" ] || { echo "dev.sh: SHOW=<the candy routine> is needed" >&2; exit 1; }
+  [ "${MODE:-show}" = gafro ] || [ -n "${SHOW:-}" ] || { echo "dev.sh: SHOW=<the candy routine> is needed (or MODE=gafro)" >&2; exit 1; }
+  [ "${MODE:-show}" != gafro ] || [ -f "${TREAT_REPO:-$HOME/opendubs/.claude/worktrees/treat-gripper}/software/perception/tools/treat_services.py" ] \
+    || { echo "dev.sh: MODE=gafro needs TREAT_REPO, a checkout of daphne/treat-gripper" >&2; exit 1; }
   local u
+  for u in "${ALL_UNITS[@]}"; do               # a unit the mode does not use is removed (show after gafro)
+    case " ${UNITS[*]} " in *" ${u} "*) ;; *) sudo -n systemctl disable --now "${u}.service" 2>/dev/null || true
+                                              sudo -n rm -f "/etc/systemd/system/${u}.service" ;; esac
+  done
   for u in "${UNITS[@]}"; do
-    sed -e "s|@REPO@|${REPO}|g" -e "s|@DATA@|${DATA}|g" -e "s|@SHOW@|${SHOW}|g" -e "s|@USER@|$(id -un)|g" \
+    sed -e "s|@REPO@|${REPO}|g" -e "s|@DATA@|${DATA}|g" -e "s|@SHOW@|${SHOW:-}|g" -e "s|@USER@|$(id -un)|g" \
+      -e "s|@MODE_ENV@|$(mode_env "${u}")|g" \
+      -e "s|@TREAT_REPO@|${TREAT_REPO:-$HOME/opendubs/.claude/worktrees/treat-gripper}|g" \
       -e "s|@PROGRAM@|${PROGRAM:-software/architect/examples/bucket_offer.py}|g" \
       "${REPO}/software/architect/deploy/${u}.service" | sudo -n tee "/etc/systemd/system/${u}.service" >/dev/null
   done
@@ -303,12 +337,42 @@ install_units() {  # the boot units: deploy/*.service with this checkout, DATA, 
 
 uninstall_units() {
   local u
-  for u in "${UNITS[@]}"; do
+  for u in "${ALL_UNITS[@]}"; do
     sudo -n systemctl disable --now "${u}.service" 2>/dev/null || true
     sudo -n rm -f "/etc/systemd/system/${u}.service"
   done
   sudo -n systemctl daemon-reload
-  echo "removed: ${UNITS[*]}"
+  echo "removed: ${ALL_UNITS[*]}"
+}
+
+treat() {  # $1: start (default) or stop. Archit's services and hand tracker, on the host and the robot's domain
+  local repo="${TREAT_REPO:-$HOME/opendubs/.claude/worktrees/treat-gripper}" ws="${ROBOT_API_WS:-$HOME/robot_api_ws}"
+  local pdata="${PERCEPTION_DATA:-$HOME/perception-data}" tools pidf="${DATA}/treat.pid"
+  tools="${repo}/software/perception/tools"
+  if [ "${1:-start}" = stop ]; then        # only the node this started; the tracker is left on (it is on demand)
+    [ -f "${pidf}" ] && kill -INT "$(cat "${pidf}")" 2>/dev/null; rm -f "${pidf}"; echo "stopped the treat services"; return
+  fi
+  [ -f "${tools}/treat_services.py" ] || { echo "dev.sh: no treat_services.py in ${tools} (TREAT_REPO)" >&2; exit 1; }
+  if pgrep -f "treat_services.py" >/dev/null; then
+    echo "dev.sh: treat_services.py is already running ($(pgrep -f treat_services.py | head -1)); dev.sh treat stop, or its owner" >&2; exit 1
+  fi
+  # The two interface packages, as his scripts build them (robot_api_interfaces, opendubs_arm_interfaces), once
+  if [ ! -f "${ws}/install/robot_api_interfaces/share/robot_api_interfaces/package.xml" ] \
+     || [ ! -f "${ws}/install/opendubs_arm_interfaces/share/opendubs_arm_interfaces/package.xml" ]; then
+    mkdir -p "${ws}/src"; rm -rf "${ws}/src/robot_api_interfaces" "${ws}/src/opendubs_arm_interfaces"
+    cp -r "${repo}/software/perception/robot_api_interfaces" "${repo}/software/openarm/interfaces/opendubs_arm_interfaces" "${ws}/src/"
+    ( set +u; source /opt/ros/jazzy/setup.bash; cd "${ws}" && colcon build --packages-select robot_api_interfaces opendubs_arm_interfaces >/dev/null ) \
+      || { echo "dev.sh: building the interfaces in ${ws} failed" >&2; exit 1; }
+  fi
+  DATA="${pdata}" "${tools}/hand_stack.sh" up      # the tracker, on the running camera driver
+  local cmd="set +u; source /opt/gafro/setup.bash; source '${ws}/install/setup.bash'; set -a; . /etc/opendubs/ros-dds.env; set +a
+    export ROS_DOMAIN_ID=0; exec python3 -u '${tools}/treat_services.py' --real --no-head"
+  if [ "${FOREGROUND:-0}" = 1 ]; then
+    echo $$ > "${pidf}"; exec bash -c "${cmd}" 2>&1 | tee "${DATA}/treat.log"
+  fi
+  nohup bash -c "${cmd}" > "${DATA}/treat.log" 2>&1 < /dev/null & echo $! > "${pidf}"
+  for _ in $(seq 60); do grep -q "treat services up" "${DATA}/treat.log" && break; sleep 1; done
+  grep "treat services up" "${DATA}/treat.log" || { echo "dev.sh: the treat services did not start; ${DATA}/treat.log" >&2; tail -5 "${DATA}/treat.log" >&2; exit 1; }
 }
 
 gafro_sim() {  # $1: start (default) or stop. Runs on the host: the gafro venv has MuJoCo; nothing reaches the robot's graph
@@ -381,7 +445,7 @@ case "${1:-}" in
     uninstall_units
     ;;
   status)
-    systemctl --no-pager --lines=0 status "${UNITS[@]/%/.service}" 2>/dev/null | grep -E "^. |Active:" || true
+    systemctl --no-pager --lines=0 status "${ALL_UNITS[@]/%/.service}" 2>/dev/null | grep -E "^. |Active:" || true
     ;;
   live)
     [ -n "${PROGRAM:-}" ] || echo "dev.sh: PROGRAM not set; the fixed program is examples/arms_wave.py" >&2
@@ -390,6 +454,9 @@ case "${1:-}" in
     ;;
   gafro-sim)
     gafro_sim "${2:-start}"
+    ;;
+  treat)
+    treat "${2:-start}"
     ;;
   gafro)
     # tobi's arm service must already be up, supervised and active for the right arm (software/openarm/gafro).
