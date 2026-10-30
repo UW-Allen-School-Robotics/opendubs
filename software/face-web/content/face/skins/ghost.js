@@ -802,12 +802,15 @@ function holds(path, pts) {
 // ---- costumes: what each one adds behind the face, drawn in the art's own coordinates ---------------
 function costumeBack(P) {
   if (P.rib) {                                 // the pumpkin's ribs, and its stem at the top
+    // both run well up past the screen's edge, so the face bobbing and dipping never shows their ends
     ctx.save(); ctx.strokeStyle = P.rib; ctx.lineWidth = 7; ctx.lineCap = "round";
     for (const [x, b] of [[40, -30], [150, -16], [467, 16], [577, 30]]) {
-      ctx.beginPath(); ctx.moveTo(x, -20); ctx.quadraticCurveTo(x + b, ART_H / 2, x, ART_H + 30); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x, -160); ctx.lineTo(x, -20); ctx.quadraticCurveTo(x + b, ART_H / 2, x, ART_H + 30); ctx.stroke();
     }
-    ctx.fillStyle = P.stem; ctx.beginPath(); ctx.moveTo(292, -14);
-    ctx.quadraticCurveTo(290, 12, 298, 24); ctx.quadraticCurveTo(309, 30, 320, 23); ctx.quadraticCurveTo(328, 8, 338, -14);
+    // the stem: one smooth outline, its sides tapering in to a rounded end
+    ctx.fillStyle = P.stem; ctx.beginPath(); ctx.moveTo(286, -160);
+    ctx.bezierCurveTo(288, -60, 289, 2, 296, 17); ctx.bezierCurveTo(302, 30, 318, 30, 324, 17);
+    ctx.bezierCurveTo(331, 2, 336, -60, 342, -160);
     ctx.closePath(); ctx.fill(); ctx.restore();
   }
   if (P.ear) {                                 // the cat's ears, in the top corners
