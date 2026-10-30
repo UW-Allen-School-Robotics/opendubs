@@ -790,7 +790,9 @@ function danceLook(t) {
                len: k + 1 < steps.length ? steps[k + 1][0] - steps[k][0] : Infinity,
                first: k === 0 && steps[0][0] <= 0, prev: k > 0 ? steps[k - 1][1] : null };
     };
-    const swaps = [i, i + 1].filter((k) => k > 0 && k < steps.length && wear(k) !== wear(k - 1)).map((k) => steps[k][0] - s);
+    // the eyes blink shut over a change of costume, but not within a run of the same look, which carries on
+    const swaps = [i, i + 1].filter((k) => k > 0 && k < steps.length && wear(k) !== wear(k - 1) && steps[k][1] !== steps[k - 1][1])
+      .map((k) => steps[k][0] - s);
     return { ...at(i), swaps, before: i > 0 ? at(i - 1) : null };
   }
   const list = danceSpec && danceSpec.looks && danceSpec.looks[cueName];
@@ -935,7 +937,7 @@ function stepFace(D, t) {
   // for a costume, carries on looking rather than starting over); SMILE's turns are its own (D.run)
   const e = D.er ?? D.e, beats = e / D.B;
   const out = { side: 0, blink: 0, nod: 0, giggle: 0, bob: 0, scale: 1, float: 0, sweat: 0,
-                focus: 0, focusLook: 0, cheer: L2 === "cheer" ? 1 : 0, scared: L2 === "rise" ? 1 : 0, jolt: 0 };
+                focus: 0, focusLook: 0, cheer: L2 === "cheer" ? 1 : 0, cheerE: e, scared: L2 === "rise" ? 1 : 0, jolt: 0 };
   // where the eyes look: LOOKOUT's turn and blink; the waves' arm, held or swept
   const LK = L2 === "lookout" ? lookout(e % (2 * ctl.turn + 2 * ctl.hold + ctl.sweep)) : null;
   if (LK) { out.side = LK.side; out.blink = LK.blink; }
@@ -1006,6 +1008,7 @@ function blendFace(A, B, u) {
   const out = { pose: mixPose(A.pose, B.pose, u), jolt: B.jolt };
   for (const k of ["side", "blink", "nod", "giggle", "bob", "scale", "float", "sweat", "focus", "cheer", "scared"]) out[k] = A[k] + (B[k] - A[k]) * u;
   out.focusLook = B.focus ? B.focusLook : A.focusLook;   // FOCUS's glance stays its own as it comes or goes
+  out.cheerE = B.cheer ? B.cheerE : A.cheerE;            // and HAPPY's blinks theirs
   return out;
 }
 // The face the show's steps make now: the current step's, faded in from the one before.
@@ -1184,7 +1187,8 @@ function frame(nowMs) {
   if (happyAmt > 0) {
     // the smiling eyes blink-blink: twice quickly from open (996:1333) to squinted (1057:1452) and back,
     // then a pause, over and over (drawn from the matched outlines, below)
-    const c = ((t - happyT0) * ctl.happyRate) % 1, P = 1 / ctl.happyRate;
+    // (danced: on the show's time since the HAPPY run began, so its steps run on as one)
+    const c = ((DF && DF.cheer > 0 ? DF.cheerE : t - happyT0) * ctl.happyRate) % 1, P = 1 / ctl.happyRate;
     const sq = (x) => (x > 0 && x < 0.25 ? Math.sin(Math.PI * x / 0.25) : 0);   // each squint: 0.25 s
     happyBlink = Math.max(sq(c * P), sq(c * P - 0.32)) * ctl.happySquash;
     pose = mixPose(pose, POSE.happy, ease(happyAmt));
