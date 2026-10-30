@@ -4,9 +4,16 @@ Nothing else: no topics, no polling; each call's data goes into the next call's 
   treat_follow.sh sequence [options]
   treat_follow.sh call NAME [JSON]        one service, sent once and waited for (`--call`)
 
-  ready -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> hold -> ready
-  the gripper (on by default; --no-gripper leaves it alone): gripper_close first, gripper_open after move_joints. A
-  gripper call succeeds whatever the gripper was doing and whatever is between the fingers; only an error stops here
+  ready -> [the candy] -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> hold -> ready
+  the gripper (on by default; --no-gripper leaves it alone): it starts OPEN (the robot runs with it open: nothing here
+  opens it first), closes on the candy, and gripper_open after move_joints drops it. A gripper call succeeds whatever
+  the gripper was doing and whatever is between the fingers; only an error stops here
+  the candy (on by default with the gripper; --no-candy skips it), after the first ready: move_pose from ready straight
+  down to the candy, fingers down -> gripper_close -> ready. A failed move down or close ends the run with the arm held
+  where it is
+  the line (on by default with the candy; --no-say skips it): once the gripper has closed on the candy, --say is sent to
+  the Jabra listener (--say-url, Daphne's listener.py: Kokoro on the Jabra) from a thread, and the run goes on at once:
+  nothing waits for it, and a listener that is down or does not answer is only logged
 
 The services decide real arm or simulation, and keep the safety: on the real arm a released deadman latches a stop and
 every later move is refused, so this sequence ends at the first refusal. Hold the deadman BEFORE starting it (the real
@@ -18,9 +25,31 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
+import urllib.request
 
 SUCCESS, NOT_FOUND = 0, 5
+SAY = "Place your right hand in front to get the treat"
+SAY_URL = "http://127.0.0.1:8099/api/say"   # Daphne's listener (listener.py): POST {text}, 202, Kokoro speaks it on the Jabra
+SEQUENCE_SERVICES = ("ready", "move_pose", "gripper_close", "find_hand", "plan_treat", "move_joints", "gripper_open",
+                     "hold", "stop")
+
+# The candy bucket, from Daphne's candy_gafro.py (daphne/halloween, measured on opendubs2 2026-10-28/29): the bucket
+# stage's right edge, the rim at z 0.553 and the candy piled 2 cm below it, in her chassis frame. Here in arm_mount,
+# move_pose's frame: her chassis frame less (0.423, 0, 0.3575) m, not turned.
+CANDY_XY = (0.282, -0.07)        # over the bucket, near its centre (hers 0.705, -0.07): the open fingers clear the wall
+CANDY_Z = 0.2567                 # 8 cm above the pile, 6 cm above the rim (hers 0.545, i.e. 0.1875 here; at 0.535 the
+                                 # open fingers pushed into it). 2026-10-30: straight from ready, 0.2067 drove the
+                                 # fingers into the candy and the move ended 18.9 mm off; 0.2267, then 3 cm higher at
+                                 # the user's word. --candy-z
+# The fingers (the hand's +z) 20 deg off vertical, forward and left, as hers: (0.242, 0.242, -0.940). The smallest turn
+# from the ready hand that points them so (76 deg), w, x, y, z. The arm service's simulator reached every pose of the
+# pick with it (2026-10-30: from ready straight to the candy 3.3 mm and 0.9 deg off; on the way the hand came within 5
+# cm of the rim's height only within 4.4 cm of the bucket's axis, and was 6.4 cm above it or more anywhere farther out;
+# from there straight to ready it rose first: within 5 cm of the rim's height only within 5.3 cm of the axis, and 10.7
+# cm above it by 10 cm out).
+CANDY_ORIENTATION = [0.022, 0.6025, 0.779, 0.1723]
 
 
 def main():
@@ -32,9 +61,18 @@ def main():
     ap.add_argument("--speed", type=float, default=None, help="rad/s (the services cap it on the real arm)")
     ap.add_argument("--no-return", dest="return_home", action="store_false", help="stay at the treat")
     ap.add_argument("--gripper", action="store_true", default=True,
-                    help="(the default) close the gripper before ready and open it at the treat, through the arm "
-                         "service's close_gripper / open_gripper")
+                    help="(the default) close the gripper on the candy and open it at the treat, through the arm "
+                         "service's close_gripper / open_gripper; it starts open")
     ap.add_argument("--no-gripper", dest="gripper", action="store_false", help="leave the gripper alone")
+    ap.add_argument("--candy", action="store_true", default=True,
+                    help="(the default, with the gripper) take a candy from the bucket after the first ready")
+    ap.add_argument("--no-candy", dest="candy", action="store_false", help="no candy pick")
+    ap.add_argument("--candy-z", type=float, default=CANDY_Z,
+                    help=f"m, arm_mount: how low the hand goes into the bucket (default {CANDY_Z}; the rim is at 0.196, "
+                         "the pile about 2 cm below it)")
+    ap.add_argument("--say", default=SAY, help="what the robot says on the Jabra once it holds the candy")
+    ap.add_argument("--no-say", dest="say", action="store_const", const=None, help="say nothing")
+    ap.add_argument("--say-url", default=SAY_URL, help="the listener's POST {text} endpoint")
     ap.add_argument("--call-s", type=float, default=150.0, help="s to wait for one service call")
     ap.add_argument("--call", nargs="+", metavar=("NAME", "JSON"),
                     help="call ONE service and print its answer (sent once, never resent: perception_call.sh resends an "
@@ -49,19 +87,27 @@ def main():
 
     clients = {}
 
-    def call(name, req=None):
-        """(result code, message, data) of /perception/treat/<name>: sent once, waited for. Each client is made once and
-        given half a second after the service is found: a request sent the moment it is can lose its reply (the
-        first gripper_close in the simulation waited 150 s for one that never came; perception_call.py settles too)."""
-        kind = RobotQuery if name == "status" else RobotCommand
-        client = clients.get(name)
-        if client is None:
+    def connect(names):
+        """A client for each of `names` not made yet, each waited for, then half a second ONCE for them all: a request
+        sent the moment its service is found can lose its reply (the first gripper_close in the simulation waited 150 s
+        for one that never came; perception_call.py settles too). Made before the run, so no step pays it (2026-10-30:
+        plan_treat and move_joints each waited 0.5 s on their first call, between the hand and the arm moving)."""
+        new = [n for n in names if n not in clients]
+        for name in new:
+            kind = RobotQuery if name == "status" else RobotCommand
             client = clients[name] = node.create_client(kind, f"/perception/treat/{name}")
             if not client.wait_for_service(timeout_sec=10.0):
                 raise SystemExit(f"no /perception/treat/{name}: are the treat services up? (treat_follow.sh services)")
+        if new:
             settle = time.monotonic() + 0.5
             while time.monotonic() < settle:
                 rclpy.spin_once(node, timeout_sec=0.05)
+
+    def call(name, req=None):
+        """(result code, message, data) of /perception/treat/<name>: sent once, waited for."""
+        kind = RobotQuery if name == "status" else RobotCommand
+        connect([name])
+        client = clients[name]
         request = RobotQuery.Request() if kind is RobotQuery else RobotCommand.Request(req=json.dumps(req or {}))
         future = client.call_async(request)
         rclpy.spin_until_future_complete(node, future, timeout_sec=args.call_s)
@@ -82,15 +128,16 @@ def main():
             return code
 
         speed = {"speed": args.speed} if args.speed else {}
-
-        if args.gripper:
-            code, _, data = call("gripper_close")
-            if code != SUCCESS:
-                return 4 if data.get("stopped") else 1
+        connect(SEQUENCE_SERVICES)
 
         code, _, data = call("ready")
         if code != SUCCESS:
             return 4 if data.get("stopped") else 1
+
+        if args.gripper and args.candy:
+            code = take_candy(call, args, speed)
+            if code:
+                return code
 
         code, message, hand = call("find_hand", {"find_s": args.find_s, "wait_s": args.wait_s})
         if code != SUCCESS:
@@ -137,6 +184,40 @@ def main():
         return 130
     finally:
         rclpy.try_shutdown()
+
+
+def take_candy(call, args, speed):
+    """From ready straight down to the candy (the gripper already open), close, straight back to ready: 0, or the exit
+    code of the step that failed. A failed move down or close leaves the arm where it is."""
+    def pose(z):
+        code, _, data = call("move_pose", {"position": [CANDY_XY[0], CANDY_XY[1], z], "orientation": CANDY_ORIENTATION,
+                                           **speed})
+        return 0 if code == SUCCESS else (4 if data.get("stopped") else 1)
+
+    code = pose(args.candy_z)
+    if code:
+        return code
+    code, _, data = call("gripper_close")
+    if code != SUCCESS:
+        return 4 if data.get("stopped") else 1
+    if args.say:
+        say(args.say_url, args.say)
+    code, _, data = call("ready")
+    return 0 if code == SUCCESS else (4 if data.get("stopped") else 1)
+
+
+def say(url, text):
+    """Send `text` to the listener from a thread and return at once: the run never waits for speech. Only the thread
+    waits (2 s at most), and a listener that is down or does not answer is logged, nothing more."""
+    def send():
+        try:
+            req = urllib.request.Request(url, data=json.dumps({"text": text}).encode(),
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=2.0) as r:
+                print(f"say: queued on the Jabra ({r.status}): {text!r}", flush=True)
+        except (OSError, ValueError) as error:
+            print(f"say: not spoken, the listener at {url} did not take it ({error})", flush=True)
+    threading.Thread(target=send, daemon=True).start()
 
 
 if __name__ == "__main__":
