@@ -11,6 +11,9 @@ Nothing else: no topics, no polling; each call's data goes into the next call's 
   the candy (on by default with the gripper; --no-candy skips it), after the first ready: move_pose from ready straight
   down to the candy, fingers down -> gripper_close -> ready. A failed move down or close ends the run with the arm held
   where it is
+  the line (on by default with the candy; --no-say skips it): once the gripper has closed on the candy, --say is sent to
+  the Jabra listener (--say-url, Daphne's listener.py: Kokoro on the Jabra) from a thread, and the run goes on at once:
+  nothing waits for it, and a listener that is down or does not answer is only logged
 
 The services decide real arm or simulation, and keep the safety: on the real arm a released deadman latches a stop and
 every later move is refused, so this sequence ends at the first refusal. Hold the deadman BEFORE starting it (the real
@@ -22,9 +25,13 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
+import urllib.request
 
 SUCCESS, NOT_FOUND = 0, 5
+SAY = "Place your right hand in front to get the treat"
+SAY_URL = "http://127.0.0.1:8099/api/say"   # Daphne's listener (listener.py): POST {text}, 202, Kokoro speaks it on the Jabra
 SEQUENCE_SERVICES = ("ready", "move_pose", "gripper_close", "find_hand", "plan_treat", "move_joints", "gripper_open",
                      "hold", "stop")
 
@@ -63,6 +70,9 @@ def main():
     ap.add_argument("--candy-z", type=float, default=CANDY_Z,
                     help=f"m, arm_mount: how low the hand goes into the bucket (default {CANDY_Z}; the rim is at 0.196, "
                          "the pile about 2 cm below it)")
+    ap.add_argument("--say", default=SAY, help="what the robot says on the Jabra once it holds the candy")
+    ap.add_argument("--no-say", dest="say", action="store_const", const=None, help="say nothing")
+    ap.add_argument("--say-url", default=SAY_URL, help="the listener's POST {text} endpoint")
     ap.add_argument("--call-s", type=float, default=150.0, help="s to wait for one service call")
     ap.add_argument("--call", nargs="+", metavar=("NAME", "JSON"),
                     help="call ONE service and print its answer (sent once, never resent: perception_call.sh resends an "
@@ -190,8 +200,24 @@ def take_candy(call, args, speed):
     code, _, data = call("gripper_close")
     if code != SUCCESS:
         return 4 if data.get("stopped") else 1
+    if args.say:
+        say(args.say_url, args.say)
     code, _, data = call("ready")
     return 0 if code == SUCCESS else (4 if data.get("stopped") else 1)
+
+
+def say(url, text):
+    """Send `text` to the listener from a thread and return at once: the run never waits for speech. Only the thread
+    waits (2 s at most), and a listener that is down or does not answer is logged, nothing more."""
+    def send():
+        try:
+            req = urllib.request.Request(url, data=json.dumps({"text": text}).encode(),
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=2.0) as r:
+                print(f"say: queued on the Jabra ({r.status}): {text!r}", flush=True)
+        except (OSError, ValueError) as error:
+            print(f"say: not spoken, the listener at {url} did not take it ({error})", flush=True)
+    threading.Thread(target=send, daemon=True).start()
 
 
 if __name__ == "__main__":
