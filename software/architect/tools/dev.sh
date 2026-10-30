@@ -472,6 +472,8 @@ case "${1:-}" in
     fi
     # TREAT_DOMAIN=<n>: the goals go through Archit's trick-or-treat services on that domain (treat_calls.py)
     [ -n "${TREAT_DOMAIN:-}" ] && sim="${sim} --treat-domain ${TREAT_DOMAIN}"
+    # ARM_AT_START=1: the program armed at start, with no one to say yes (the boot unit's way)
+    [ "${ARM_AT_START:-0}" = 1 ] && sim="${sim} --arm-at-start"
     run gafro --agent program --program "/work/${PROGRAM:-software/architect/examples/candy_gafro.py}" ${sim}
     ;;
   dry)

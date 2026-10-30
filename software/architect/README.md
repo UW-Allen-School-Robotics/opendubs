@@ -445,7 +445,8 @@ None of them moves anything at boot. Before the demo, with someone at the e-stop
 sudo arm up --supervise          # tobi's arm services (never at boot, on purpose), then, the deadman held:
 sudo arm activate right          # the right arm to ready
 curl -X POST 127.0.0.1:8096/api/resume
-# "OpenDubs, hand out candy" ... "yes": the program is armed until the runner restarts
+# the runner arms candy_gafro.py itself at start (ARM_AT_START=1, the offer, check and approval of a spoken
+# "hand out candy" and "yes"); a new program still needs them
 # then each visitor: "OpenDubs ... trick or treat", the deadman held
 ```
 

@@ -235,6 +235,24 @@ class Treat(unittest.TestCase):
 
 
 class Cancel(unittest.TestCase):
+    def test_arm_at_start_offers_checks_and_approves_the_fixed_program(self):
+        """2026-10-30: a boot unit arms the program itself, so a reboot comes back ready for trick or treat."""
+        from opendubs_architect import demo_runner as dr
+        code = "# Summary: wait.\nwait(0.01)\n"
+        said = []
+        runner = dr.DemoRunner(dr.ProgramAgent(code), lambda: {"wait": time.sleep}, said.append, lambda: True,
+                               primitives=("wait",), rearm_on_failure=True)
+        self.assertTrue(runner.arm_at_start(timeout_s=5.0))
+        self.assertEqual((runner.state, runner.armed.code), (dr.ARMED, code))
+        self.assertTrue(runner.trigger("trick or treat"))
+
+    def test_arm_at_start_does_not_arm_a_program_that_fails_its_check(self):
+        from opendubs_architect import demo_runner as dr
+        runner = dr.DemoRunner(dr.ProgramAgent("# Summary: bad.\nimport os\n"), lambda: {"wait": time.sleep},
+                               lambda t: None, lambda: True, primitives=("wait",), rearm_on_failure=True)
+        self.assertFalse(runner.arm_at_start(timeout_s=5.0))
+        self.assertNotEqual(runner.state, dr.ARMED)
+
     def test_a_cancel_ends_the_run_and_keeps_the_program_armed(self):
         from opendubs_architect import demo_runner as dr
         code = "# Summary: wait.\nfor _ in range(100):\n    wait(0.05)\n"

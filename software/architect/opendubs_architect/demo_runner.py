@@ -363,6 +363,24 @@ class DemoRunner:
         self._to(ARMED, "approved", sha=self.armed.sha)
         self._say("Approved. Say trick or treat.")
 
+    def arm_at_start(self, instruction: str = "hand out candy", timeout_s: float = 60.0) -> bool:
+        """The fixed program armed with no one to say yes (a boot unit's --arm-at-start): the instruction and
+        the yes as heard ones, so the program is offered, checked and approved by the same path. True if armed."""
+        self.heard("instruction", instruction)
+        end = time.monotonic() + timeout_s
+        while self.state != AWAITING_YES and time.monotonic() < end:
+            if self.state in (IDLE, CHECK_FAILED):
+                break
+            time.sleep(0.1)
+        if self.state != AWAITING_YES:
+            self._log("arm_at_start_failed", state=self.state)
+            return False
+        self.heard("speech", "yes")
+        armed = self.state == ARMED
+        self._log("armed_at_start" if armed else "arm_at_start_failed", state=self.state,
+                  sha=self.armed.sha if self.armed else None)
+        return armed
+
     def _publish(self, gen: int, program: Program) -> None:
         try:
             result, error = self.publish(program), None
@@ -553,6 +571,9 @@ def main(argv=None) -> int:
                     help="the gafro backend on a simulation, whose gripper does not run: gripper calls are logged")
     ap.add_argument("--sim-head", action="store_true",
                     help="the gafro backend on a simulation: set_head_pose is logged and moves nothing")
+    ap.add_argument("--arm-at-start", action="store_true",
+                    help="with --agent program: arm the program at start, as if 'hand out candy' and 'yes' were "
+                         "heard (a boot unit's way: a reboot comes back ready for 'trick or treat')")
     ap.add_argument("--treat-domain", type=int, default=None, metavar="N",
                     help="the gafro backend through Archit's trick-or-treat services (/perception/treat/*) on this "
                          "ROS domain (treat_calls.py), not straight to the arm service")
@@ -641,6 +662,11 @@ def main(argv=None) -> int:
     threading.Thread(target=ticks, daemon=True).start()
     srv = serve(runner, a.host, a.port)
     print(f"ARCHITECT runner on http://{a.host}:{a.port}/", flush=True)
+    if a.arm_at_start:
+        if a.agent != "program":
+            print("--arm-at-start needs --agent program: not armed", flush=True)
+        else:
+            threading.Thread(target=runner.arm_at_start, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
