@@ -69,8 +69,10 @@ for previewing and testing**.
 | `content/face/skins/ghost.js` | **added.** The skin, one file: the drawing, `ghostStage()`, which picks the expression from the coordinator's and the runner's state, and `DANCES`, each show's face timeline, costumes and tempo. Imports nothing from the engine |
 | `../kiosk-dashboard/backend/architect_proxy.py` | **added.** `GET /api/architect/day` (the coordinator, 127.0.0.1:8096) and `GET /api/architect/state` (the runner, 127.0.0.1:8098), read-only, for the face to poll; the tablet can't reach those ports itself |
 | `../kiosk-dashboard/backend/app.py` | **changed** (a shared path). Includes that router |
+| `../choreo/shows/audio/make_halloween_audio.py` | **added.** Writes the three Halloween tracks into that folder (git-ignored), like `make_test_audio.py` |
+| `../choreo/shows/{wave-and-nod,robotic-smile,celebrate}.yaml` | **changed** (the Choreography lane's). `music: file:` names each show's Halloween track |
 
-No engine file, show file or head-protocol message changes. A reserved state (E_STOP, DEGRADED) still
+No engine file or head-protocol message changes; the shows change only their music. A reserved state (E_STOP, DEGRADED) still
 draws the default eyes.
 
 To run it, the robot needs `ghost.js` in its content folder (`$OPENDUBS_SHOWS_DIR/face/skins/`, which
@@ -80,17 +82,16 @@ coordinator (`demo_day.py`, port 8096, not on `main` yet) or the demo runner (80
 still dozes, looks round, grooves and smiles at people. The three short shows have no `skin` key on
 their FACE track, so the ghost stays on through them.
 
-**The Halloween music.** The face doesn't need it: it follows the show's time, whatever plays. Today
-the robot plays each show's own `music.file`: a click track for `wave-and-nod`, `robotic_smile.mp3` for
-`robotic-smile`, and nothing for `celebrate`. To play the Halloween tracks made for these shows
-instead:
+**The Halloween music.** Each short show plays an original Halloween track made for it, on the show's
+grid, its hits on the face's steps (`robotic-smile` in place of `robotic_smile.mp3`; `celebrate`, which
+had no music, now has one). Audio is never committed, so generate the tracks once on the machine that
+runs the shows; the shows' `music: file:` name them:
 
-1. Get the three tracks: run ENCORE's `demo/halloween-shorts/make_music.py` (it writes
-   `halloween-<show>.wav`, the same files every time), or copy them from someone who has. Audio is
-   never committed.
-2. Put them in `software/choreo/shows/audio/` on the robot.
-3. Point each show's `music.file` at its track, and give `celebrate` a `music:` block (its `bpm: 120`,
-   `offset_s: 0`). The show files are the Choreography lane's.
+```
+python3 software/choreo/shows/audio/make_halloween_audio.py    # needs numpy; same files every run
+```
+
+The face doesn't need the music: it follows the show's time, whatever plays.
 
 **Spoken lines** (proposed, not used: a show can't trigger speech yet; for the Voice lane): wave-and-nod
 0.2 s "Happy Halloween!", 17.0 s "Thank you, thank you."; robotic-smile 0.3 s "Mmm… is someone there?",

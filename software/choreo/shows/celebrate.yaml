@@ -8,6 +8,12 @@ requires:
   head: true
   rc_authority: AUTO
 
+music:
+  file: audio/halloween-celebrate.wav   # audio/make_halloween_audio.py writes it
+  bpm: 120
+  offset_s: 0
+  beats_per_bar: 4
+
 clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "01a843eca15d@dc74e24f" }
 cues:
   - { t: 0.0, slot: FACE, do: emote, name: SOFT }

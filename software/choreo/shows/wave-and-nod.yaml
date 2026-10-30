@@ -15,7 +15,7 @@ requires:
   head: true
   rc_authority: AUTO
 music:
-  file: audio/wave-and-nod-120.wav
+  file: audio/halloween-wave-and-nod.wav   # audio/make_halloween_audio.py writes it
   bpm: 120
   offset_s: 0.5
   beats_per_bar: 4
