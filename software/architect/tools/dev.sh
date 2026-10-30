@@ -353,8 +353,10 @@ treat() {  # $1: start (default) or stop. Archit's services and hand tracker, on
     [ -f "${pidf}" ] && kill -INT "$(cat "${pidf}")" 2>/dev/null; rm -f "${pidf}"; echo "stopped the treat services"; return
   fi
   [ -f "${tools}/treat_services.py" ] || { echo "dev.sh: no treat_services.py in ${tools} (TREAT_REPO)" >&2; exit 1; }
-  if pgrep -f "treat_services.py" >/dev/null; then
-    echo "dev.sh: treat_services.py is already running ($(pgrep -f treat_services.py | head -1)); dev.sh treat stop, or its owner" >&2; exit 1
+  # A python running the node, not any process that merely mentions it (a shell, a monitor watching it)
+  local running; running=$(pgrep -f '^[^ ]*python3?[^ ]* (-u )?[^ ]*treat_services\.py' | head -1 || true)
+  if [ -n "${running}" ]; then
+    echo "dev.sh: treat_services.py is already running (${running}: $(ps -o user= -p "${running}")); dev.sh treat stop, or its owner" >&2; exit 1
   fi
   # The two interface packages, as his scripts build them (robot_api_interfaces, opendubs_arm_interfaces), once
   if [ ! -f "${ws}/install/robot_api_interfaces/share/robot_api_interfaces/package.xml" ] \
