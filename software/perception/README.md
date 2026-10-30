@@ -369,7 +369,7 @@ $A ctl unsupervise; $A down
 
 `reach-real` waits for the deadman before anything moves, and letting go of it at any time stops the arm and ends the
 script (exit 4); nothing moves again after that. Its limits: the head and the arm never move at the same time; the
-hand stops 20 cm short of the palm and at most 25 cm above the arm's shoulder; joints at 0.4 rad/s (`--speed`, up to
+hand stops 20 cm short of the palm and at most 25 cm above the arm's shoulder; joints at 0.5 rad/s (`--speed`, up to
 0.6). Options: `--no-head` keeps the head still, `--head-pan` pans as well, `--no-jaws-level` ends with the IK's own
 orientation (V2.2), `--jaws-steps` reaches in eight `reach_pose` steps instead of one move, `--no-return` stays at the
 treat, `--treat-s` sets the wait. If the driver says "CAN bus 'arm_right' is not healthy" after the old stack ran, cycle

@@ -73,7 +73,7 @@ All names are under `/perception/treat/`. "Moves" says what physically moves.
 | `data` on SUCCESS | the arm service's own: `error_mm`, `error_deg`, `hand` ... |
 | Fails | `INVALID_INPUT` (no position; real arm: z over 0.25 m above the arm's shoulder), `NOT_FOUND` (out of reach), `FAILURE` (the planner found no path, e.g. "the planned path leaves a joint's range") |
 
-On the real arm `speed` defaults to 0.4 and is capped at 0.6 rad/s.
+On the real arm `speed` defaults to 0.5 and is capped at 0.6 rad/s.
 
 #### `move_joints`: one continuous move to joint angles
 | | |
