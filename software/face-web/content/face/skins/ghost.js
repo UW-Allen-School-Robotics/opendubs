@@ -1085,6 +1085,12 @@ function frame(nowMs) {
         startle = Math.max(startle, clamp01(1 - DL.e * 3));
         riseSweat = a * R.sweat;
       }
+      // the step after an EEK!: the idle EEK!'s way out, its face, pop and sweat fading into the new look
+      if (L2 !== "rise" && (DL.prev === "eek" || DL.prev === "rise") && DL.e < EEK_OUT) {
+        const m = a * (1 - ease(DL.e / EEK_OUT));
+        pose = mixPose(pose, POSE.eek, m); danceScale *= 1 + 0.08 * m;
+        riseSweat = Math.max(riseSweat, m); giggle *= 1 - m;
+      }
       if (L2 === "drowsy") pose = mixPose(pose, POSE.doze2, 0.75 * a);                    // SLEEPY: doze-2's lids
     }
   }
