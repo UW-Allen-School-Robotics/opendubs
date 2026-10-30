@@ -1208,18 +1208,18 @@ function frame(nowMs) {
   if (happyAmt > 0) layer(0.35, () => {
     const a = ease(happyAmt);
     ctx.translate(0, 10);                     // the sweets moved down with the mouth (996:1369, 996:1333)
-    ctx.fillStyle = bg;
+    const sweet = (i) => P.sweets ? P.sweets[i % P.sweets.length] : bg;   // the pumpkin's are yellows, apart from its orange
     // the stars and dots twinkle at random: each on its own rate and phase, fading out and back
     HAPPY_WHITE.forEach((p, i) => {
       if (i === HAPPY_BAT) return;
       const r = HAPPY_TWINKLE[i], tw = 0.5 + 0.5 * Math.sin(2 * Math.PI * (t * r.rate + r.phase));
-      ctx.save(); ctx.globalAlpha = a * (1 - ctl.happyTwinkle * (1 - tw ** 2.5)); ctx.fill(p); ctx.restore();
+      ctx.save(); ctx.fillStyle = sweet(i); ctx.globalAlpha = a * (1 - ctl.happyTwinkle * (1 - tw ** 2.5)); ctx.fill(p); ctx.restore();
     });
     // the bat swings back and forth along the lower-left to upper-right diagonal, tilting as it goes
     const sw = Math.sin(t * 2 * Math.PI * ctl.batRate), [bx, by] = HAPPY_BAT_C;
     ctx.save(); ctx.globalAlpha = a;
     ctx.translate(bx + sw * ctl.batSwing * 0.7, by - sw * ctl.batSwing * 0.7); ctx.rotate(-sw * 0.12); ctx.translate(-bx, -by);
-    ctx.fill(HAPPY_WHITE[HAPPY_BAT]);
+    ctx.fillStyle = P.bat || sweet(0); ctx.fill(HAPPY_WHITE[HAPPY_BAT]);
     ctx.fillStyle = ink; for (const [x, y, rr] of HAPPY_DOTS) { ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
   });
@@ -1424,7 +1424,8 @@ export const EMOTE_LOOKS = { NEUTRAL: "groove", ALERT: "beatpop", SQUINT: "creep
 // Black and white is the ghost's own; only a dance puts a costume on.
 export const COSTUMES = {
   classic: { bg: "#fff", ink: "#0b0b0b" },
-  pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 17 },
+  pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 17,
+             sweets: ["#ffd23f", "#fff09a", "#ffe45c", "#ffc928"], bat: "#ffd23f" },
   cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", tongue: "#e2557f", sparkle: "#ffd23f", pupil: "#0d0c10",
              ear: "#1a181e", earIn: "#ff8fb3", whisker: "#d9d6e0", line: "#d9d6e0" },
   monster: { bg: "#8ccf5e", ink: "#13200c", sparkle: "#ffd23f", sparkleRight: true, hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
