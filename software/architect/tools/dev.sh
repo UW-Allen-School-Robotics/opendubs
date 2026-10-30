@@ -330,7 +330,8 @@ install_units() {  # the boot units: deploy/*.service with this checkout, DATA, 
   sudo -n systemctl daemon-reload
   for u in "${UNITS[@]}"; do   # a hand-started container of the same name would make the unit refuse
     ${DOCKER} stop -t 5 "${u}" >/dev/null 2>&1 || true
-    sudo -n systemctl enable --now "${u}.service"
+    sudo -n systemctl enable "${u}.service"
+    sudo -n systemctl restart "${u}.service"   # a unit already running takes its new settings now
   done
   echo "installed and started: ${UNITS[*]} (from ${REPO}; the coordinator starts PAUSED)"
 }
