@@ -73,27 +73,33 @@ for previewing and testing**.
 No engine file, show file or head-protocol message changes. A reserved state (E_STOP, DEGRADED) still
 draws the default eyes.
 
-| # | Step | Who |
-|---|---|---|
-| 1 | Review and merge this branch into `main`. CI runs the face conformance tests, the ghost's tests and the proxy's tests. | Tablet lane (owns `face-web` outside the engine, and the dashboard backend); one shared path, `backend/app.py` |
-| 2 | Deploy the dashboard as usual, so the robot has the two `/api/architect/*` routes. | Whoever deploys (`deploy-all.sh`) |
-| 3 | Put `ghost.js` in the **content repository** at `face/skins/ghost.js` (on the robot, `$OPENDUBS_SHOWS_DIR/face/skins/ghost.js`). Code skins reach the robot **only** from the content repository by its sync, never by upload (`backend/head_looks.py`). | The content repository's owner |
-| 4 | Run the coordinator (`demo_day.py`, port 8096) on the robot for the day; it is not on `main` yet. Without it the ghost still dozes, looks round, grooves and smiles at people; the shows' dances, EEK!, FOCUS and HAPPY need it (or the demo runner on 8098). | The coordinator's owner |
-| 5 | Send `SKIN ghost` for the day (Head & face page, or the operator). It stays on through every show: the three short shows have no `skin` key on their FACE track, and must not get one. | Operator; Choreography lane for the show files |
+To run it, the robot needs `ghost.js` in its content folder (`$OPENDUBS_SHOWS_DIR/face/skins/`, which
+comes from the content repository: code skins are never uploaded), the dashboard deployed with the proxy
+above, and `SKIN ghost` sent for the day. The shows' dances, EEK!, FOCUS and HAPPY also need the
+coordinator (`demo_day.py`, port 8096, not on `main` yet) or the demo runner (8098); without them it
+still dozes, looks round, grooves and smiles at people. The three short shows have no `skin` key on
+their FACE track, so the ghost stays on through them.
 
-**Optional.** *Music:* each short show has an original synthesized track (ENCORE's
-`demo/halloween-shorts/make_music.py`, below); to play one on the robot, copy it to
-`software/choreo/shows/audio/` there and point the show's `music.file` at it (Choreography lane; audio
-is never committed). *Spoken lines,* if the Voice lane wants them (a show can't trigger speech yet;
-they keep to the listener's rules: no promise of movement, nothing about how someone looks):
-wave-and-nod 0.2 s "Happy Halloween!", 17.0 s "Thank you, thank you."; robotic-smile 0.3 s "Mmm… is
-someone there?", 25.2 s "Eek!", 29.2 s "Ha ha! Happy Halloween!"; celebrate 0.1 s "Boo!", 4.2 s "We did
-it!".
+**The Halloween music.** The face doesn't need it: it follows the show's time, whatever plays. Today
+the robot plays each show's own `music.file`: a click track for `wave-and-nod`, `robotic_smile.mp3` for
+`robotic-smile`, and nothing for `celebrate`. To play the Halloween tracks made for these shows
+instead:
+
+1. Get the three tracks: run ENCORE's `demo/halloween-shorts/make_music.py` (it writes
+   `halloween-<show>.wav`, the same files every time), or copy them from someone who has. Audio is
+   never committed.
+2. Put them in `software/choreo/shows/audio/` on the robot.
+3. Point each show's `music.file` at its track, and give `celebrate` a `music:` block (its `bpm: 120`,
+   `offset_s: 0`). The show files are the Choreography lane's.
+
+**Spoken lines** (proposed, not used: a show can't trigger speech yet; for the Voice lane): wave-and-nod
+0.2 s "Happy Halloween!", 17.0 s "Thank you, thank you."; robotic-smile 0.3 s "Mmm… is someone there?",
+25.2 s "Eek!", 29.2 s "Ha ha! Happy Halloween!"; celebrate 0.1 s "Boo!", 4.2 s "We did it!".
 
 **Changing a show's face later:** edit `DANCES[show].steps` in `ghost.js` (`[seconds into the show,
 look, costume?]`; the looks and costumes it takes are `TIMELINE`, at the end of the file), run
-`node tests/test_ghost_skin.mjs`, and repeat step 3. ENCORE's ghost lane (Part 2) draws the steps and
-copies them out in this form.
+`node tests/test_ghost_skin.mjs`, and update the content repository's copy. ENCORE's ghost lane
+(Part 2) draws the steps and copies them out in this form.
 
 ### Part 2: for previewing and testing only (the robot doesn't use these)
 
