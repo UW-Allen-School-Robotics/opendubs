@@ -1127,6 +1127,8 @@ function frame(nowMs) {
   // Keep the nose aligned with the eyes as the smile fades in and out.
   layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P, pose.noses); });
   // PEEK's fierce faces, in the idle peek or danced (CREEP)
+  const focusShown = Math.max(focusAmt, danceFocus);     // FOCUS, idle or danced
+  if (focusAmt <= 0) focusLook = danceFocusLook;
   const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DL && DL.look === "creep" && danceAmt > 0.5);
   // TICK's half-shut eyes are plain: no cat's pupil or pumpkin's glow in the squint
   const squint = DL && DL.look === "tick" && DL.frac < 0.5;
@@ -1168,7 +1170,8 @@ function frame(nowMs) {
         // in TICK an eye that is squinted (half shut on the beat, or the groove's wink under it) is the socket
         // alone; an open one keeps its glow
         const tick = DL && DL.look === "tick";
-        if (P.glow && !(tick && (squint || !holds(path, [[cx, cy], [cx - 28, cy + 10], [cx + 28, cy + 10], [cx, cy - 30], [cx, cy + 40]])))) {
+        // (FOCUS's highlights are the pumpkin's light instead, below)
+        if (P.glow && focusShown < 0.5 && !(tick && (squint || !holds(path, [[cx, cy], [cx - 28, cy + 10], [cx + 28, cy + 10], [cx, cy - 30], [cx, cy + 40]])))) {
           ctx.save(); ctx.clip(path); ctx.globalAlpha = 0.8 + 0.15 * Math.sin(t * 9 + cx);
           ctx.save(); ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
           // and a rim of the socket's ink all round inside it, so the glow never touches the edge (a smile's
@@ -1210,11 +1213,9 @@ function frame(nowMs) {
     ctx.fillStyle = ink; for (const [x, y, rr] of HAPPY_DOTS) { ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
   });
-  const focusShown = Math.max(focusAmt, danceFocus);
-  if (focusAmt <= 0) focusLook = danceFocusLook;
   if (focusShown > 0) {
     layer(1, () => {
-      ctx.save(); ctx.globalAlpha = ease(focusShown) ** 2; ctx.fillStyle = bg;
+      ctx.save(); ctx.globalAlpha = ease(focusShown) ** 2; ctx.fillStyle = P.glow || bg;   // the pumpkin's in its candle light
       FOCUS_LIGHTS.focus1.forEach((a, i) => {
         const b = FOCUS_LIGHTS.focus2[i], m = (k) => a[k] + (b[k] - a[k]) * focusLook;
         ctx.beginPath(); ctx.ellipse(m(0), m(1), m(2), m(3), m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
