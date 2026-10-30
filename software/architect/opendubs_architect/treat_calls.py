@@ -199,7 +199,7 @@ def treat_robot_class():
             here is his Ctrl-C (he calls `stop`; the arm holds). Nobody or no hand: released False, the arm at ready
             with the candy; anything else that fails raises."""
             self._permit("treat_sequence")
-            cmd = ["python3", "-u", SEQUENCE]
+            cmd = ["python3", "-u", SEQUENCE, "--candy-z", f"{self.candy_z:g}"]
             cmd += ["--say", say, "--say-url", self.say_url] if say and self.say_url else ["--no-say"]
             env = dict(os.environ, ROS_DOMAIN_ID=str(self.treat_domain))
             proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -230,4 +230,6 @@ def treat_robot_class():
 
     TreatRobot.say_url = None                # the listener's POST /api/say (demo_runner --say-url)
     TreatRobot.treat_domain = 0              # the services' ROS domain
+    TreatRobot.candy_z = 0.2367              # m, arm_mount: how low treat_sequence.py's hand goes into the bucket (his
+                                             # --candy-z). 2026-10-30: at his default 0.2567 it closed on nothing twice
     return TreatRobot

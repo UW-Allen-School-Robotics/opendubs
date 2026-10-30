@@ -255,13 +255,13 @@ class Treat(unittest.TestCase):
     def test_the_whole_visit_is_archits_sequence_and_its_exit_code_says_how_it_went(self):
         got, argv = self.sequence("print('ready: at ready')")
         self.assertTrue(got["released"])
-        self.assertEqual(argv, "--say Hold out your hand --say-url http://127.0.0.1:8099/api/say")
+        self.assertEqual(argv, "--candy-z 0.2367 --say Hold out your hand --say-url http://127.0.0.1:8099/api/say")
         got, _ = self.sequence("print('find_hand: no hand held out in 10 s'); sys.exit(2)")
         self.assertEqual(got, {"released": False, "reason": "find_hand: no hand held out in 10 s"})
         self.assertFalse(self.sequence("sys.exit(3)")[0]["released"])
         self.assertIsInstance(self.sequence("sys.exit(4)")[0], MotionRefused)
         self.assertIsInstance(self.sequence("raise SystemExit('no /perception/treat/ready')")[0], MotionRefused)
-        self.assertEqual(self.sequence("pass", say_url=None)[1], "--no-say")
+        self.assertEqual(self.sequence("pass", say_url=None)[1], "--candy-z 0.2367 --no-say")
 
     def test_a_stop_is_the_sequences_ctrl_c(self):
         t0 = time.monotonic()
