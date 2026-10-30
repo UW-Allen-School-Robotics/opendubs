@@ -782,7 +782,8 @@ function danceLook(t) {
     const name = steps[i][1], e = Math.max(0, s - steps[i][0]), g = Math.max(0, s - off);
     const swaps = [i, i + 1].filter((k) => k > 0 && k < steps.length && wear(k) !== wear(k - 1)).map((k) => steps[k][0] - s);
     let run = 0; while (i - run > 0 && steps[i - run - 1][1] === name) run++;   // how many of this look just before it
-    return { look: LOOK_AS[name] || name, name, e, B, beats: e / B, frac: (g / B) % 1, every, g, costume: wear(i), swaps, run };
+    return { look: LOOK_AS[name] || name, name, e, B, beats: e / B, frac: (g / B) % 1, every, g, costume: wear(i), swaps, run,
+             first: i === 0 && steps[0][0] <= 0, prev: i > 0 ? steps[i - 1][1] : null };
   }
   const list = danceSpec && danceSpec.looks && danceSpec.looks[cueName];
   const name = list ? list[Math.min(cueSeen[cueName] || 1, list.length) - 1] : (EMOTE_LOOKS[cueName] || "groove");
@@ -973,12 +974,16 @@ function frame(nowMs) {
   const PK = near && peekT0 >= 0 ? peek(t - peekT0) : null;
   if (peekT0 >= 0 && !PK) { peekT0 = -1; peekPauseUntil = t + 0.6; if (reviewState) reviewNext = t + 1; }
   if (!L && !G && !smiling && !patrolling && !busyNow() && eekT0 < 0 && nodT0 < 0 && t >= nextNod && (!near || t - nearSince >= ctl.nodAfter)) nodT0 = t;
-  // DOZE danced: the idle doze's lids sinking (fighting it), then held, and its web spun out with them
-  const dozing = DL && DL.look === "drowsy" ? ease(danceAmt) * (() => { const u = clamp01(DL.e / Math.min(ctl.nodDroop, 1.2));   // quicker: a step is short
-    return clamp01(u * u * (3 - 2 * u) - 0.10 * Math.sin(u * Math.PI * 2.5) * u * (1 - u) * 2); })() : 0;
+  // DOZE danced: the idle doze's lids sinking (fighting it), then held, and its web spun out with them.
+  // A show that opens on DOZE is already asleep at its first beat, breathing slowly under the lids.
+  if (DL && DL.look === "drowsy" && DL.first) danceAmt = 1;
+  const dozing = DL && DL.look === "drowsy" ? ease(danceAmt) * (DL.first ? 0.94 + 0.06 * Math.sin(t * 1.6)
+    : (() => { const u = clamp01(DL.e / Math.min(ctl.nodDroop, 1.2));   // quicker: a step is short
+    return clamp01(u * u * (3 - 2 * u) - 0.10 * Math.sin(u * Math.PI * 2.5) * u * (1 - u) * 2); })()) : 0;
   const nod = L ? 0 : Math.max(nodAmount(t), dozing);
   if (nod > 0) phase = "nodding off";
   startle = Math.max(0, startle - dt * 4);
+  if (DL && DL.prev === "doze" && DL.look !== "drowsy") startle = Math.max(startle, clamp01(1 - DL.e * 2));   // jolted awake
   if (G) phase = "groove";
   if (smileAmt > 0 && !G && !L) phase = "smile";
   if (PK) phase = "peek";
