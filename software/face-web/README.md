@@ -70,11 +70,13 @@ animated** (tabs: V1, the design; V2, as built; V3, the demo day, with the short
 | `../kiosk-dashboard/backend/app.py` | **changed** (a shared path). Includes that router |
 | `../kiosk-dashboard/backend/tests/test_architect_proxy.py` | **added.** The routes, and a service that is not there reading as `{"available": false}` |
 | `../../notes/design/face-halloween-ghost-states.html` | **added.** The state machine above |
+| `../../notes/design/face-halloween-ghost-handover.md` | **added.** The handover: what each lane does to put it on the robot, and the ENCORE preview tools |
 
 No engine file is touched. A reserved state (E_STOP, DEGRADED) still draws the default eyes.
 
 To put it on the robot, copy `ghost.js` to `face/skins/` in the robot's content folder
-(`$OPENDUBS_SHOWS_DIR`), then send `SKIN ghost`. Without the coordinator or the runner it still dozes,
+(`$OPENDUBS_SHOWS_DIR`), then send `SKIN ghost`. The steps, who takes each, and the ENCORE tools for
+previewing it: [`notes/design/face-halloween-ghost-handover.md`](../../notes/design/face-halloween-ghost-handover.md). Without the coordinator or the runner it still dozes,
 looks around, dances and smiles at people; EEK!, FOCUS, HAPPY and the shows' dances need one of them. To
 try it in a browser with no robot, set its inputs from the console:
 `window.ghostInputs = { day: { available: true, state: "CHOREO", show: "wave-and-nod", since_s: 0 } }`
