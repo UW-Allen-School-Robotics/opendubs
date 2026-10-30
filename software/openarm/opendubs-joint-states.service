@@ -1,0 +1,17 @@
+[Unit]
+# `/joint_states` of the whole robot: the two arm services publish `/left/joint_states` and `/right/joint_states`, and this puts them in one message, as the old stack's single
+# broadcaster did (the runner and the dashboard read it so). software/openarm/gafro/joint_states_merge.py. It is pulled in by opendubs-arm@.service (Wants=) and moves nothing.
+# Temporary by design: when both arms run in one process, that process publishes `/joint_states` itself and this unit goes.
+Description=OpenDubs joint states of both arms in one message
+After=network.target
+
+[Service]
+Type=simple
+User=kiosk
+EnvironmentFile=-/etc/opendubs/arm-service.env
+ExecStart=/usr/local/lib/opendubs/opendubs-arm joint-states
+KillSignal=SIGINT
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes

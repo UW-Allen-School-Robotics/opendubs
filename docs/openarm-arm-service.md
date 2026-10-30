@@ -12,7 +12,10 @@ How the arms run on gafro (`opendubs-arm@left|right.service`, `software/openarm/
 | `opendubs-arm@left` / `@right` | systemd, user `kiosk` | `static`: never enabled at boot, because starting one enables the arm's motors and holds the arm where it is. Restarts on failure every 5 s, at most 4 in 120 s (`StartLimitBurst`); after that `systemctl reset-failed` |
 | `openarm-can@arm_left` / `@arm_right` | systemd | the CAN links, 1 Mbit/s with 5 Mbit/s data. Nothing restarts one that has gone `ERROR-PASSIVE` or `BUS-OFF` |
 | `/usr/local/lib/opendubs/opendubs-arm` | the unit's wrapper | sources `/opt/gafro/setup.bash` and the interface workspace `/opt/opendubs/ws`, and takes the arm's hardware config from `/etc/opendubs/openarm-gafro-<side>.yaml` unless `OPENDUBS_ARM_CONFIG` names one |
-| `/etc/opendubs/arm-service.env` | the unit's settings | `OPENDUBS_REPO=/home/tobi/opendubs` (the checkout the service runs from), and the DDS profile (below) |
+| `/usr/local/lib/opendubs/opendubs-arm-preflight` | `ExecStartPre=+`, as root | old stack down, bundle and DDS profile present, this arm's CAN link healed (restarted when not `ERROR-ACTIVE`) |
+| `opendubs-joint-states.service` | systemd, user `kiosk`, pulled in by the arm units | `/joint_states` of both arms in ONE message (what the old stack's broadcaster did), merged from the services' `/left/joint_states` and `/right/joint_states` by `gafro/joint_states_merge.py`; a joint silent for 1 s is dropped, so a dead arm reads as missing. Temporary: when both arms share a process, it publishes `/joint_states` itself and this unit goes |
+| `/opt/opendubs/arm` | the bundle the service runs from | `deploy-all.sh`: `software/openarm` (a link), `description/openarm`, `sim`, in the repository's layout. No checkout on the robot (`OPENDUBS_REPO` is only an override) |
+| `/etc/opendubs/arm-service.env` | the unit's settings | optional overrides only; the DDS profile is not one (below) |
 | `/etc/opendubs/openarm-gafro-left.yaml`, `-right.yaml` | per-arm hardware config | one file per arm, the other arm's group on `bus: fake`: a service starts every group's driver, so a file with both arms on `bus: can` would start both arms in each process |
 | `/opt/gafro/venv`, `/opt/gafro-deps` | the stack | built by `~/gafro-deploy` from the remotes' `main` (`stack.toml`) |
 | `~/gafro-ri-ros2-bridge` | the ROS 2 bridge | **not** in `stack.toml`: built by hand, see below |
@@ -24,7 +27,8 @@ The service refuses to start while the old stack runs (`ros2_control_node`), and
 `arm` (`software/openarm/arm`) is the operator's command; it takes care of the socket belonging to `kiosk`.
 
 ```sh
-arm start left            # sudo systemctl start opendubs-arm@left.service: enables the motors and holds the arm where it is. Nothing moves
+arm up left               # THE bringup (left | right | both): preflight heals the CAN link, a failed start is retried, waits until the service answers; --supervise adds `arm supervise`
+arm start left            # the bare systemd step, no retry or wait: sudo systemctl start opendubs-arm@left.service: enables the motors and holds the arm where it is. Nothing moves
 arm status left           # held / supervised / joint angles
 arm supervise left        # "a person is at the e-stop, head tracking off, neck centred": nothing moves without it
 arm activate left         # to the model's ready pose; arm park left goes back to the stow pose; arm hold stops where it is
@@ -46,7 +50,7 @@ Park before leaving the robot: an e-stop at ready lets the forearm fall.
 
 These files live in `/etc/opendubs/` and are not in the repository. `provision-arm-service.sh` installs the unit and the wrapper, and creates `arm-service.env` from the template only if it is absent.
 
-**DDS profile** (`arm-service.env`: `FASTRTPS_DEFAULT_PROFILES_FILE`, `FASTDDS_DEFAULT_PROFILES_FILE`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, the same three lines as `ros-dds.env`). The service runs as
+**DDS profile** (always set by the wrapper and by `arm`: `FASTRTPS_DEFAULT_PROFILES_FILE`, `FASTDDS_DEFAULT_PROFILES_FILE` = `/etc/opendubs/fastdds-robot.xml`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`; the preflight and the wrapper refuse to start without the file). The service runs as
 `kiosk`, and Fast DDS's shared memory does not cross to another Unix user. Without the profile a client in a person's shell sees the action server (`ros2 action list`) but `Action servers: 0` in
 `ros2 action info`, goals are never answered and `ros2 topic echo` waits forever.
 

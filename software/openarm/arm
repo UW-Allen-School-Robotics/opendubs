@@ -1,30 +1,39 @@
 #!/bin/bash
 # arm <command> [left|right] -- run an arm from the Thor without knowing where anything is.
 #
+#   arm up [left|right|both] [--supervise]      (no side = both)
+#                                     THE bringup: start the arm service (its preflight restarts a CAN link in error, checks the old stack is down and the DDS profile is there), retry a
+#                                     failed start, wait until the service answers, show its status. `both` (the default) brings up the left, then the right, each on its own: one failing does not stop the other. It holds the arm where it is and moves
+#                                     nothing; --supervise then says a person is at the e-stop (what `arm supervise` does), which is what makes a moving command possible
 #   arm start|stop|restart [side]     the arm service (opendubs-arm@<side>.service); starting it enables the motors and holds the arm where it is
 #   arm status|activate|park|follow|hold|down|supervise|unsupervise [side]
 #                                     a command to the running service, over its socket (arm_service.py ctl): the same gates apply as ever
 #   arm viewer [side] [port]          the viser viewer of that arm (default port 8090: 8080 is the dashboard), with the model the service runs
 #   arm doctor [side]                 why the viewer shows nothing: is the service up, is /joint_states publishing, is a viewer subscribed
 #
-# The side is `right` unless given. Everything per robot comes from /etc/opendubs/arm-service.env, which the unit reads too (OPENDUBS_REPO, OPENDUBS_GAFRO_SETUP,
+# The side is `right` unless given. Everything per robot comes from /etc/opendubs/arm-service.env, which the unit reads too (OPENDUBS_REPO, default /opt/opendubs/arm: the bundle deploy-all.sh ships; OPENDUBS_GAFRO_SETUP,
 # OPENDUBS_PYTHON, OPENDUBS_ARM_SOCKET_DIR, and the DDS settings RMW_IMPLEMENTATION, ROS_DOMAIN_ID, FASTDDS_*: the viewer and the doctor must be on the service's ROS graph). ARM_ENV_FILE names another file.
 # ARM_DRY_RUN=1 prints what would run and runs nothing.
 set -eu
 
-usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 [ $# -ge 1 ] || usage
 command="$1"; shift
 
 # The viewer takes a port after the side, and the side is optional: `arm viewer 8091` is the right arm on 8091.
-side=right; port=8090
+side=right; side_given=""; port=8090; supervise=""
 for word in "$@"; do
     case "$word" in
-        left | right) side="$word" ;;
+        left | right | both) side="$word"; side_given=1 ;;
+        --supervise) supervise=1 ;;
         [0-9]*) port="$word" ;;
-        *) echo "arm: '$word' is not a side (left, right) or a port" >&2; exit 64 ;;
+        *) echo "arm: '$word' is not a side (left, right, both), a port or --supervise" >&2; exit 64 ;;
     esac
 done
+
+# `arm up` alone is the whole robot; every other command defaults to the right arm.
+[ "$command" = up ] && [ -z "$side_given" ] && side=both
+if [ "$side" = both ] && [ "$command" != up ]; then echo "arm: 'both' is only for \`arm up\`; give one side" >&2; exit 64; fi
 
 run() {
     if [ -n "${ARM_DRY_RUN:-}" ]; then printf '%s\n' "$*"; else "$@"; fi
@@ -39,12 +48,49 @@ if [ -r "$env_file" ]; then
     done
 fi
 
+# The bundle the service runs from, and the DDS profile: always set, as the unit's wrapper sets them (a shell without the profile sees the action server and no answers).
+: "${OPENDUBS_REPO:=/opt/opendubs/arm}"
+dds_profile="${OPENDUBS_DDS_PROFILE:-/etc/opendubs/fastdds-robot.xml}"
+export FASTRTPS_DEFAULT_PROFILES_FILE="$dds_profile" FASTDDS_DEFAULT_PROFILES_FILE="$dds_profile" ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+
 socket_dir="${OPENDUBS_ARM_SOCKET_DIR:-/run/opendubs-arm}"
 setup="${OPENDUBS_GAFRO_SETUP:-/opt/gafro/setup.bash}"
 python="${OPENDUBS_PYTHON:-python}"
 
 need_repo() {
-    : "${OPENDUBS_REPO:?arm: OPENDUBS_REPO is not set (in $env_file, or in the environment)}"
+    [ -n "${ARM_DRY_RUN:-}" ] || [ -r "$OPENDUBS_REPO/software/openarm/gafro/arm_service.py" ] \
+        || { echo "arm: no arm service under $OPENDUBS_REPO: deploy-all.sh ships the bundle (OPENDUBS_REPO names another)" >&2; exit 78; }
+}
+
+# One arm up: start (the unit's preflight heals the CAN link), retry a start that failed for a reason a retry can mend, wait for the service to answer.
+up_one() {
+    local arm="$1" unit="opendubs-arm@$1.service" attempt status
+    if [ -n "${ARM_DRY_RUN:-}" ]; then
+        echo "sudo systemctl start $unit    # up to 3 attempts, then wait for: arm status $arm"
+        [ -z "$supervise" ] || echo "arm supervise $arm"
+        return 0
+    fi
+    for attempt in 1 2 3; do
+        if sudo systemctl start "$unit"; then break; fi
+        journalctl -u "$unit" -n 4 --no-pager -o cat 2>/dev/null | sed "s/^/  $arm: /" >&2
+        # The preflight's refusals a retry cannot mend: 2 the old stack, 78 not deployed / no DDS profile.
+        if systemctl show "$unit" -p ExecStartPre --value 2>/dev/null | grep -qE 'status=(2|78)/'; then
+            echo "arm up $arm: refused (see above); fix that and run it again" >&2; return 1
+        fi
+        [ "$attempt" -lt 3 ] || { echo "arm up $arm: $unit would not start in 3 attempts (journalctl -u $unit -n 30)" >&2; return 1; }
+        echo "arm up $arm: start attempt $attempt failed; trying again" >&2; sleep 3
+    done
+    # The driver reads every joint twice before it enables a motor (the left arm needs seconds for that), so the socket appears late.
+    for _ in $(seq 1 90); do
+        if status=$("$0" status "$arm" 2>/dev/null); then echo "arm up $arm: $status"; break; fi
+        if [ "$(systemctl is-active "$unit" 2>/dev/null)" = failed ] || [ "$(systemctl is-active "$unit" 2>/dev/null)" = inactive ]; then
+            journalctl -u "$unit" -n 6 --no-pager -o cat 2>/dev/null | sed "s/^/  $arm: /" >&2
+            echo "arm up $arm: the service ended while starting" >&2; return 1
+        fi
+        sleep 1
+    done
+    [ -n "${status:-}" ] || { echo "arm up $arm: no answer on the socket after 90 s (arm doctor $arm; journalctl -u $unit -n 30)" >&2; return 1; }
+    [ -z "$supervise" ] || "$0" supervise "$arm"
 }
 
 # The gafro environment, as the wrapper sources it: its scripts read variables they never set, so strictness is off for the source.
@@ -62,6 +108,12 @@ gafro_environment() {
 }
 
 case "$command" in
+    up)
+        if [ "$side" = both ]; then
+            # Each arm on its own: a left arm that will not start (its bus is the flaky one) must not keep the right from coming up. Exit status 1 if either failed.
+            failed=0; up_one left || failed=1; up_one right || failed=1; exit "$failed"
+        else up_one "$side"; fi
+        ;;
     start | stop | restart)
         # The sudoers rule names the unit with its .service, as written.
         run sudo systemctl "$command" "opendubs-arm@$side.service"

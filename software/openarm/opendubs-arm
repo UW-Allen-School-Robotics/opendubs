@@ -2,9 +2,9 @@
 # opendubs-arm <side> -- what opendubs-arm@.service runs: the arm service for one arm (left | right), in the gafro environment.
 #
 # Everything per robot comes from the environment, which the unit takes from /etc/opendubs/arm-service.env (opendubs-arm.env.example):
-#   OPENDUBS_REPO         a checkout of this repository, readable by the service's user. Required. `engage.DEFAULT_MODEL` finds the arm's model, and the
-#                         clearance twin finds sim/, relative to the file's place in the repository; deploy-all.sh copies software/openarm to
-#                         /opt/opendubs/openarm without description/openarm/ or sim/, so a deployed copy alone cannot find them.
+#   OPENDUBS_REPO        where the service runs from, default /opt/opendubs/arm: the bundle deploy-all.sh ships (this repository's layout: software/openarm, description/openarm,
+#                         sim), so no checkout is needed on the robot. Set it to a checkout only to run the service from one (a development robot). `engage.DEFAULT_MODEL` finds the
+#                         arm's model and the clearance twin finds sim/, relative to the file's place, so the directory must have that layout.
 #   OPENDUBS_ARM_CONFIG   the driver's hardware config (a copy of gafro/hardware.example.yaml), the same file for every instance. Required on a real bus, unless
 #                         the arm has its own, /etc/opendubs/openarm-gafro-<side>.yaml (left | right), which is what an unset OPENDUBS_ARM_CONFIG falls back to:
 #                         each service must have the other arm's group on `bus: fake`, or it starts both arms' drivers, so one file per arm is the normal case.
@@ -14,27 +14,35 @@
 #   OPENDUBS_PYTHON       python to run (default `python`, which the venv of that setup puts first).
 #   OPENDUBS_ARM_ARGS     more arguments for the service, e.g. `--backend mujoco --no-ros` to try the unit without an arm, or `--move-seconds 6`.
 #
+# The DDS profile is NOT a setting: the service runs as kiosk, and Fast DDS's shared memory does not cross to another Unix user, so without the profile a client in a
+# person's shell sees the action server and never gets an answer from it. It is set here, always, to /etc/opendubs/fastdds-robot.xml (OPENDUBS_DDS_PROFILE names another file), and
+# the service does not start without it. Whatever arm-service.env says about it is overridden.
+#
 # It is started unsupervised: no --supervised. A person at the e-stop says so with `arm_service.py ctl supervise`, and a moving command is refused on a
 # real bus until then.
 set -eu
 
-side="${1:?usage: opendubs-arm left|right}"
-case "$side" in left | right) ;; *) echo "opendubs-arm: the side is left or right, not '$side'" >&2; exit 64 ;; esac
+side="${1:?usage: opendubs-arm left|right|joint-states}"
+case "$side" in left | right | joint-states) ;; *) echo "opendubs-arm: the side is left or right (or joint-states, the merge of both arms' /joint_states), not '$side'" >&2; exit 64 ;; esac
 
-: "${OPENDUBS_REPO:?opendubs-arm: OPENDUBS_REPO is not set (see /etc/opendubs/arm-service.env, opendubs-arm.env.example)}"
+: "${OPENDUBS_REPO:=/opt/opendubs/arm}"
 service="$OPENDUBS_REPO/software/openarm/gafro/arm_service.py"
 [ -f "$service" ] || { echo "opendubs-arm: no $service (OPENDUBS_REPO=$OPENDUBS_REPO)" >&2; exit 78; }
 
 # The old stack (ros2_control in the `openarm` container, started by openarm-up) and this service must not both drive an arm. Its processes are
 # visible here. The driver's own listen for another sender is the second line of defence; this one says why. Exit status 2 is not retried.
 # The pattern is anchored at the executable: a plain `pgrep -f ros2_control_node` also finds another pgrep (the dashboard runs one at every status poll), and exit 2 is not retried.
-if pgrep -f '^([^ ]*/)?ros2_control_node( |$)' >/dev/null 2>&1; then
+if [ "$side" != joint-states ] && pgrep -f '^([^ ]*/)?ros2_control_node( |$)' >/dev/null 2>&1; then
     echo "opendubs-arm: the old arm stack is running (ros2_control_node): run \`openarm-up down\` first; two senders on one bus must not happen" >&2
     exit 2
 fi
 
 # The instance names the arm: --side in OPENDUBS_ARM_ARGS would override it (the last one wins), so a unit could say one arm and move another.
 case " ${OPENDUBS_ARM_ARGS:-} " in *" --side"*) echo "opendubs-arm: --side comes from the unit's instance ($side), not from OPENDUBS_ARM_ARGS" >&2; exit 64 ;; esac
+
+profile="${OPENDUBS_DDS_PROFILE:-/etc/opendubs/fastdds-robot.xml}"
+[ -r "$profile" ] || { echo "opendubs-arm: the DDS profile $profile is missing (provision-ros.sh installs it): without it ROS calls from other users hang" >&2; exit 78; }
+export FASTRTPS_DEFAULT_PROFILES_FILE="$profile" FASTDDS_DEFAULT_PROFILES_FILE="$profile" ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 
 setup="${OPENDUBS_GAFRO_SETUP:-/opt/gafro/setup.bash}"
 if [ -r "$setup" ]; then
@@ -57,6 +65,10 @@ if [ -r "$ws_setup" ]; then
     set -eu
 else
     echo "opendubs-arm: no $ws_setup: opendubs_arm_interfaces is not built, so there is no command action (run provision-arm-service.sh)" >&2
+fi
+
+if [ "$side" = joint-states ]; then
+    exec "${OPENDUBS_PYTHON:-python}" -u "$(dirname "$service")/joint_states_merge.py" ${OPENDUBS_JOINT_STATES_ARGS:-}
 fi
 
 args=(run --side "$side" --socket "${OPENDUBS_ARM_SOCKET_DIR:-/run/opendubs-arm}/opendubs-arm-service-$side.sock")

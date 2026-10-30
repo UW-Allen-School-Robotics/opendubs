@@ -30,7 +30,9 @@ pose targets). `opendubs-arm@right.service` / `opendubs-arm@left.service` run it
 Day to day, with the settings file in place, one command does all of it (the side is `right` unless given):
 
 ```sh
-arm start right            # the service; enables the arm's motors and holds it where it is
+arm up right               # THE bringup (left, right or both): the unit's preflight heals the CAN link, a failed start is retried, it waits until the service answers. Holds the arm, moves nothing
+arm up both --supervise    # ... and says a person is at the e-stop (what `arm supervise` does), which a moving command needs
+arm start right            # only the systemd start, without the retry and the wait
 arm status                 # what it is doing; likewise activate, park, follow, hold, supervise, unsupervise, down
 arm viewer 8090            # the viser viewer on that port (8080 is the dashboard), with the model the service runs
 arm doctor                 # the viewer shows nothing: is the service up and answering, is /joint_states publishing, is a viewer on the graph
@@ -40,7 +42,7 @@ arm doctor                 # the viewer shows nothing: is the service up and ans
 
 ```sh
 sudo /opt/opendubs/openarm/provision-arm-service.sh     # installs the unit, the wrapper, the settings file (if absent) and the sudoers rule; provision-openarm.sh runs it too
-sudoedit /etc/opendubs/arm-service.env                  # the checkout (OPENDUBS_REPO) and the driver's config
+sudoedit /etc/opendubs/arm-service.env                  # only if this robot needs more than the defaults (the arm configs are /etc/opendubs/openarm-gafro-<side>.yaml)
 
 sudo systemctl start opendubs-arm@right                 # enables the arm's motors and holds it where it is
 journalctl -u opendubs-arm@right -f
@@ -60,10 +62,16 @@ What the unit decides, and why:
   position (two agreeing replies) and holds there. It does not retry when the old stack is running (the wrapper exits 2): `openarm-up down` first.
 - **`systemctl stop` does not release the arm.** The driver has no disable: the motors stay enabled and stiff until the e-stop power cycle, and after one they are off and the
   service has to be restarted. The unit stops it with SIGINT, the only signal the service ends cleanly on (it holds, removes its socket, shuts the robot interface down).
-- **It runs from a checkout** (`OPENDUBS_REPO`). `deploy-all.sh` copies `software/openarm` to `/opt/opendubs/openarm` without `description/openarm/` or `sim/`, and the arm's model
-  and the clearance twin are found relative to the file's place in the repository. Until a deploy ships them, the checkout has to be on the branch the robot runs and be
-  readable by `kiosk`.
+- **`/joint_states` is one message with both arms**, from `opendubs-joint-states.service` (`gafro/joint_states_merge.py`), which the arm units pull in. Each service publishes only its own arm on `/<side>/joint_states` (a fake bus for the other arm would overwrite real joints in a consumer that keeps a dict by name); the merge keeps the newest value of every joint and drops one silent for 1 s. When both arms share a process, that process publishes `/joint_states` and the unit goes.
+- **It runs from a bundle, not a checkout.** `deploy-all.sh` ships `software/openarm` (linked in), `description/openarm` and `sim` to `/opt/opendubs/arm` in this repository's own layout, so
+  the arm's model and the clearance twin are found by the same relative paths as in a checkout. `OPENDUBS_REPO` names a checkout only on a development robot. A robot whose
+  `arm-service.env` still has `OPENDUBS_REPO=/home/...` should lose that line after the first bundle deploy.
+- **Every start is preceded by a preflight, as root** (`opendubs-arm-preflight`, `ExecStartPre=+`): the old stack is not running (exit 2, not retried), the bundle and the DDS profile
+  are there (78), and this arm's CAN link is `ERROR-ACTIVE`; a link in `ERROR-WARNING`, `ERROR-PASSIVE` or `BUS-OFF` is restarted, which moves nothing (what `openarm-up` did, and the unit
+  did not), and one that will not come back ends the start with the cause: no power (e-stop, contactor) or a loose connector. `arm up` retries a start that failed for a reason a retry can mend.
+- **The DDS profile is not a setting.** The wrapper and `arm` always use `/etc/opendubs/fastdds-robot.xml` (`provision-ros.sh` installs it) and the service refuses to start without it:
+  shared memory does not cross to another Unix user, so a client in a person's shell would see the action server and never get an answer.
 
-Checked so far, on a laptop with the simulator backend (`--backend mujoco --no-ros`): `systemd-analyze verify`, the wrapper's refusals (exit 64 a bad side, 78 no checkout, 2 the old
-stack running, 1 `OPENDUBS_REPO` unset), a start under a transient user unit with the same stop and restart settings, `ctl status` on its socket, a restart about 6 s after `kill -9`, a clean stop
+Checked so far, on a laptop with the simulator backend (`--backend mujoco --no-ros`): `systemd-analyze verify`, the wrapper's refusals (exit 64 a bad side, 78 no bundle or DDS profile, 2 the old
+stack running), a start under a transient user unit with the same stop and restart settings, `ctl status` on its socket, a restart about 6 s after `kill -9`, a clean stop
 on SIGINT. **Not run:** on the Thor, as `kiosk`, with a real bus.

@@ -10,6 +10,8 @@
 #
 # What it puts where:
 #   /usr/local/lib/opendubs/opendubs-arm     the wrapper (always replaced)
+#   /usr/local/lib/opendubs/opendubs-arm-preflight  what the unit runs as root before it starts: old stack down, bundle and DDS profile present, the CAN link healed (always replaced)
+#   /etc/systemd/system/opendubs-joint-states.service  `/joint_states` of both arms in one message, from the services' /<side>/joint_states (pulled in by the arm units)
 #   /usr/local/bin/arm                       the operator's command: arm start|status|activate|follow|viewer|doctor [left|right] (always replaced)
 #   /etc/systemd/system/opendubs-arm@.service  the unit (always replaced)
 #   /etc/opendubs/arm-service.env            this robot's settings, from opendubs-arm.env.example: only if absent, a deploy never overwrites it
@@ -26,7 +28,7 @@ if [ -z "$ROOT" ] && [ "$(id -u)" -ne 0 ]; then
   echo "provision-arm-service.sh: run it as root (sudo), or set ROOT=<dir> to install somewhere else" >&2
   exit 1
 fi
-for f in opendubs-arm arm opendubs-arm@.service opendubs-arm.env.example opendubs-arm.sudoers; do
+for f in opendubs-arm opendubs-arm-preflight arm opendubs-arm@.service opendubs-joint-states.service opendubs-arm.env.example opendubs-arm.sudoers; do
   [ -f "$DIR/$f" ] || { echo "provision-arm-service.sh: $DIR/$f is missing" >&2; exit 1; }
 done
 
@@ -41,13 +43,15 @@ owner=()
 [ -z "$ROOT" ] && owner=(-o root -g root)
 
 install -D -m0755 "${owner[@]}" "$DIR/opendubs-arm" "$ROOT/usr/local/lib/opendubs/opendubs-arm"
+install -D -m0755 "${owner[@]}" "$DIR/opendubs-arm-preflight" "$ROOT/usr/local/lib/opendubs/opendubs-arm-preflight"
 install -D -m0755 "${owner[@]}" "$DIR/arm" "$ROOT/usr/local/bin/arm"
 install -D -m0644 "${owner[@]}" "$DIR/opendubs-arm@.service" "$ROOT/etc/systemd/system/opendubs-arm@.service"
+install -D -m0644 "${owner[@]}" "$DIR/opendubs-joint-states.service" "$ROOT/etc/systemd/system/opendubs-joint-states.service"
 if [ -e "$ROOT/etc/opendubs/arm-service.env" ]; then
   echo "-- keeping this robot's $ROOT/etc/opendubs/arm-service.env"
 else
   install -D -m0644 "${owner[@]}" "$DIR/opendubs-arm.env.example" "$ROOT/etc/opendubs/arm-service.env"
-  echo "-- installed $ROOT/etc/opendubs/arm-service.env from the template: EDIT IT (OPENDUBS_REPO, OPENDUBS_ARM_CONFIG)"
+  echo "-- installed $ROOT/etc/opendubs/arm-service.env from the template: EDIT IT if this robot needs more than the defaults"
 fi
 install -D -m0440 "${owner[@]}" "$DIR/opendubs-arm.sudoers" "$ROOT/etc/sudoers.d/opendubs-arm"
 
@@ -78,11 +82,15 @@ echo "== arm service installed (not enabled, not started) =="
 if ! id "$USER_NAME" >/dev/null 2>&1; then
   echo "!! no user '$USER_NAME' on this machine: the unit runs as it (User=$USER_NAME in opendubs-arm@.service)"
 fi
+# The service runs from the bundle deploy-all.sh ships, /opt/opendubs/arm, unless arm-service.env names a checkout.
 repo=$(sed -n 's/^OPENDUBS_REPO=//p' /etc/opendubs/arm-service.env | tail -n 1)
-if [ -z "$repo" ]; then
-  echo "!! OPENDUBS_REPO is not set in /etc/opendubs/arm-service.env"
-elif id "$USER_NAME" >/dev/null 2>&1 && ! sudo -u "$USER_NAME" test -r "$repo/software/openarm/gafro/arm_service.py"; then
-  echo "!! $USER_NAME cannot read $repo/software/openarm/gafro/arm_service.py (OPENDUBS_REPO in /etc/opendubs/arm-service.env)"
+repo="${repo:-/opt/opendubs/arm}"
+if id "$USER_NAME" >/dev/null 2>&1 && ! sudo -u "$USER_NAME" test -r "$repo/software/openarm/gafro/arm_service.py"; then
+  echo "!! $USER_NAME cannot read $repo/software/openarm/gafro/arm_service.py: deploy-all.sh ships the bundle (or OPENDUBS_REPO in /etc/opendubs/arm-service.env names a checkout)"
 fi
+for f in "$repo/description/openarm/gafro/openarm_bimanual.xml" "$repo/sim/clearance.py"; do
+  [ -r "$f" ] || echo "!! $f is missing: the bundle is incomplete (deploy-all.sh)"
+done
+[ -r /etc/opendubs/fastdds-robot.xml ] || echo "!! no /etc/opendubs/fastdds-robot.xml (provision-ros.sh installs it): the service refuses to start without the DDS profile"
 [ -r /opt/gafro/setup.bash ] || echo "!! no /opt/gafro/setup.bash: the gafro environment is not installed (gafro-deploy)"
-echo "   start an arm:  arm start right      then:  arm status | activate | follow | viewer | doctor      logs:  journalctl -u opendubs-arm@right -f"
+echo "   bring an arm up:  arm up right (or left, both)      then:  arm status | activate | follow | viewer | doctor      logs:  journalctl -u opendubs-arm@right -f"

@@ -1,0 +1,64 @@
+#!/bin/bash
+# opendubs-arm-preflight <side> -- what opendubs-arm@.service does as root before it starts the arm service (ExecStartPre=+): everything `openarm-up start` used to check
+# and heal, so that a start either goes through or says in one line what to fix. It commands no motor.
+#
+#   1. the old stack (ros2_control_node) is not running                    exit 2, not retried: someone has to run `openarm-up down`
+#   2. the bundle the service runs from, and the DDS profile, are there    exit 78, not retried by a person's luck: the fix is a deploy / provision
+#   3. this arm's CAN link is up and ERROR-ACTIVE; if it is in ERROR-WARNING / ERROR-PASSIVE /
+#      BUS-OFF it is restarted (`systemctl restart openarm-can@arm_<side>`), which moves nothing
+#      and clears the error counters, and waited for                      exit 1 when it will not come back: no power behind it, or a loose connector
+#
+# A link restart is safe here because nothing is commanding the arm while the service is starting; a motor that was left enabled by a crash keeps holding its last command.
+# Overrides (tests): OPENDUBS_ARM_BUNDLE, OPENDUBS_DDS_PROFILE, OPENDUBS_LINK_WAIT (seconds, default 3), OPENDUBS_OLD_STACK_PATTERN.
+set -u
+
+side="${1:?usage: opendubs-arm-preflight left|right}"
+case "$side" in left | right) ;; *) echo "opendubs-arm-preflight: the side is left or right, not '$side'" >&2; exit 64 ;; esac
+iface="arm_$side"
+
+bundle="${OPENDUBS_ARM_BUNDLE:-${OPENDUBS_REPO:-/opt/opendubs/arm}}"
+profile="${OPENDUBS_DDS_PROFILE:-/etc/opendubs/fastdds-robot.xml}"
+pattern="${OPENDUBS_OLD_STACK_PATTERN:-^([^ ]*/)?ros2_control_node( |\$)}"
+
+# 1. The old stack. Anchored at the executable: a plain `pgrep -f` also finds the pgrep the dashboard runs at every status poll.
+if pgrep -f "$pattern" >/dev/null 2>&1; then
+    echo "opendubs-arm: the old arm stack is running (ros2_control_node): run \`openarm-up down\` first; two senders on one bus must not happen" >&2
+    exit 2
+fi
+
+# 2. What the service runs from, and the DDS profile. Without the profile a client in another user's shell sees the action server and never gets an answer from it.
+for f in "$bundle/software/openarm/gafro/arm_service.py" "$bundle/description/openarm/gafro/openarm_bimanual.xml" "$bundle/sim/clearance.py"; do
+    [ -r "$f" ] || { echo "opendubs-arm: $f is missing: the arm bundle is not deployed (./deploy-all.sh from the dev machine, then provision-arm-service.sh)" >&2; exit 78; }
+done
+[ -r "$profile" ] || { echo "opendubs-arm: the DDS profile $profile is missing (provision-ros.sh installs it): without it ROS calls from other users hang" >&2; exit 78; }
+
+# 3. This arm's CAN link.
+link_state() {  # -> ERROR-ACTIVE | ERROR-WARNING | ERROR-PASSIVE | BUS-OFF | STOPPED | "" (a missing interface)
+    ip -details link show "$1" 2>/dev/null | grep -oE "state (ERROR-[A-Z]+|BUS-OFF|STOPPED)" | head -1 | sed 's/^state //'
+}
+link_ready() {
+    local d
+    d=$(ip -details link show "$1" 2>/dev/null) || return 1
+    grep -q "<.*UP.*>" <<<"$d" && [ "$(link_state "$1")" = ERROR-ACTIVE ]
+}
+
+if ! ip link show "$iface" >/dev/null 2>&1; then
+    echo "opendubs-arm: $iface does not exist: the adapter is unplugged, or the peak_usb driver is not loaded (a link restart cannot fix that)" >&2
+    exit 1
+fi
+if ! link_ready "$iface"; then
+    echo "opendubs-arm: $iface is $(link_state "$iface"), not ERROR-ACTIVE: restarting the link (moves nothing)"
+    systemctl restart "openarm-can@$iface" || { echo "opendubs-arm: \`systemctl restart openarm-can@$iface\` failed" >&2; exit 1; }
+    waited=0
+    limit="${OPENDUBS_LINK_WAIT:-3}"
+    while ! link_ready "$iface"; do
+        [ "$waited" -ge "$((limit * 2))" ] && break
+        sleep 0.5; waited=$((waited + 1))
+    done
+    if ! link_ready "$iface"; then
+        echo "opendubs-arm: $iface is still $(link_state "$iface") after a restart: it has no power behind it (e-stop pressed, contactor open) or its CAN connector is loose. Release the e-stop, check the connectors, then \`arm up $side\`" >&2
+        exit 1
+    fi
+    echo "opendubs-arm: $iface is ERROR-ACTIVE again"
+fi
+exit 0
