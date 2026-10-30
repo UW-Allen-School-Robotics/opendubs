@@ -393,7 +393,7 @@ the next. Nothing else passes between them (the services read the tracker and th
 | `find_hand` | `{"find_s"?: 20, "wait_s"?: 10}` | `centre_person`, then `get_hand` |
 | `plan_treat` | `{"palm": [x,y,z], "jaws_level"?: true}` | no motion: `joints`, `pose` toward that palm |
 | `hold` | `{"seconds"?: 5}` | wait at the treat |
-| `gripper_open`, `gripper_close` | `{"position"?: m}` | the gripper (the arm service's `gripper_cmd`: 0 shut, 0.044 open); a close that stops on something is "holding", one that never moved fails. **Not working on opendubs2 yet** (below) |
+| `gripper_open`, `gripper_close` | `{}` | the gripper (the arm service's `open_gripper` / `close_gripper` commands, 2026-10-29); a close that stops on something is "holding", one that never moved or closed on nothing fails. **Not yet run on opendubs2 this way** (below) |
 | `stop`, `rearm` | `{}` | cancel any move (the arm holds); clear a latched stop |
 | `status` | `RobotQuery` | mode, permit, stopped, busy, the arm's joints, the head |
 

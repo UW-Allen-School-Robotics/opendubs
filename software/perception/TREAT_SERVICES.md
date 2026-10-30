@@ -99,10 +99,10 @@ On the real arm `speed` defaults to 0.4 and is capped at 0.6 rad/s.
 | | |
 |---|---|
 | Type | `RobotCommand` |
-| Moves | the gripper (the arm service's `/right_gripper_controller/gripper_cmd`, `control_msgs/GripperCommand`) |
-| `req` | `position` m of finger travel (open 0.044, close 0.0); `max_effort` (0: the driver's); `timeout_s` (10) |
+| Moves | the gripper (the arm service's `open_gripper` / `close_gripper` on `/right_arm/command`, `ArmCommand`) |
+| `req` | `timeout_s` (10). Fully open or closed: the commands take no position |
 | `data` on SUCCESS | `{"position_mm": 44.0, "holding": false}`; for a close that stopped on something, `"holding": true` |
-| Fails | `FAILURE` ("the gripper did not move (still 42.7 mm open) ..." for a close that never moved; stalled; cancelled), `TIMEOUT`, `SERVICE_NOT_RUNNING` |
+| Fails | `FAILURE` ("the gripper did not move (still 42.7 mm open) ..." for a close that never moved; "closed on nothing" for a close with nothing between the fingers, the gripper left closed; cancelled), `TIMEOUT`, `SERVICE_NOT_RUNNING` |
 
 ### Perception and head
 
