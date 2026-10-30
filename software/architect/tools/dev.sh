@@ -20,6 +20,10 @@
 #                                  MOVE. SIM=1 GAFRO_DOMAIN=<n>: a simulated arm service on its own domain (its
 #                                  gripper and the head logged, the deadman counted as held). Start the listener
 #                                  without SHOW and with DAY=1, and the coordinator with CANDY_RUNNER=1
+#   dev.sh gafro-sim [stop]        a SIMULATED right arm for `SIM=1 dev.sh gafro`: tobi's arm service with --backend mujoco
+#                                  (the robot's installed copy, /opt/opendubs/arm) on its own ROS domain (GAFRO_DOMAIN, 78) and
+#                                  socket, taken to ready and left there, and the /joint_states merge beside it. Archit's recipe
+#                                  (software/perception/tools/grasp_to_sim.sh sim, archit/treat-follow-ros), without his follow
 #   dev.sh kws                     fetch the listener's keyword-spotter model into $DATA/models, once
 #   dev.sh butler                  fetch the butler's voice (bm_george, British English) into $DATA/models, once
 #   dev.sh listen                  the listener on the Jabra (archit-architect-listener), beside the runner;
@@ -307,6 +311,44 @@ uninstall_units() {
   echo "removed: ${UNITS[*]}"
 }
 
+gafro_sim() {  # $1: start (default) or stop. Runs on the host: the gafro venv has MuJoCo; nothing reaches the robot's graph
+  local dir="${DATA}/gafro-sim" domain="${GAFRO_DOMAIN:-78}" bundle="${GAFRO_BUNDLE:-/opt/opendubs/arm}"
+  local sock="${dir}/arm-right.sock" service="${bundle}/software/openarm/gafro/arm_service.py"
+  if [ "${1:-start}" = stop ]; then        # only what this started (its pids), never another session's
+    [ -f "${dir}/pids" ] && kill $(cat "${dir}/pids") 2>/dev/null || true
+    rm -f "${sock}" "${dir}/pids"; echo "stopped the simulated arm"; return
+  fi
+  [ "${domain}" != 0 ] || { echo "dev.sh: GAFRO_DOMAIN must not be 0, the robot's own" >&2; exit 1; }
+  [ -f "${service}" ] || { echo "dev.sh: no arm service at ${service} (GAFRO_BUNDLE)" >&2; exit 1; }
+  [ -S "${sock}" ] && { echo "dev.sh: a simulated arm already has ${sock}; dev.sh gafro-sim stop" >&2; exit 1; }
+  mkdir -p "${dir}"
+  # The robot's DDS profile, as the runner's container has it, on the simulation's own domain
+  ( set +u; source /opt/gafro/setup.bash; source /opt/opendubs/ws/install/setup.bash   # ArmCommand: /right_arm/command
+    set -a; . /etc/opendubs/ros-dds.env; set +a; export ROS_DOMAIN_ID="${domain}"
+    model="${bundle}/description/openarm/gafro/openarm_bimanual.xml" light="${dir}/openarm_bimanual_weightless.xml"
+    # MuJoCo's position servo has no gravity feed-forward: the model made weightless, as grasp_to_sim.sh and the
+    # service's own simulation test do
+    python3 - "${model}" "${light}" <<'PY'
+import os, sys, mujoco
+spec = mujoco.MjSpec.from_file(sys.argv[1])
+for body in spec.bodies:
+    if body.name != "world":
+        body.gravcomp = 1.0
+spec.meshdir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), spec.meshdir))
+open(sys.argv[2], "w").write(spec.to_xml())
+PY
+    python3 -u "${service}" run --side right --backend mujoco --model "${light}" --socket "${sock}" > "${dir}/service.log" 2>&1 &
+    echo $! > "${dir}/pids"
+    merge="${bundle}/software/openarm/gafro/joint_states_merge.py"   # the service publishes /right/joint_states
+    if [ -f "${merge}" ]; then python3 -u "${merge}" --sides right > "${dir}/merge.log" 2>&1 & echo $! >> "${dir}/pids"; fi
+    for _ in $(seq 60); do [ -S "${sock}" ] && break; sleep 0.5; done
+    [ -S "${sock}" ] || { echo "dev.sh: the simulated arm service did not start; ${dir}/service.log" >&2; tail -5 "${dir}/service.log" >&2; exit 1; }
+    python3 "${service}" ctl --side right --socket "${sock}" activate --allow-large
+    for _ in $(seq 40); do python3 "${service}" ctl --side right --socket "${sock}" status | grep -q "activate done" && break; sleep 0.5; done
+    python3 "${service}" ctl --side right --socket "${sock}" status | head -2 )
+  echo "simulated right arm at ready on ROS domain ${domain}; logs in ${dir}. Next: SIM=1 GAFRO_DOMAIN=${domain} dev.sh gafro"
+}
+
 case "${1:-}" in
   build)
     ${DOCKER} build -f "${REPO}/software/architect/image/Dockerfile" -t "${IMAGE}" \
@@ -346,6 +388,9 @@ case "${1:-}" in
     run live --agent program --program "/work/${PROGRAM:-software/architect/examples/arms_wave.py}"
     arms
     ;;
+  gafro-sim)
+    gafro_sim "${2:-start}"
+    ;;
   gafro)
     # tobi's arm service must already be up, supervised and active for the right arm (software/openarm/gafro).
     # SIM=1: a SIMULATED arm service on GAFRO_DOMAIN (not 0): the deadman counts as held, and the head and
@@ -356,6 +401,8 @@ case "${1:-}" in
     else
       sim=""
     fi
+    # TREAT_DOMAIN=<n>: the goals go through Archit's trick-or-treat services on that domain (treat_calls.py)
+    [ -n "${TREAT_DOMAIN:-}" ] && sim="${sim} --treat-domain ${TREAT_DOMAIN}"
     run gafro --agent program --program "/work/${PROGRAM:-software/architect/examples/candy_gafro.py}" ${sim}
     ;;
   dry)

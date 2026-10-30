@@ -553,6 +553,9 @@ def main(argv=None) -> int:
                     help="the gafro backend on a simulation, whose gripper does not run: gripper calls are logged")
     ap.add_argument("--sim-head", action="store_true",
                     help="the gafro backend on a simulation: set_head_pose is logged and moves nothing")
+    ap.add_argument("--treat-domain", type=int, default=None, metavar="N",
+                    help="the gafro backend through Archit's trick-or-treat services (/perception/treat/*) on this "
+                         "ROS domain (treat_calls.py), not straight to the arm service")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8098)
     ap.add_argument("--log", help="append every event to this file, one JSON line each")
@@ -587,6 +590,7 @@ def main(argv=None) -> int:
         robot = gafro_robot.make(live_arms.ArmConfig.load(), deadman_held,
                                  stopped=lambda: holder["runner"]._stop.is_set(),
                                  head="log" if a.sim_head else "dashboard", sim_gripper=a.sim_gripper,
+                                 treat_domain=a.treat_domain,
                                  log=lambda ev: print(json.dumps(ev), flush=True))
         namespace = {k: v for k, v in namespace_for(robot).items() if k in primitives}
         after_run = robot.release_head

@@ -7,10 +7,12 @@
 # it 11 cm above the rim, straight down and up with the fingers held 20 degrees off vertical. The arm
 # service's own collision check does not know the bucket, the head or the camera mount: this program is
 # checked on the twin with them (README).
+# 2026-10-29: the grasp of architect-bb75cd239645, wide open near the bucket's centre (bucket_offer.py). On the
+# trick-or-treat services (TREAT_DOMAIN, treat_calls.py) the gripper is only fully open or shut, so it travels
+# shut and opens fully above the rim.
 DOWN = {"x": 0.242, "y": 0.242, "z": -0.940}  # the fingers' direction: 20 deg off vertical, forward and left
-X, Y = 0.70, -0.09                           # over the bucket: 2 cm in front of and 3 cm right of its centre
+X, Y = 0.705, -0.07                          # over the bucket, near its centre: the open fingers clear the wall
 ABOVE, CANDY = 0.66, 0.535                   # 11 cm above the rim; the candy, 2 cm below it
-OPEN = 0.4                                   # 40% open in the bucket: fully open, a finger met its wall
 SIDE = (0.62, -0.40, 0.95)                   # out to the right: the way in and out, clear of the bucket
 BACK = (0.50, -0.40, 0.90)                   # out to the right and behind the bucket: from ready
 LOOK_AT_BUCKET = (0, -25)                    # pan, tilt (+ up): the head tipped down at the bucket (at 30 the
@@ -36,10 +38,11 @@ def straight(z_from, z_to):
 
 reset_robot()                              # the right arm at ready, where the arm service starts it
 set_head_pose(*LOOK_AT_BUCKET)
-set_gripper_width("right", OPEN)
+set_gripper_width("right", 0.0)            # shut on the way: fully open, a finger passed 10 mm from the bucket
 to(*BACK)                                  # out to the right, behind the bucket
 to(*SIDE)
 to(X, Y, ABOVE, DOWN)                      # over the bucket, fingers down
+set_gripper_width("right", 1.0)            # wide open, above the rim
 straight(ABOVE, CANDY)                     # straight down to the candy
 set_gripper_width("right", 0.0)            # close on it
 straight(CANDY, ABOVE)                     # straight back up out of the bucket

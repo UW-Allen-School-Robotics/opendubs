@@ -184,6 +184,56 @@ class Hand(unittest.TestCase):
         self.assertIsNone(self.r.get_hand_pose()["hand"])
 
 
+class Treat(unittest.TestCase):
+    """treat_calls.py (2026-10-29): a planned move goes to move_joints as its goal in radians, the gripper is only
+    open or shut, and one shut on nothing is a gripper closed (to travel), not a failed call."""
+
+    def calls(self, reply):
+        from opendubs_architect import treat_calls as tc
+        t = tc.TreatCalls.__new__(tc.TreatCalls)
+        t.speed, t.sent = 0.4, []
+
+        class Future:
+            def done(self):
+                return True
+
+            def result(self):
+                return R(result_code=R(result_code=reply[0], message=reply[1]), data=reply[2])
+
+        class Client:
+            def __init__(self, name):
+                self.name = name
+
+            def call_async(self, request):
+                t.sent.append((self.name, request.req))
+                return Future()
+        t.client = lambda name: Client(name)
+        t.Request = lambda req: R(req=req)
+        return t
+
+    def test_a_planned_move_is_one_move_joints_to_its_goal(self):
+        import json, math
+        t = self.calls((0, "moved", "{}"))
+        res = t.trajectory("right", [(0.5, [0.0] * 7), (2.0, [90.0, 0, 0, 45.0, 0, 0, 0])]).result()
+        name, req = t.sent[0]
+        self.assertEqual((name, res.error_code), ("move_joints", 0))
+        self.assertAlmostEqual(json.loads(req)["joints"][0], math.pi / 2)
+        self.assertEqual(json.loads(req)["speed"], 0.4)
+
+    def test_the_gripper_is_open_or_shut_and_shut_on_nothing_is_shut(self):
+        t = self.calls((1, "close_gripper: FAILURE: closed on nothing: no object between the fingers", "{}"))
+        res = t.grip("right", 0.0).result()
+        self.assertEqual((t.sent[0][0], res.reached_goal, res.stalled), ("gripper_close", True, False))
+        t = self.calls((0, "gripper closed on something at 12.0 mm (holding it)", '{"position_mm": 12.0, "holding": true}'))
+        res = t.grip("right", 0.0).result()
+        self.assertEqual((res.stalled, res.position), (True, 0.012))
+        t = self.calls((0, "gripper open at 44.0 mm", '{"position_mm": 44.0}'))
+        self.assertTrue(t.grip("right", 0.044).result().reached_goal)
+        self.assertEqual(t.sent[0][0], "gripper_open")
+        t = self.calls((1, "the gripper did not move (still 43.0 mm open)", '{"stopped": null}'))
+        self.assertFalse(t.grip("right", 0.0).result().reached_goal)
+
+
 class Cancel(unittest.TestCase):
     def test_a_cancel_ends_the_run_and_keeps_the_program_armed(self):
         from opendubs_architect import demo_runner as dr

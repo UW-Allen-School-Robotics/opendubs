@@ -388,6 +388,31 @@ CANDY_RUNNER=1 tools/dev.sh day                      # the coordinator, its cand
 SIM=1 GAFRO_DOMAIN=79 tools/dev.sh gafro             # against a simulated arm service on domain 79
 ```
 
+### Through Archit's trick-or-treat services (2026-10-29)
+
+`TREAT_DOMAIN=<n> dev.sh gafro` (`--treat-domain`, `treat_calls.py`) sends the gafro backend's goals through
+Archit's ROS 2 services (`archit/treat-follow-ros`: `software/perception/tools/treat_services.py`,
+`TREAT_SERVICES.md`) instead of straight to the arm service. The moves are still planned on the twin:
+`ready` is the node's `ready`, a planned move its `move_joints` to the planned goal (a straight joint line,
+which is what the twin checked, then the node's own self-collision check), and the gripper its
+`gripper_open` / `gripper_close`, which on `daphne/treat-gripper` call the arm service's own `open_gripper` /
+`close_gripper`. Those are fully open or shut, so `candy_gafro.py` travels shut and opens fully above the rim;
+a close shut on nothing is a gripper closed, not an error. The hand-off is Archit's sequence: `get_hand` (or
+`find_hand` with his head), `plan_treat` with the jaws level, `move_joints`, `hold` 3 s, open, `ready`.
+
+```sh
+dev.sh gafro-sim                                    # tobi's arm service on MuJoCo, domain 78, at ready
+# his node on a scratch domain beside it (his ~/robot_api_ws interfaces, the gafro venv):
+python3 treat_services.py --sim-domain 78 --robot-domain 79 --dummy --no-head
+SIM=1 GAFRO_DOMAIN=78 TREAT_DOMAIN=79 dev.sh gafro  # the runner; "hand out candy", "yes", then trigger
+```
+
+Run that way on 2026-10-29, `candy_gafro.py` completed: 17 planned moves through `move_joints`, each arriving
+within tolerance, and the hand-off to the scripted person. Its path replayed on the twin with the handle-down
+bucket at both measured places, the fingers open where the program opens them: 26.8 and 27.0 mm to the
+bucket at the closest (at the bottom of the grasp), 38.9 mm to the robot. The simulated arm has no gripper,
+so the gripper calls were logged. Not yet run on the real arm.
+
 ## The demo day: one coordinator, one thing at a time
 
 On the day the robot cycles through states, decided by `demo_day.py` (`dev.sh day`, on

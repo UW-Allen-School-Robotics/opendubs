@@ -606,8 +606,10 @@ class GafroRos:
 
 
 def make(config, deadman_held, stopped, dashboard: str = "http://127.0.0.1:8080", sides=("right",),
-         head: str = "dashboard", log=None, sim_gripper: bool = False):
-    """`head`: "dashboard" (the neck, through the dashboard's hold) or "log" (nothing moves: a simulation)."""
+         head: str = "dashboard", log=None, sim_gripper: bool = False, treat_domain=None):
+    """`head`: "dashboard" (the neck, through the dashboard's hold) or "log" (nothing moves: a simulation).
+    `treat_domain`: the arm's goals go through Archit's trick-or-treat services on that ROS domain
+    (treat_calls.py) instead of straight to the arm service."""
     """The robot as the program sees it on this backend, with everything it needs on the robot."""
     import cue
     from opendubs_architect import live_arms
@@ -619,6 +621,10 @@ def make(config, deadman_held, stopped, dashboard: str = "http://127.0.0.1:8080"
         if robot is not None:                    # palms before the robot exists are dropped
             robot.on_hand_state(state)
     ros = GafroRos(sides, on_hand=on_hand)
+    cls = GafroRobot
+    if treat_domain is not None:
+        from opendubs_architect import treat_calls
+        ros, cls = treat_calls.TreatCalls(ros, treat_domain), treat_calls.treat_robot_class()
     missing = ros.wait_for_servers()
     if missing:
         raise SystemExit(f"gafro backend: the arm service does not serve {', '.join(missing)} on ROS domain "
@@ -633,6 +639,6 @@ def make(config, deadman_held, stopped, dashboard: str = "http://127.0.0.1:8080"
         return perception.turned(h["pan"], h["tilt"]).T.tolist()
 
     heads = {"dashboard": lambda: DashboardHead(dashboard, ros), "log": lambda: LoggedHead(log or print)}
-    robot = GafroRobot(ros, config, planner, deadman_held, stopped, head=heads[head](), frames=frames,
+    robot = cls(ros, config, planner, deadman_held, stopped, head=heads[head](), frames=frames,
                        sides=sides, log=log, sim_gripper=sim_gripper)
     return robot
