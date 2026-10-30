@@ -420,8 +420,11 @@ Everything by hand, or in the simulation:
 ./treat_follow.sh services --dummy            # simulation, a scripted person (no camera, no head)
 ./treat_follow.sh services                    # simulation, the camera and the head
 ./treat_follow.sh services --real --head --left-stowed   # THE REAL ARM (arm service up, supervised, activated)
-./treat_follow.sh sequence                    # gripper_close -> ready -> find_hand -> plan_treat -> move_joints -> gripper_open -> hold -> ready
-./treat_follow.sh sequence --no-gripper       # the same without the gripper
+./treat_follow.sh sequence                    # gripper_close -> ready -> the candy -> find_hand -> plan_treat -> move_joints -> gripper_open -> hold -> ready
+                                              # the candy: move_pose over the bucket (fingers down), gripper_open, down in 2 cm steps,
+                                              # gripper_close, back up, ready (the bucket as in Daphne's candy_gafro.py)
+./treat_follow.sh sequence --no-candy         # the same without the candy pick
+./treat_follow.sh sequence --no-gripper       # without the gripper (and so without the candy)
 ./treat_follow.sh call find_hand '{}'         # any one service (sent once: never resent)
 ./treat_follow.sh services-down
 ```

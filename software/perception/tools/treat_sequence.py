@@ -4,9 +4,12 @@ Nothing else: no topics, no polling; each call's data goes into the next call's 
   treat_follow.sh sequence [options]
   treat_follow.sh call NAME [JSON]        one service, sent once and waited for (`--call`)
 
-  ready -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> hold -> ready
+  ready -> [the candy] -> find_hand -> plan_treat -> move_joints (move_pose with --no-jaws-level) -> hold -> ready
   the gripper (on by default; --no-gripper leaves it alone): gripper_close first, gripper_open after move_joints. A
   gripper call succeeds whatever the gripper was doing and whatever is between the fingers; only an error stops here
+  the candy (on by default with the gripper; --no-candy skips it), after the first ready: move_pose over the bucket,
+  fingers down -> gripper_open -> move_pose down to the candy in --candy-step steps -> gripper_close -> back up the
+  same way -> ready. A failed step there ends the run with the arm held where it is (no ready from inside the bucket)
 
 The services decide real arm or simulation, and keep the safety: on the real arm a released deadman latches a stop and
 every later move is refused, so this sequence ends at the first refusal. Hold the deadman BEFORE starting it (the real
@@ -22,6 +25,17 @@ import time
 
 SUCCESS, NOT_FOUND = 0, 5
 
+# The candy bucket, from Daphne's candy_gafro.py (daphne/halloween, measured on opendubs2 2026-10-28/29): the bucket
+# stage's right edge, the rim at z 0.553 and the candy piled 2 cm below it, in her chassis frame. Here in arm_mount,
+# move_pose's frame: her chassis frame less (0.423, 0, 0.3575) m, not turned.
+CANDY_XY = (0.282, -0.07)        # over the bucket, near its centre (hers 0.705, -0.07): the open fingers clear the wall
+CANDY_ABOVE_Z = 0.3025           # 11 cm above the rim (hers 0.66): the gripper opens here
+CANDY_Z = 0.1875                 # 1 cm above the pile (hers 0.545; at 0.535 the open fingers pushed into it)
+# The fingers (the hand's +z) 20 deg off vertical, forward and left, as hers: (0.242, 0.242, -0.940). The smallest turn
+# from the ready hand that points them so (76 deg), w, x, y, z. The arm service's simulator reached every pose of the
+# pick with it (2026-10-30: over the bucket 1.5 mm and 0.8 deg off, each 2 cm step within 0.6 mm and 0.1 deg).
+CANDY_ORIENTATION = [0.022, 0.6025, 0.779, 0.1723]
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -35,6 +49,11 @@ def main():
                     help="(the default) close the gripper before ready and open it at the treat, through the arm "
                          "service's close_gripper / open_gripper")
     ap.add_argument("--no-gripper", dest="gripper", action="store_false", help="leave the gripper alone")
+    ap.add_argument("--candy", action="store_true", default=True,
+                    help="(the default, with the gripper) take a candy from the bucket after the first ready")
+    ap.add_argument("--no-candy", dest="candy", action="store_false", help="no candy pick")
+    ap.add_argument("--candy-step", type=float, default=0.02,
+                    help="m per move_pose going down into the bucket and back up, so the hand stays on the vertical")
     ap.add_argument("--call-s", type=float, default=150.0, help="s to wait for one service call")
     ap.add_argument("--call", nargs="+", metavar=("NAME", "JSON"),
                     help="call ONE service and print its answer (sent once, never resent: perception_call.sh resends an "
@@ -92,6 +111,11 @@ def main():
         if code != SUCCESS:
             return 4 if data.get("stopped") else 1
 
+        if args.gripper and args.candy:
+            code = take_candy(call, args, speed)
+            if code:
+                return code
+
         code, message, hand = call("find_hand", {"find_s": args.find_s, "wait_s": args.wait_s})
         if code != SUCCESS:
             return 3 if message.startswith("nobody") else 2
@@ -137,6 +161,39 @@ def main():
         return 130
     finally:
         rclpy.try_shutdown()
+
+
+def take_candy(call, args, speed):
+    """Over the bucket, open, down to the candy, close, back up, ready: 0, or the exit code of the step that failed. A
+    failure leaves the arm where it is: going to ready from inside the bucket could swing through its wall."""
+    def pose(z):
+        code, _, data = call("move_pose", {"position": [CANDY_XY[0], CANDY_XY[1], z], "orientation": CANDY_ORIENTATION,
+                                           **speed})
+        return 0 if code == SUCCESS else (4 if data.get("stopped") else 1)
+
+    def steps(z_from, z_to):
+        n = max(1, round(abs(z_to - z_from) / args.candy_step))
+        return [round(z_from + (z_to - z_from) * i / n, 4) for i in range(1, n + 1)]
+
+    code = pose(CANDY_ABOVE_Z)
+    if code:
+        return code
+    code, _, data = call("gripper_open")
+    if code != SUCCESS:
+        return 4 if data.get("stopped") else 1
+    for z in steps(CANDY_ABOVE_Z, CANDY_Z):
+        code = pose(z)
+        if code:
+            return code
+    code, _, data = call("gripper_close")
+    if code != SUCCESS:
+        return 4 if data.get("stopped") else 1
+    for z in steps(CANDY_Z, CANDY_ABOVE_Z):
+        code = pose(z)
+        if code:
+            return code
+    code, _, data = call("ready")
+    return 0 if code == SUCCESS else (4 if data.get("stopped") else 1)
 
 
 if __name__ == "__main__":
