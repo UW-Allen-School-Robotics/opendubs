@@ -843,11 +843,6 @@ function costumeNose(P, noses) {                // the cat's whiskers: out to ei
   }
   ctx.restore();
 }
-// How far down the robot's head is in a danced NOD, 0 (up) .. 1 (down): the shows nod the head up on the
-// first beat and down two beats later, four beats a nod (wave-and-nod's HEAD tilts 100 / 80 a second apart)
-function nodDown(DL) {
-  return 0.5 - 0.5 * Math.cos(Math.PI * DL.g / (2 * DL.B));
-}
 // The cat's tongue: in a mouth opened wide, at the bottom of it in the middle, clipped to the mouth (the
 // path paintMouth just drew). It grows in as the mouth opens past a doze's or a smile's.
 function costumeTongue(P, mouth) {
@@ -1040,9 +1035,7 @@ function frame(nowMs) {
     if (L2 === "beatpop") { danceScale = 1 + 0.12 * pop; pose = mixPose(pose, POSE.eek, 0.22 * pop); }   // ALERT: pop on every beat
     if (L2 === "tick" && DL.frac < 0.5) blink = Math.max(blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
     if (a > 0) {
-      if (L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
-      // NOD: SMILE's crescent (turned over, below) as the head goes down, open again as it comes up
-      if (L2 === "nod") pose = mixPose(pose, POSE.smile2, a * nodDown(DL));
+      if (L2 === "nod" || L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
       if (L2 === "nod") danceFloat = U * 7 * Math.sin(Math.PI * DL.beats) * a;        // up on one beat, down on the next
       if (L2 === "bow") {                                                             // dip, hold, and a slow blink
         danceFloat = U * 12 * ease(clamp01(DL.e / 1.2)) * a;
@@ -1132,9 +1125,6 @@ function frame(nowMs) {
   const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DL && DL.look === "creep" && danceAmt > 0.5);
   // TICK's half-shut eyes are plain: no cat's pupil or pumpkin's glow in the squint
   const squint = DL && DL.look === "tick" && DL.frac < 0.5;
-  // NOD's crescents bow the other way from SMILE's (a cup, not an arch), tipped so the inner end, by the
-  // nose, sits lower
-  const nodFlip = DL && DL.look === "nod" ? ease(danceAmt) * nodDown(DL) : 0;
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
     for (const e of pose.eyes) {
@@ -1147,9 +1137,7 @@ function frame(nowMs) {
       ctx.save();
       ctx.translate(px, py); ctx.rotate(giggle * GIGGLE_DEG * Math.PI / 180); ctx.translate(-px, -py);
       ctx.translate(0, U * 3 * grooveBob);                     // the eyes dip on each beat
-      ctx.translate(cx, cy);
-      if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 28 * Math.PI / 180 * nodFlip);
-      ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 1.62 * nodFlip)); ctx.translate(-cx, -cy);
+      ctx.translate(cx, cy); ctx.scale(sc, sc * (1 - 0.88 * blink)); ctx.translate(-cx, -cy);
       if (happyOutline) {
         // HAPPY fully in, nothing over it: the eye from its matched outlines, open -> squinted by the blink
         const side = cx < ART_W / 2 ? 0 : 1, O = happyOutlines()[side], w = happyBlink;
