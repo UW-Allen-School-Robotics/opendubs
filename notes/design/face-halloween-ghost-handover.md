@@ -15,7 +15,7 @@ robot never uses.
 
 ## Part 1: needed on the robot
 
-### What is in this branch (opendubs, `suzy/halloween`)
+### What is in this branch (opendubs)
 
 | File | What it is |
 |---|---|
@@ -76,7 +76,7 @@ is ENCORE's ghost lane (Part 2), which copies them out in this form.
 | `notes/design/face-halloween-ghost-states.html` | The state machine, animated (download and open in a browser). |
 | `notes/design/face-halloween-ghost-handover.md` | This page. |
 
-### In ENCORE (`UW-Allen-School-Robotics/encore`, branch `suzy/halloween`)
+### In ENCORE (`UW-Allen-School-Robotics/encore`, the branch of the same name as this one)
 
 ENCORE is the choreography studio. These changes let it preview a show in the ghost and draw the
 ghost's face timeline; nothing in them is needed to run the ghost on the robot. They're recorded here
@@ -85,7 +85,7 @@ in case they're not merged into ENCORE, so the work isn't lost.
 | Commit | What it adds |
 |---|---|
 | `3fc3f87` | **Wear…** in the Face pane: preview a show in one of the content folder's skins (`ENCORE_FACE_CONTENT`), without putting it in the show. ENCORE registers the skin in its vendored face engine from its own page; `vendor/` is untouched. |
-| `44d269d` | The Wear menu first in the toolbar; the proposal [`docs/proposals/halloween-ghost.md`](https://github.com/UW-Allen-School-Robotics/encore/blob/suzy/halloween/docs/proposals/halloween-ghost.md). |
+| `44d269d` | The Wear menu first in the toolbar; the proposal `docs/proposals/halloween-ghost.md`. |
 | `5be3650` | Wearing the ghost, **Look…** and **Costume…** replace Emote… and Skin…: they put a ghost look or costume at the playhead. The draft is kept in the project (`wear/ghost/<show>.json`, served by `GET/PUT/DELETE /api/wear/<skin>/<show>`), never in the show. **Copy for the skin** copies it out as `ghost.js` writes it. |
 | `a1282df` | The ghost's steps as a lane on the Timeline, under the face: drag to move, double-click to add, right-click for a look, a costume, delete, Copy for the skin, Back to the skin's own. |
 | `9e649fd` | Steps snap onto markers (a held note, a section) when dragged near one. |
