@@ -9,8 +9,8 @@ Nothing else: no topics, no polling; each call's data goes into the next call's 
   opens it first), closes on the candy, and gripper_open after move_joints drops it. A gripper call succeeds whatever
   the gripper was doing and whatever is between the fingers; only an error stops here
   the candy (on by default with the gripper; --no-candy skips it), after the first ready: move_pose from ready straight
-  down to the candy, fingers down -> gripper_close -> move_pose up over the bucket -> ready. A failed step there ends
-  the run with the arm held where it is (no ready from inside the bucket)
+  down to the candy, fingers down -> gripper_close -> ready. A failed move down or close ends the run with the arm held
+  where it is
 
 The services decide real arm or simulation, and keep the safety: on the real arm a released deadman latches a stop and
 every later move is refused, so this sequence ends at the first refusal. Hold the deadman BEFORE starting it (the real
@@ -30,13 +30,14 @@ SUCCESS, NOT_FOUND = 0, 5
 # stage's right edge, the rim at z 0.553 and the candy piled 2 cm below it, in her chassis frame. Here in arm_mount,
 # move_pose's frame: her chassis frame less (0.423, 0, 0.3575) m, not turned.
 CANDY_XY = (0.282, -0.07)        # over the bucket, near its centre (hers 0.705, -0.07): the open fingers clear the wall
-CANDY_ABOVE_Z = 0.3025           # 11 cm above the rim (hers 0.66): out of the bucket with the candy, before ready
 CANDY_Z = 0.2067                 # 3 cm above the pile: one 2 cm step less deep than hers (0.545, i.e. 0.1875 here; at
                                  # 0.535 the open fingers pushed into it), as the user asked on 2026-10-30
 # The fingers (the hand's +z) 20 deg off vertical, forward and left, as hers: (0.242, 0.242, -0.940). The smallest turn
 # from the ready hand that points them so (76 deg), w, x, y, z. The arm service's simulator reached every pose of the
 # pick with it (2026-10-30: from ready straight to the candy 3.3 mm and 0.9 deg off; on the way the hand came within 5
-# cm of the rim's height only within 4.4 cm of the bucket's axis, and was 6.4 cm above it or more anywhere farther out).
+# cm of the rim's height only within 4.4 cm of the bucket's axis, and was 6.4 cm above it or more anywhere farther out;
+# from there straight to ready it rose first: within 5 cm of the rim's height only within 5.3 cm of the axis, and 10.7
+# cm above it by 10 cm out).
 CANDY_ORIENTATION = [0.022, 0.6025, 0.779, 0.1723]
 
 
@@ -160,9 +161,8 @@ def main():
 
 
 def take_candy(call, args, speed):
-    """From ready straight down to the candy (the gripper already open), close, up over the bucket, ready: 0, or the
-    exit code of the step that failed. A failure leaves the arm where it is: going to ready from inside the bucket could
-    swing through its wall."""
+    """From ready straight down to the candy (the gripper already open), close, straight back to ready: 0, or the exit
+    code of the step that failed. A failed move down or close leaves the arm where it is."""
     def pose(z):
         code, _, data = call("move_pose", {"position": [CANDY_XY[0], CANDY_XY[1], z], "orientation": CANDY_ORIENTATION,
                                            **speed})
@@ -174,9 +174,6 @@ def take_candy(call, args, speed):
     code, _, data = call("gripper_close")
     if code != SUCCESS:
         return 4 if data.get("stopped") else 1
-    code = pose(CANDY_ABOVE_Z)
-    if code:
-        return code
     code, _, data = call("ready")
     return 0 if code == SUCCESS else (4 if data.get("stopped") else 1)
 

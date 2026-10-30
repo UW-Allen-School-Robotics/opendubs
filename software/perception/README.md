@@ -422,7 +422,7 @@ Everything by hand, or in the simulation:
 ./treat_follow.sh services --real --head --left-stowed   # THE REAL ARM (arm service up, supervised, activated)
 ./treat_follow.sh sequence                    # ready -> the candy -> find_hand -> plan_treat -> move_joints -> gripper_open -> hold -> ready
                                               # the candy (the gripper starts open): move_pose from ready straight down to it (fingers
-                                              # down), gripper_close, move_pose up over the bucket, ready (the bucket as in Daphne's candy_gafro.py)
+                                              # down), gripper_close, ready (the bucket as in Daphne's candy_gafro.py)
 ./treat_follow.sh sequence --no-candy         # the same without the candy pick
 ./treat_follow.sh sequence --no-gripper       # without the gripper (and so without the candy)
 ./treat_follow.sh call find_hand '{}'         # any one service (sent once: never resent)
