@@ -843,6 +843,11 @@ function costumeNose(P, noses) {                // the cat's whiskers: out to ei
   }
   ctx.restore();
 }
+// How far down the robot's head is in a danced NOD, 0 (up) .. 1 (down): the shows nod the head up on the
+// first beat and down two beats later, four beats a nod (wave-and-nod's HEAD tilts 100 / 80 a second apart)
+function nodDown(DL) {
+  return 0.5 - 0.5 * Math.cos(Math.PI * DL.g / (2 * DL.B));
+}
 // The cat's tongue: in a mouth opened wide, at the bottom of it in the middle, clipped to the mouth (the
 // path paintMouth just drew). It grows in as the mouth opens past a doze's or a smile's.
 function costumeTongue(P, mouth) {
@@ -1036,8 +1041,8 @@ function frame(nowMs) {
     if (L2 === "tick" && DL.frac < 0.5) blink = Math.max(blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
     if (a > 0) {
       if (L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
-      // NOD: SMILE's crescent (turned over, below), blinked into and open again, once every two beats
-      if (L2 === "nod") pose = mixPose(pose, POSE.smile2, a * clamp01(0.5 + 0.9 * Math.cos(Math.PI * DL.g / DL.B)));
+      // NOD: SMILE's crescent (turned over, below) as the head goes down, open again as it comes up
+      if (L2 === "nod") pose = mixPose(pose, POSE.smile2, a * nodDown(DL));
       if (L2 === "nod") danceFloat = U * 7 * Math.sin(Math.PI * DL.beats) * a;        // up on one beat, down on the next
       if (L2 === "bow") {                                                             // dip, hold, and a slow blink
         danceFloat = U * 12 * ease(clamp01(DL.e / 1.2)) * a;
@@ -1129,7 +1134,7 @@ function frame(nowMs) {
   const squint = DL && DL.look === "tick" && DL.frac < 0.5;
   // NOD's crescents bow the other way from SMILE's (a cup, not an arch), tipped so the inner end, by the
   // nose, sits lower
-  const nodFlip = DL && DL.look === "nod" ? ease(danceAmt) : 0;
+  const nodFlip = DL && DL.look === "nod" ? ease(danceAmt) * nodDown(DL) : 0;
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
     for (const e of pose.eyes) {
