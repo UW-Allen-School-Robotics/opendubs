@@ -613,8 +613,8 @@ def main(argv=None) -> int:
                                  head="log" if a.sim_head else "dashboard", sim_gripper=a.sim_gripper,
                                  treat_domain=a.treat_domain,
                                  log=lambda ev: print(json.dumps(ev), flush=True))
-        namespace = {k: v for k, v in namespace_for(robot).items() if k in primitives}
-        after_run = robot.release_head
+        namespace = {k: v for k, v in namespace_for(robot).items() if k in primitives and k != "say"}
+        after_run = robot.release_head            # say: the listener's voice, below (the arm service has none)
     else:
         from opendubs_architect import live_arms
         namespace, _client = cfg.make_live_namespace()
@@ -640,6 +640,8 @@ def main(argv=None) -> int:
             log_fh.write(line + "\n")
             log_fh.flush()
 
+    robot_say = namespace.get("say")
+
     def speak(text):                              # the arms profile has no say(): the page and log show it
         if a.say_url:                             # queued there, so the runner's lock is not held while it plays
             import urllib.request
@@ -648,7 +650,10 @@ def main(argv=None) -> int:
             urllib.request.urlopen(req, timeout=2.0).close()
             log({"said": text})
             return
-        (namespace["say"] if "say" in namespace else lambda t: log({"said": t}))(text)
+        (robot_say or (lambda t: log({"said": t})))(text)
+
+    if "say" in primitives and "say" not in namespace:     # the gafro backend: a program's say() is the runner's
+        namespace["say"] = lambda text: speak(api.check_say(text))
 
     runner = DemoRunner(agent, lambda: namespace, speak, deadman_held, log=log,
                         primitives=primitives, publish=publish, rearm_on_failure=a.agent == "program",

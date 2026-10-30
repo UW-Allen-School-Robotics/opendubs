@@ -48,6 +48,7 @@ straight(ABOVE, CANDY)                     # straight down to the candy
 set_gripper_width("right", 0.0)            # close on it
 straight(CANDY, ABOVE)                     # straight back up out of the bucket
 to(*SIDE)                                  # out to the right, above the rim
+say("Now hold out your hand for your treat!")   # on the Jabra, queued: the search starts as it plays
 set_head_pose(*LOOK_FOR_HAND)
 given = place_in_hand("right", timeout_s=20.0)   # a hand held out and still: reach toward it, pause, open, ready
 if not given["released"]:                  # no hand (or out of reach): back at ready, still holding the candy.

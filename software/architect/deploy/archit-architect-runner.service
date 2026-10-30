@@ -13,7 +13,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 User=@USER@
-Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1 TREAT_DOMAIN=0 PROGRAM=software/architect/examples/candy_gafro.py ARM_AT_START=1
+Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1 LISTEN=1 TREAT_DOMAIN=0 PROGRAM=software/architect/examples/candy_gafro.py ARM_AT_START=1
 ExecStartPre=-/usr/bin/sudo -n /usr/bin/docker rm -f archit-architect-server
 ExecStart=@REPO@/software/architect/tools/dev.sh gafro
 ExecStop=/usr/bin/sudo -n /usr/bin/docker stop -t 5 archit-architect-server

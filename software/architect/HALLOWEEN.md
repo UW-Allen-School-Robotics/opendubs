@@ -119,7 +119,7 @@ sudo arm status right                 # supervised: yes
    - the head tips down;
    - the arm goes out behind and over the bucket, opens wide, goes down to just above the candy, and closes on one;
    - it lifts out and goes to the side.
-4. **The hand-off:** the visitor stands **about 1–1.2 m from the robot's front** and holds a hand out, **palm up, at about 1 m off the floor**, and keeps it still. The robot reaches toward the hand (stopping 30 cm short of the palm), holds 3 s, opens, and goes back to `ready`.
+4. **The hand-off:** the robot says "Now hold out your hand for your treat!" on the Jabra. The visitor stands **about 1–1.2 m from the robot's front** and holds a hand out, **palm up, at about 1 m off the floor**, and keeps it still. The robot reaches toward the hand (stopping 30 cm short of the palm), holds 3 s, opens, and goes back to `ready`.
    - A hand that's lower, nearer or further than that can't be reached. The candy then goes back into the bucket, and every run ends with the gripper open.
 5. After the run the base stays held for 20 s, then patrol carries on.
 
