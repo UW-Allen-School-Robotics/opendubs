@@ -1163,8 +1163,10 @@ function frame(nowMs) {
         if (P.pupil && !squint && (fierce || holds(path, [[px, py], [px, py - 46], [px, py + 46], [px - 9, py], [px + 9, py]]))) {
           ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(px, py, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
         }
-        // TICK's eyes are narrowed throughout (the groove under it, half shut on the beat): the socket alone
-        if (P.glow && !(DL && DL.look === "tick")) {
+        // in TICK an eye that is squinted (half shut on the beat, or the groove's wink under it) is the socket
+        // alone; an open one keeps its glow
+        const tick = DL && DL.look === "tick";
+        if (P.glow && !(tick && (squint || !holds(path, [[cx, cy], [cx - 28, cy + 10], [cx + 28, cy + 10], [cx, cy - 30], [cx, cy + 40]])))) {
           ctx.save(); ctx.clip(path); ctx.globalAlpha = 0.8 + 0.15 * Math.sin(t * 9 + cx);
           ctx.save(); ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
           // and a rim of the socket's ink all round inside it, so the glow never touches the edge (a smile's
