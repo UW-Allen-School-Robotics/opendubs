@@ -396,7 +396,11 @@ class Treat:
         result = handle.get_result_async()
         deadline = time.monotonic() + float(req.get("timeout_s", 10.0))
         try:
-            r = self.wait_result(handle, float(req.get("timeout_s", 10.0)))
+            while not result.done() and time.monotonic() < deadline:
+                if self.watch_during(handle):
+                    time.sleep(0.5)
+                    raise Refused(self.RC.FAILURE, f"STOPPED: {self.stopped}. Nothing moves until rearm")
+                time.sleep(0.05)
         finally:
             self.goal = None
         if not result.done():
