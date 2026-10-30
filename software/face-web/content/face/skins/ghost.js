@@ -962,7 +962,7 @@ function stepFace(D, t) {
     out.scale = 1 + 0.14 * clamp01(1 - D.e * 2.5); out.jolt = clamp01(1 - D.e * 2);
   }
   if (L2 === "beatpop") { out.scale = 1 + 0.12 * pop; pose = mixPose(pose, POSE.eek, 0.22 * pop); }   // ALERT: pop on every beat
-  if (L2 === "tick" && D.frac < 0.5) out.blink = Math.max(out.blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
+  if (L2 === "tick" && tickShut(D)) out.blink = Math.max(out.blink, 0.6);   // SLEEPY, robot style: half shut a beat, open a beat
   if (a) {
     if (L2 === "nod" || L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
     if (L2 === "nod") out.float = U * 7 * Math.sin(Math.PI * beats);              // up on one beat, down on the next
@@ -992,6 +992,10 @@ function stepFace(D, t) {
   }
   out.pose = pose;
   return out;
+}
+// TICK's lids: half shut for one beat of the show, open for the next
+function tickShut(D) {
+  return (D.g / D.B) % 2 < 1;
 }
 // How long the face takes to go from the step before into step D: soft by default; nearly a cut into the
 // startled faces, and on waking from a DOZE (the eyes fly open, on the music's hit); slow into the
@@ -1234,7 +1238,7 @@ function frame(nowMs) {
   if (focusAmt <= 0) focusLook = danceFocusLook;
   const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DF && DF.shown.look === "creep" && da > 0.5);
   // TICK's half-shut eyes are plain: no cat's pupil or pumpkin's glow in the squint
-  const squint = DF && DF.shown.look === "tick" && DF.shown.frac < 0.5;
+  const squint = DF && DF.shown.look === "tick" && tickShut(DF.shown);
   const eyeClips = [];                                  // each eye's outline as drawn, left to right
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
