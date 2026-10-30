@@ -60,7 +60,7 @@ from treat_brain import SIDES, HandCapture, HeadLaw, HeadParams, Offer, OfferPar
 from treat_follow import Head  # noqa: E402
 
 
-REAL_SPEED = 0.4       # rad/s: --real's reach_pose joint speed by default (0.3 in V2: the user found it slow)
+REAL_SPEED = 0.5       # rad/s: --real's reach_pose joint speed by default (0.3 in V2, 0.4 until 2026-10-29: the user found it slow)
 REAL_SPEED_MAX = 0.6   # rad/s: and at most, with --speed (the service's own default is ~0.68, its cap 0.9)
 REAL_STANDOFF = 0.20   # m: --real stops at least this short of the palm
 REAL_MAX_UP = 0.25     # m: --real's goal at most this above the arm's shoulder (z ~0.95 m; reach_pose models no head)

@@ -291,11 +291,14 @@ The arm layer that runs on gafro with no ROS (`software/openarm/gafro/`, `notes/
 resting pose: an e-stop or a power drop there lets the forearm fall, as with any extended arm. **Park before leaving the robot** (`engage.py --park`, which goes to the same stow
 pose as above), and never leave the arms at ready. It runs only with the existing stack down, CH5 in MANUAL or AUTO, and `--supervised`.
 
+The arm service that runs it as a systemd unit (`opendubs-arm@left|right`), how to rebuild the stack under it and what is known to be wrong are in [openarm-arm-service.md](openarm-arm-service.md).
+
 To work inside the container: `sudo docker exec -it openarm bash`, then
 `source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash`.
 
 ## Troubleshooting
 
+- **On the gafro path** (`opendubs-arm@…`): see [openarm-arm-service.md](openarm-arm-service.md); everything below is the old ROS stack.
 - **`arm_left` / `arm_right` missing.** Check `lsusb -d 0c72:0011` (is the adapter plugged in and
   reporting the ID the udev rule matches? If `lsusb` shows it under another ID, the rule needs that
   ID) and

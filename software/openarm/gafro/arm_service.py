@@ -160,6 +160,8 @@ class ArmService:
             speed = guards.driver_max_velocity(args.hardware_config, self.groups)
             if speed is not None:
                 self.limits = trajectory.Limits(max_speed=speed)
+        if getattr(args, "max_error", None) is not None:
+            self.limits = dataclasses.replace(self.limits, max_error=args.max_error)
         self.paths = None              # the collision check of the model (reach_pose.path_check), built when first asked
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
         self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
@@ -485,6 +487,7 @@ def main() -> int:
         p.add_argument("--goal-lead-in", type=float, default=0.0, help="a runner's trajectory goal: seconds between publishing the path and its first knot (0: start at acceptance; trajectory.Limits' own is 0.2). "
                        "If the start is not clean on the arm, 0.1 and 0.2 give back the old 0.3 s")
         p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 5 s from stow to ready; under about 3.4 s the arm cannot follow and the move is refused)")
+        p.add_argument("--max-error", type=float, default=None, help="rad: stop a move when a joint is this far from its path (default 0.2)")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--reach-clearance", type=float, default=reach.CLEARANCE, help="m: the least gap between any two balls of the collision cover for a target to count as reachable (default %(default)s: the cover "
                        "must not interpenetrate; negative tolerates an overlap of that depth)")

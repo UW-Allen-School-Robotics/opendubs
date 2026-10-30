@@ -73,7 +73,7 @@ All names are under `/perception/treat/`. "Moves" says what physically moves.
 | `data` on SUCCESS | the arm service's own: `error_mm`, `error_deg`, `hand` ... |
 | Fails | `INVALID_INPUT` (no position; real arm: z over 0.25 m above the arm's shoulder), `NOT_FOUND` (out of reach), `FAILURE` (the planner found no path, e.g. "the planned path leaves a joint's range") |
 
-On the real arm `speed` defaults to 0.4 and is capped at 0.6 rad/s.
+On the real arm `speed` defaults to 0.5 and is capped at 0.6 rad/s.
 
 #### `move_joints`: one continuous move to joint angles
 | | |
@@ -94,15 +94,16 @@ On the real arm `speed` defaults to 0.4 and is capped at 0.6 rad/s.
 | Fails | real arm: `FAILURE` "STOPPED: ..." if the permit is lost meanwhile (the stop is latched) |
 
 #### `gripper_open` / `gripper_close`: the gripper
-**Not working on opendubs2 yet:** the gripper has no measured motor angles for the arm service (README.md).
+Needs the gripper enabled and calibrated in the arm service's hardware config (README.md).
 
 | | |
 |---|---|
 | Type | `RobotCommand` |
-| Moves | the gripper (the arm service's `open_gripper` / `close_gripper` on `/right_arm/command`, `ArmCommand`) |
-| `req` | `timeout_s` (10). Fully open or closed: the commands take no position |
-| `data` on SUCCESS | `{"position_mm": 44.0, "holding": false}`; for a close that stopped on something, `"holding": true` |
-| Fails | `FAILURE` ("the gripper did not move (still 42.7 mm open) ..." for a close that never moved; "closed on nothing" for a close with nothing between the fingers, the gripper left closed; cancelled), `TIMEOUT`, `SERVICE_NOT_RUNNING` |
+| Moves | the gripper, fully open or fully shut (the arm service's `open_gripper` / `close_gripper` on `/right_arm/command`, `ArmCommand`) |
+| `req` | `timeout_s` (10). No position: the commands go to full travel or shut |
+| `data` on SUCCESS | `{"position_mm": 44.0, "holding": false}`; `"holding": true` if the finger stopped on something |
+| Succeeds | whatever the gripper was doing (already open, already shut) and whatever is between the fingers: the arm service's "closed on nothing" is a SUCCESS here |
+| Fails | only on an error: `FAILURE` (refused, "the right gripper is not available", cancelled or stopped), `TIMEOUT`, `SERVICE_NOT_RUNNING` |
 
 ### Perception and head
 
@@ -179,7 +180,8 @@ hold           {"seconds": 5}
 ready          {}
 ```
 
-With `--gripper`, `gripper_close {}` runs first and `gripper_open {}` runs after `move_joints`. Exit codes: 0 done,
+The gripper is on by default (`--no-gripper` leaves it alone): `gripper_close {}` runs first and `gripper_open {}` runs
+after `move_joints`. Exit codes: 0 done,
 1 a step failed, 2 no hand held out, 3 nobody found, 4 stopped (deadman), 130 Ctrl-C (`stop` is called).
 
 ## Calling one service

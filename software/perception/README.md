@@ -369,7 +369,7 @@ $A ctl unsupervise; $A down
 
 `reach-real` waits for the deadman before anything moves, and letting go of it at any time stops the arm and ends the
 script (exit 4); nothing moves again after that. Its limits: the head and the arm never move at the same time; the
-hand stops 20 cm short of the palm and at most 25 cm above the arm's shoulder; joints at 0.4 rad/s (`--speed`, up to
+hand stops 20 cm short of the palm and at most 25 cm above the arm's shoulder; joints at 0.5 rad/s (`--speed`, up to
 0.6). Options: `--no-head` keeps the head still, `--head-pan` pans as well, `--no-jaws-level` ends with the IK's own
 orientation (V2.2), `--jaws-steps` reaches in eight `reach_pose` steps instead of one move, `--no-return` stays at the
 treat, `--treat-s` sets the wait. If the driver says "CAN bus 'arm_right' is not healthy" after the old stack ran, cycle
@@ -393,7 +393,7 @@ the next. Nothing else passes between them (the services read the tracker and th
 | `find_hand` | `{"find_s"?: 20, "wait_s"?: 10}` | `centre_person`, then `get_hand` |
 | `plan_treat` | `{"palm": [x,y,z], "jaws_level"?: true}` | no motion: `joints`, `pose` toward that palm |
 | `hold` | `{"seconds"?: 5}` | wait at the treat |
-| `gripper_open`, `gripper_close` | `{}` | the gripper (the arm service's `open_gripper` / `close_gripper` commands, 2026-10-29); a close that stops on something is "holding", one that never moved or closed on nothing fails. **Not yet run on opendubs2 this way** (below) |
+| `gripper_open`, `gripper_close` | `{}` | the gripper fully open or shut (the arm service's `open_gripper` / `close_gripper`, 2026-10-29). Succeeds whatever the gripper was doing and whatever is between the fingers (`data.holding` true if it stopped on something); fails only on an error: refused, no gripper, timeout, stop (below) |
 | `stop`, `rearm` | `{}` | cancel any move (the arm holds); clear a latched stop |
 | `status` | `RobotQuery` | mode, permit, stopped, busy, the arm's joints, the head |
 
@@ -420,8 +420,8 @@ Everything by hand, or in the simulation:
 ./treat_follow.sh services --dummy            # simulation, a scripted person (no camera, no head)
 ./treat_follow.sh services                    # simulation, the camera and the head
 ./treat_follow.sh services --real --head --left-stowed   # THE REAL ARM (arm service up, supervised, activated)
-./treat_follow.sh sequence                    # ready -> find_hand -> plan_treat -> move_joints -> hold -> ready
-./treat_follow.sh sequence --gripper          # ... gripper_close first and gripper_open at the treat (once calibrated)
+./treat_follow.sh sequence                    # gripper_close -> ready -> find_hand -> plan_treat -> move_joints -> gripper_open -> hold -> ready
+./treat_follow.sh sequence --no-gripper       # the same without the gripper
 ./treat_follow.sh call find_hand '{}'         # any one service (sent once: never resent)
 ./treat_follow.sh services-down
 ```
@@ -431,13 +431,14 @@ the deadman must be held before the sequence starts: a move is refused unless it
 cancels the move and latches a stop that refuses every later move until `rearm`. `services-down` stops the node (TERM,
 then KILL after 5 s); a move it interrupts ends and the arm holds.
 
-**The gripper on opendubs2 is not calibrated for the arm service** (2026-10-28). The robot's
-`/etc/opendubs/openarm-gafro-right-only.yaml` has `use_gripper: false`, and the arm service needs the gripper motor's
-MEASURED angles at fully open and fully shut. A trial with angles derived from the old stack's finger calibration
-(`gripper_open_position: -1.16`, `gripper_closed_position: 0.02`) failed: the gripper never moved, `activate` then
-stopped on its tracking check, and the arm service exited with the arm held part-way. Recovery: one person supported the
-arm, the e-stop was cycled and the arm lowered by hand, then `openarm-can@arm_right` restarted, `arm-service up` and
-`ctl park --allow-large`. Until the angles are measured, leave `--gripper` off: the sequence then works as tested.
+**The gripper** goes through the arm service's `open_gripper` / `close_gripper` commands (software/openarm/gafro,
+2026-10-29), so the staged branch must include them: re-stage `/opt/treat-follow-archit` (treat_arm_service.sh) after
+pulling. The arm service drives the gripper only if its hardware config has `use_gripper: true` and the motor's
+measured angles at fully open and fully shut; `treat_arm_service.sh` uses `/opt/treat-follow-archit/openarm-gafro-right-gripper.yaml`
+when it is there. Without them every gripper call fails ("the right gripper is not available"): run `--no-gripper`.
+The arm service itself calls a close on nothing a failure; the treat services count it a success, so a run can start
+with the gripper open or shut. (The old `gripper_cmd` path, with angles derived rather than measured, never moved the
+gripper on opendubs2, 2026-10-28.)
 In the simulation the OpenArm has no gripper ("the robot's grippers: []"); the services were checked against a stand-in.
 
 Pitfalls seen on the robot: run `arm-service up` in a command of its own, because the arm service refuses to start if

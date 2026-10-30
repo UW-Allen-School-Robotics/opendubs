@@ -294,6 +294,15 @@ def test_the_service_takes_its_path_speed_limit_from_the_drivers_max_velocity():
     assert limit("left_arm: {driver: openarm, bus: can, can_interface: arm_left, max_velocity: 2.0}\n", backend="mujoco").max_speed == trajectory.Limits().max_speed
 
 
+def test_the_tracking_limit_is_the_trajectory_default_unless_the_service_is_given_one():
+    from types import SimpleNamespace as NS
+
+    base = dict(side="left", backend="mujoco", hardware_config="", dashboard="x")
+    assert arm_service.ArmService(None, NS(**base)).limits.max_error == trajectory.Limits().max_error == 0.2
+    wider = arm_service.ArmService(None, NS(**base, max_error=0.5)).limits
+    assert wider.max_error == 0.5 and wider.max_speed == trajectory.Limits().max_speed, wider
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:
