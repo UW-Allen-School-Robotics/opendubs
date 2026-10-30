@@ -1,5 +1,7 @@
 # ARCHITECT on OpenDubs
 
+**To run the Halloween candy demo on the robot, see [HALLOWEEN.md](HALLOWEEN.md).**
+
 The OpenDubs backend for **ARCHITECT** ([project page](https://robo-architect.github.io/),
 [arXiv:2607.23784](https://arxiv.org/abs/2607.23784)): a coding agent that turns a spoken
 instruction into a Python program over the robot's perception and control primitives, runs it,
