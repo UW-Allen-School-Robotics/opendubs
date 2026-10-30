@@ -1350,7 +1350,7 @@ export const EMOTE_LOOKS = { NEUTRAL: "groove", ALERT: "beatpop", SQUINT: "creep
 // Black and white is the ghost's own; only a dance puts a costume on.
 export const COSTUMES = {
   classic: { bg: "#fff", ink: "#0b0b0b" },
-  pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 11 },
+  pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 17 },
   cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", pupil: "#0d0c10",
              ear: "#1a181e", earIn: "#ff8fb3", whisker: "#d9d6e0", line: "#d9d6e0" },
   monster: { bg: "#8ccf5e", ink: "#13200c", hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
