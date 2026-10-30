@@ -829,15 +829,16 @@ function costumeBack(P) {
     ctx.stroke(); ctx.restore();
   }
 }
-function costumeNose(P, noses) {                // the cat's whiskers: from either side of its nose, wherever it is
+function costumeNose(P, noses) {                // the cat's whiskers: out to either side of its nose, wherever it is
   if (!P.whisker || !noses || !noses.length) return;
   let x0 = Infinity, x1 = -Infinity, y = 0, k = 0;
   for (const n of noses) for (let i = 0; i < n.length; i += 6) { x0 = Math.min(x0, n[i+4]); x1 = Math.max(x1, n[i+4]); y += n[i+5]; k++; }
   y /= k;
   ctx.save(); ctx.strokeStyle = P.whisker; ctx.lineWidth = 3; ctx.lineCap = "round";
-  for (const m of [1, -1]) for (const dy of [-6, 8, 22]) {
-    const x = m > 0 ? x1 + 16 : x0 - 16;              // clear of the nose
-    ctx.beginPath(); ctx.moveTo(x, y + dy); ctx.quadraticCurveTo(x + m * 64, y + dy * 1.6 - 6, x + m * 124, y + dy * 2.4 - 4); ctx.stroke();
+  // set out from the nose and below the eyes, fanning: the top one a little up, the others more and more down
+  for (const m of [1, -1]) for (const [dy, fall] of [[20, -12], [34, 16], [48, 46]]) {
+    const x = m > 0 ? x1 + 50 : x0 - 50;
+    ctx.beginPath(); ctx.moveTo(x, y + dy); ctx.quadraticCurveTo(x + m * 80, y + dy + fall * 0.3, x + m * 160, y + dy + fall); ctx.stroke();
   }
   ctx.restore();
 }
