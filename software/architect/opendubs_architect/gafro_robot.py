@@ -53,7 +53,8 @@ from opendubs_architect.client import MotionRefused
 
 FINGER_TRAVEL_M = 0.044               # the model's finger joint range (gafro/gripper.py TRAVEL)
 SERVO_SPAN = 300.0 / 180.0            # real degrees per commanded neck degree (neck_state.py SERVO_SPAN_DEG)
-HEAD_SETTLED_DEG = 1.5                # the head is there when its angles are this near where it is going
+HEAD_SETTLED_DEG = 2.5                # the head is there when its angles are this near where it is going
+                                      # (2026-10-29: tipped 25 deg down it stopped 1.5 deg short, and 1.5 timed out)
 HEAD_SETTLE_S = 6.0
 HAND_TOPIC = "/perception/hand/state"
 STABLE_FRAMES, STILL_M = 5, 0.05      # treat_reach.py's --stable-frames and --still-m

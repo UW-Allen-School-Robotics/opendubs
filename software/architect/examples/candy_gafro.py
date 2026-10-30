@@ -12,7 +12,8 @@
 # shut and opens fully above the rim.
 DOWN = {"x": 0.242, "y": 0.242, "z": -0.940}  # the fingers' direction: 20 deg off vertical, forward and left
 X, Y = 0.705, -0.07                          # over the bucket, near its centre: the open fingers clear the wall
-ABOVE, CANDY = 0.66, 0.535                   # 11 cm above the rim; the candy, 2 cm below it
+ABOVE, CANDY = 0.66, 0.545                   # 11 cm above the rim; 1 cm above the pile, which is 2 cm
+                                             # below it (2026-10-29: at 0.535 the open fingers pushed into it)
 SIDE = (0.62, -0.40, 0.95)                   # out to the right: the way in and out, clear of the bucket
 BACK = (0.50, -0.40, 0.90)                   # out to the right and behind the bucket: from ready
 LOOK_AT_BUCKET = (0, -25)                    # pan, tilt (+ up): the head tipped down at the bucket (at 30 the
@@ -48,5 +49,13 @@ set_gripper_width("right", 0.0)            # close on it
 straight(CANDY, ABOVE)                     # straight back up out of the bucket
 to(*SIDE)                                  # out to the right, above the rim
 set_head_pose(*LOOK_FOR_HAND)
-place_in_hand("right", timeout_s=20.0)     # a hand held out and still: reach toward it, pause, open, ready
+given = place_in_hand("right", timeout_s=20.0)   # a hand held out and still: reach toward it, pause, open, ready
+if not given["released"]:                  # no hand (or out of reach): back at ready, still holding the candy.
+    set_head_pose(*LOOK_AT_BUCKET)         # So it goes back in the bucket, the way it came, and every run
+    to(*BACK)                              # ends with the gripper open (at ready the fingers are over the
+    to(*SIDE)                              # bucket's edge, 30 cm up: let go there, it could bounce out)
+    to(X, Y, ABOVE, DOWN)
+    set_gripper_width("right", 1.0)        # dropped from 11 cm above the rim
+    to(*SIDE)
+    reset_robot()
 set_head_pose(0, 0)

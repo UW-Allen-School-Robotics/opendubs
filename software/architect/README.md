@@ -411,7 +411,21 @@ Run that way on 2026-10-29, `candy_gafro.py` completed: 17 planned moves through
 within tolerance, and the hand-off to the scripted person. Its path replayed on the twin with the handle-down
 bucket at both measured places, the fingers open where the program opens them: 26.8 and 27.0 mm to the
 bucket at the closest (at the bottom of the grasp), 38.9 mm to the robot. The simulated arm has no gripper,
-so the gripper calls were logged. Not yet run on the real arm.
+so the gripper calls were logged.
+
+**On the real arm (2026-10-29),** supervised, `--real --no-head` for Archit's node and `TREAT_DOMAIN=0`: the
+gripper works through `open_gripper` / `close_gripper` (open 43-44 mm, closed on a candy at 12-22 mm, held).
+What it took:
+- **The pile.** At 0.535 m the open fingers pushed into the candy, piled 2 cm below the rim; the grasp is
+  1 cm above it, at 0.545 m.
+- **The reach.** `plan_treat` answers SUCCESS with the nearest pose it can find, even 482 or 623 mm from its
+  goal, and the arm went there; a plan more than 50 mm off is now no hand-off. Only a palm about 0.8 m in front
+  of the arms and about 1 m off the floor planned well (5 mm off). At a 20 cm standoff, joint 1 reached the arm
+  service's 12 N m force limit with the arm near straight (its gravity load alone is about 9.4 N m there); the
+  standoff is 30 cm.
+- **No hand, or out of reach:** the candy goes back into the bucket the way it came, so every run ends open.
+- **The head** stopped 1.5 deg short of 25 deg down; it counts as settled within 2.5.
+- **The hand tracker** is Archit's, started by hand (`hand_stack.sh up`): nothing starts it at boot.
 
 ## The demo day: one coordinator, one thing at a time
 

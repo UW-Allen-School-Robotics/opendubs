@@ -139,6 +139,12 @@ def treat_robot_class():
 
         find_hand = False                    # the node runs the head (find_hand) or not (get_hand)
         hold_s = 3.0                         # held at the hand before the gripper opens
+        reach_tol_mm = 50.0                  # a plan ending farther than this from its goal is no hand-off: plan_treat
+                                             # answers SUCCESS with the nearest pose it found (2026-10-29: 482 mm off, a
+                                             # palm too low and too near, and the arm reached up and right, away from it)
+        standoff_m = 0.30                    # short of the palm (plan_treat's standoff; on the real arm at least 0.20).
+                                             # 2026-10-29: at 0.20 the arm, near straight 80 cm out with a candy, took
+                                             # joint 1 to the arm service's 12 N m force limit and stopped 1-2 deg short
 
         def _service(self, what: str, name: str, req: dict) -> dict:
             code, msg, data = self._run_goal(what, lambda: self.ros.call(name, req))
@@ -162,7 +168,12 @@ def treat_robot_class():
                     got = self._service("find_hand", "find_hand", {"find_s": float(timeout_s), "wait_s": 10.0})
                 else:
                     got = self._service("get_hand", "get_hand", {"timeout_s": float(timeout_s)})
-                plan = self._service("plan_treat", "plan_treat", {"palm": got["palm"], "jaws_level": True})
+                plan = self._service("plan_treat", "plan_treat", {"palm": got["palm"], "jaws_level": True,
+                                                                  "standoff": self.standoff_m})
+                off = float(plan.get("mm_from_goal", 0.0))
+                if off > self.reach_tol_mm:
+                    raise LookupError(f"the hand at {got.get('palm')} is out of reach: the nearest pose is "
+                                      f"{off:.0f} mm from the goal (at most {self.reach_tol_mm:g})")
             except LookupError as e:
                 self.move_arm_to_named_pose(side, "ready")
                 return {"released": False, "reason": str(e)}
