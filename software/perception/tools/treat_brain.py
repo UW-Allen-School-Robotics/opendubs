@@ -45,6 +45,7 @@ class HeadParams:
     settle_n: int = 4           # centred frames in a row before the head is settled
     search_after_s: float = 2.0  # s with nobody seen before the head sweeps
     search_dps: float = 8.0
+    start_dps: float = 20.0     # deg/s to the start tilt, when a start is given one (HeadLaw.start's `goto`)
     period: float = 0.1
     aim_deg: float = 0.0        # the torso held this far ABOVE the picture's centre (deg, + up): the head looks lower,
                                 # so hands held out at the waist stay in frame (the top of the head may leave it)
@@ -65,10 +66,14 @@ class HeadLaw:
         self.moving, self.count, self.off_since = True, 0, None
         self.moved_at, self.seen_at, self.sweep_dir, self.pan_slot = -1e9, 0.0, 1.0, 0
 
-    def start(self, now, pan, tilt):
+    def start(self, now, pan, tilt, goto=None):
+        """From where the neck points (pan, tilt). `goto`: a tilt to go to first, at start_dps with nothing else looked at;
+        the centring, and the search's 2 s with nobody seen, start once the head is there (2026-10-30: 108, fully up)."""
         self.pan, self.tilt = pan, tilt
         self.mode, self.acquired, self.moving, self.count, self.off_since = "centre", False, True, 0, None
         self.seen_at = now
+        self.goto = None if goto is None else max(self.p.tilt_min, min(self.p.tilt_max, float(goto)))
+        self.goto_last = None
 
     def stop(self):
         self.mode, self.acquired = "off", False
@@ -88,6 +93,18 @@ class HeadLaw:
         p = self.p
         if self.mode == "off" or self.tilt is None:
             return None
+        if getattr(self, "goto", None) is not None:
+            # TO THE START TILT, in steps as the search sweeps (each GAZE holds 600 ms only); done there, or where the
+            # neck's own band stops it (the tilt it reports did not change since the last step)
+            if abs(self.goto - self.tilt) <= 0.2 or (self.goto_last is not None and abs(self.tilt - self.goto_last) < 0.05):
+                self.goto, self.seen_at, self.sweep_dir = None, now, -1.0 if self.tilt >= 90 else 1.0
+                self.mode = "centre"
+                self.why = f"at the start tilt {self.tilt:.1f}"
+                return None
+            self.goto_last = self.tilt
+            d = max(-p.start_dps * p.period, min(p.start_dps * p.period, self.goto - self.tilt))
+            self.mode, self.why, self.moved_at = "start", f"to the start tilt {self.goto:.1f}", now
+            return self.pan, self.tilt + d
         fresh = mid is not None and now - mid_at <= 0.5 and mid_at - self.moved_at >= p.wait_s
         if mid is not None and now - mid_at <= 0.5:
             self.seen_at = now

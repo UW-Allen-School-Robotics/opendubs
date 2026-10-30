@@ -149,15 +149,18 @@ class Head:
         self.io, self.law, self.brain_mode = io, law, brain_mode
         self.lock = threading.Lock()
         self.on, self.block, self.mid, self.mid_at = False, "not checked", None, 0.0
+        self.start_tilt = None
 
     def put_mid(self, mid, at):
         with self.lock:
             self.mid, self.mid_at = mid, at
 
-    def start(self):
+    def start(self, start_tilt=None):
+        """`start_tilt`: go to this tilt first (HeadLaw.start's goto), then centre and search as always."""
         with self.lock:
             self.on = True
             self.law.tilt = None          # the neck's present angles are read before the first move
+            self.start_tilt = start_tilt
 
     def stop(self):
         with self.lock:
@@ -196,7 +199,7 @@ class Head:
                     if block:
                         self.law.acquired = False
                     elif self.law.tilt is None:
-                        self.law.start(now, self.io.pan, self.io.tilt)
+                        self.law.start(now, self.io.pan, self.io.tilt, goto=self.start_tilt)
             if self.block:
                 continue
             with self.lock:

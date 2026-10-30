@@ -8,8 +8,8 @@ Nothing else: no topics, no polling; each call's data goes into the next call's 
   the gripper (on by default; --no-gripper leaves it alone): gripper_close first, gripper_open after move_joints. A
   gripper call succeeds whatever the gripper was doing and whatever is between the fingers; only an error stops here
   the candy (on by default with the gripper; --no-candy skips it), after the first ready: move_pose over the bucket,
-  fingers down -> gripper_open -> move_pose down to the candy in --candy-step steps -> gripper_close -> back up the
-  same way -> ready. A failed step there ends the run with the arm held where it is (no ready from inside the bucket)
+  fingers down -> gripper_open -> move_pose down to the candy in --candy-steps (2) moves -> gripper_close -> back up
+  the same way -> ready. A failed step there ends the run with the arm held where it is (no ready from inside the bucket)
 
 The services decide real arm or simulation, and keep the safety: on the real arm a released deadman latches a stop and
 every later move is refused, so this sequence ends at the first refusal. Hold the deadman BEFORE starting it (the real
@@ -30,10 +30,11 @@ SUCCESS, NOT_FOUND = 0, 5
 # move_pose's frame: her chassis frame less (0.423, 0, 0.3575) m, not turned.
 CANDY_XY = (0.282, -0.07)        # over the bucket, near its centre (hers 0.705, -0.07): the open fingers clear the wall
 CANDY_ABOVE_Z = 0.3025           # 11 cm above the rim (hers 0.66): the gripper opens here
-CANDY_Z = 0.1875                 # 1 cm above the pile (hers 0.545; at 0.535 the open fingers pushed into it)
+CANDY_Z = 0.2067                 # 3 cm above the pile: one 2 cm step less deep than hers (0.545, i.e. 0.1875 here; at
+                                 # 0.535 the open fingers pushed into it), as the user asked on 2026-10-30
 # The fingers (the hand's +z) 20 deg off vertical, forward and left, as hers: (0.242, 0.242, -0.940). The smallest turn
 # from the ready hand that points them so (76 deg), w, x, y, z. The arm service's simulator reached every pose of the
-# pick with it (2026-10-30: over the bucket 1.5 mm and 0.8 deg off, each 2 cm step within 0.6 mm and 0.1 deg).
+# pick with it (2026-10-30: over the bucket 1.5 mm and 0.8 deg off, each step down within 0.6 mm and 0.1 deg).
 CANDY_ORIENTATION = [0.022, 0.6025, 0.779, 0.1723]
 
 
@@ -52,8 +53,8 @@ def main():
     ap.add_argument("--candy", action="store_true", default=True,
                     help="(the default, with the gripper) take a candy from the bucket after the first ready")
     ap.add_argument("--no-candy", dest="candy", action="store_false", help="no candy pick")
-    ap.add_argument("--candy-step", type=float, default=0.02,
-                    help="m per move_pose going down into the bucket and back up, so the hand stays on the vertical")
+    ap.add_argument("--candy-steps", type=int, default=2,
+                    help="move_pose calls going down into the bucket, and as many back up (2: about 4.8 cm each)")
     ap.add_argument("--call-s", type=float, default=150.0, help="s to wait for one service call")
     ap.add_argument("--call", nargs="+", metavar=("NAME", "JSON"),
                     help="call ONE service and print its answer (sent once, never resent: perception_call.sh resends an "
@@ -172,7 +173,7 @@ def take_candy(call, args, speed):
         return 0 if code == SUCCESS else (4 if data.get("stopped") else 1)
 
     def steps(z_from, z_to):
-        n = max(1, round(abs(z_to - z_from) / args.candy_step))
+        n = max(1, args.candy_steps)
         return [round(z_from + (z_to - z_from) * i / n, 4) for i in range(1, n + 1)]
 
     code = pose(CANDY_ABOVE_Z)

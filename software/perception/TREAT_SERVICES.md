@@ -111,8 +111,8 @@ Needs the gripper enabled and calibrated in the arm service's hardware config (R
 | | |
 |---|---|
 | Type | `RobotCommand` |
-| Moves | the head only (never while the arm moves). It searches if nobody is in view, then centres the nearest person's shoulders 15 deg above the picture's centre (`--head-aim-deg`) so the body and the hands are in frame, and stops there |
-| `req` | `timeout_s` (20) |
+| Moves | the head only (never while the arm moves). It first tilts to `start_tilt` (108, fully up: `--head-start-tilt`), then searches if nobody is in view, then centres the nearest person's shoulders 15 deg above the picture's centre (`--head-aim-deg`) so the body and the hands are in frame, and stops there |
+| `req` | `timeout_s` (20); `start_tilt` (deg, the services' `--head-start-tilt`, 108; `null`: start from where the head is) |
 | `data` on SUCCESS | `{"tilt": 98.8, "pan": 93.1}` (the neck's degrees) |
 | Fails | `NOT_FOUND` "nobody centred in 20 s (...)", `SERVICE_NOT_RUNNING` (the node runs without the head) |
 
@@ -130,7 +130,7 @@ Needs the gripper enabled and calibrated in the arm service's hardware config (R
 |---|---|
 | Type | `RobotCommand` |
 | Moves | the head only |
-| `req` | `find_s` (20, for `centre_person`); `wait_s` (10, for `get_hand`); `stable_frames`, `still_m` |
+| `req` | `find_s` (20, for `centre_person`); `start_tilt` (for `centre_person`); `wait_s` (10, for `get_hand`); `stable_frames`, `still_m` |
 | `data` on SUCCESS | `{"head": {"tilt", "pan"}, "side", "palm", "frame"}` |
 | Fails | as `centre_person` ("nobody centred ...") or `get_hand` ("no hand held out ...") |
 
@@ -182,8 +182,8 @@ ready          {}
 
 The gripper is on by default (`--no-gripper` leaves it alone): `gripper_close {}` runs first and `gripper_open {}` runs
 after `move_joints`. With the gripper, the candy is taken after the first `ready` (`--no-candy` skips it):
-`move_pose` over the bucket with the fingers down, `gripper_open`, `move_pose` down to the candy in 2 cm steps
-(`--candy-step`), `gripper_close`, back up the same way, `ready`; a failed step there leaves the arm where it is.
+`move_pose` over the bucket with the fingers down, `gripper_open`, `move_pose` down to the candy in 2 moves
+(`--candy-steps`; 3 cm above the pile), `gripper_close`, back up the same way, `ready`; a failed step there leaves the arm where it is.
 The bucket's place is Daphne's (`candy_gafro.py` on daphne/halloween), in arm_mount. Exit codes: 0 done,
 1 a step failed, 2 no hand held out, 3 nobody found, 4 stopped (deadman), 130 Ctrl-C (`stop` is called).
 

@@ -13,12 +13,14 @@ THE SERVICES, /perception/treat/<name>; each returns when its step has ended (do
                                                          ONE continuous move: a straight joint line from where the arm is,
                                                          self-collision checked (engage.PathCheck), minimum-jerk, played
                                                          by follow_joint_trajectory
-  centre_person  {"timeout_s"?: 20}                      the head centres the nearest person, settles and HOLDS there:
-                                                         the shoulders --head-aim-deg (15) above the picture's centre,
-                                                         so the body and the hands are in frame; data: tilt and pan
+  centre_person  {"timeout_s"?: 20, "start_tilt"?: 108}  the head tilts to start_tilt first (--head-start-tilt, 108: fully
+                                                         up; null: from where it is), then centres the nearest person,
+                                                         settles and HOLDS there: the shoulders --head-aim-deg (15) above
+                                                         the picture's centre, so the body and the hands are in frame;
+                                                         data: tilt and pan
   get_hand       {"timeout_s"?: 10, "stable_frames"?: 5, "still_m"?: 0.05}
                                                          waits for a hand held out and still; data: side, palm in arm_mount
-  find_hand      {"find_s"?: 20, "wait_s"?: 10, ...}     centre_person, then get_hand: one call
+  find_hand      {"find_s"?: 20, "wait_s"?: 10, "start_tilt"?, ...}   centre_person, then get_hand: one call
   plan_treat     {"palm": [x,y,z], "jaws_level"?: true}  no motion: the goal toward that palm (reach_goal: the standoff and
                                                          height cap) and, jaws-level, the arm's joints and pose there
                                                          (plan_jaws); data: joints, pose, mm from the goal
@@ -283,7 +285,8 @@ class Treat:
                 return "no head (--dummy)", {}
             raise Refused(self.RC.SERVICE_NOT_RUNNING, "the head is off (--no-head, or --real without --head)")
         timeout = float(req.get("timeout_s", 20.0))
-        self.head.start()
+        start = req.get("start_tilt", self.a.head_start_tilt)
+        self.head.start(None if start is None else float(start))
         deadline = time.monotonic() + timeout
         try:
             while time.monotonic() < deadline:
@@ -340,7 +343,8 @@ class Treat:
                 {"side": side, "palm": [round(float(v), 4) for v in palm], "frame": ARM_FRAME})
 
     def find_hand(self, req):
-        msg, data = self.centre_person({"timeout_s": req.get("find_s", 20.0)})
+        msg, data = self.centre_person({"timeout_s": req.get("find_s", 20.0)} |
+                                       ({"start_tilt": req["start_tilt"]} if "start_tilt" in req else {}))
         msg2, data2 = self.get_hand({k: req[k] for k in ("stable_frames", "still_m") if k in req} |
                                     {"timeout_s": req.get("wait_s", 10.0)})
         return f"{msg}; {msg2}", {"head": data, **data2}
@@ -458,6 +462,9 @@ def main():
     ap.add_argument("--left-stowed", action="store_true", help="--real --head: the left arm is not run and is at stow")
     ap.add_argument("--no-head", dest="head", action="store_false", help="no head")
     ap.add_argument("--head-pan", action="store_true")
+    ap.add_argument("--head-start-tilt", type=lambda v: None if v.lower() == "none" else float(v), default=108.0,
+                    help="the tilt centre_person and find_hand go to before they look (deg, 108: fully up; none: start "
+                         "from where the head is)")
     ap.add_argument("--head-aim-deg", type=float, default=15.0,
                     help="hold the person's shoulders this far ABOVE the picture's centre (deg): the head looks lower, so "
                          "a hand held out at the waist is in frame (the top of the head need not be)")

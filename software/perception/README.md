@@ -388,9 +388,9 @@ the next. Nothing else passes between them (the services read the tracker and th
 | `ready` | `{}` | the arm to ready |
 | `move_pose` | `{"position": [x,y,z], "orientation"?: [w,x,y,z], "speed"?}` | the hand to a pose (`reach_pose`) |
 | `move_joints` | `{"joints": [7 rad]}` or `{"joints_deg": [7]}`, `"speed"?` | one continuous, collision-checked joint move |
-| `centre_person` | `{"timeout_s"?: 20}` | the head centres the person and holds, the shoulders 15 deg above the picture's centre so the hands stay in frame (`--head-aim-deg`) |
+| `centre_person` | `{"timeout_s"?: 20, "start_tilt"?: 108}` | the head tilts fully up first (`--head-start-tilt`), then centres the person and holds, the shoulders 15 deg above the picture's centre so the hands stay in frame (`--head-aim-deg`) |
 | `get_hand` | `{"timeout_s"?: 10}` | a hand held out and still: `side`, `palm` (arm_mount) |
-| `find_hand` | `{"find_s"?: 20, "wait_s"?: 10}` | `centre_person`, then `get_hand` |
+| `find_hand` | `{"find_s"?: 20, "wait_s"?: 10, "start_tilt"?}` | `centre_person`, then `get_hand` |
 | `plan_treat` | `{"palm": [x,y,z], "jaws_level"?: true}` | no motion: `joints`, `pose` toward that palm |
 | `hold` | `{"seconds"?: 5}` | wait at the treat |
 | `gripper_open`, `gripper_close` | `{}` | the gripper fully open or shut (the arm service's `open_gripper` / `close_gripper`, 2026-10-29). Succeeds whatever the gripper was doing and whatever is between the fingers (`data.holding` true if it stopped on something); fails only on an error: refused, no gripper, timeout, stop (below) |
@@ -421,7 +421,7 @@ Everything by hand, or in the simulation:
 ./treat_follow.sh services                    # simulation, the camera and the head
 ./treat_follow.sh services --real --head --left-stowed   # THE REAL ARM (arm service up, supervised, activated)
 ./treat_follow.sh sequence                    # gripper_close -> ready -> the candy -> find_hand -> plan_treat -> move_joints -> gripper_open -> hold -> ready
-                                              # the candy: move_pose over the bucket (fingers down), gripper_open, down in 2 cm steps,
+                                              # the candy: move_pose over the bucket (fingers down), gripper_open, down in 2 moves,
                                               # gripper_close, back up, ready (the bucket as in Daphne's candy_gafro.py)
 ./treat_follow.sh sequence --no-candy         # the same without the candy pick
 ./treat_follow.sh sequence --no-gripper       # without the gripper (and so without the candy)
