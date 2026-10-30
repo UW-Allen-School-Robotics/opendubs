@@ -1090,6 +1090,8 @@ function frame(nowMs) {
   layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P, pose.noses); });
   // PEEK's fierce faces, in the idle peek or danced (CREEP)
   const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DL && DL.look === "creep" && danceAmt > 0.5);
+  // TICK's half-shut eyes are plain: no cat's pupil or pumpkin's glow in the squint
+  const squint = DL && DL.look === "tick" && DL.frac < 0.5;
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
     for (const e of pose.eyes) {
@@ -1119,8 +1121,8 @@ function frame(nowMs) {
         // the cat has no white of the eye: its fierce faces' dents filled in, for one whole cat's eye
         if (P.pupil && fierce) for (const d of eyeDents(e, cy)) ctx.fill(d);
         // inside the eye, clipped to it: the cat's slit pupil, and the pumpkin's candle glow
-        if (P.pupil) { ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(cx + 8 * gx, cy + 6, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
-        if (P.glow) {
+        if (P.pupil && !squint) { ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(cx + 8 * gx, cy + 6, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+        if (P.glow && !squint) {
           ctx.save(); ctx.clip(path); ctx.globalAlpha = 0.8 + 0.15 * Math.sin(t * 9 + cx);
           ctx.save(); ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
           // and a rim of the socket's ink all round inside it, so the glow never touches the edge (a smile's
