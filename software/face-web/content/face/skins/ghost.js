@@ -1122,8 +1122,8 @@ function frame(nowMs) {
   const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DL && DL.look === "creep" && danceAmt > 0.5);
   // TICK's half-shut eyes are plain: no cat's pupil or pumpkin's glow in the squint
   const squint = DL && DL.look === "tick" && DL.frac < 0.5;
-  // NOD's crescents bow the other way from SMILE's (a cup, not an arch): the eye turned over as it comes
-  // in, through flat
+  // NOD's crescents bow the other way from SMILE's (a shallow cup, not an arch): the eye turned over as it
+  // comes in, through flat
   const nodFlip = DL && DL.look === "nod" ? ease(danceAmt) : 0;
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
@@ -1137,7 +1137,10 @@ function frame(nowMs) {
       ctx.save();
       ctx.translate(px, py); ctx.rotate(giggle * GIGGLE_DEG * Math.PI / 180); ctx.translate(-px, -py);
       ctx.translate(0, U * 3 * grooveBob);                     // the eyes dip on each beat
-      ctx.translate(cx, cy); ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 2 * nodFlip)); ctx.translate(-cx, -cy);
+      ctx.translate(cx, cy);
+      // NOD: flatter than SMILE's, and tipped so the inner end, by the nose, sits a little lower
+      if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 9 * Math.PI / 180 * nodFlip);
+      ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 1.62 * nodFlip)); ctx.translate(-cx, -cy);
       if (happyOutline) {
         // HAPPY fully in, nothing over it: the eye from its matched outlines, open -> squinted by the blink
         const side = cx < ART_W / 2 ? 0 : 1, O = happyOutlines()[side], w = happyBlink;
