@@ -617,6 +617,8 @@ class HoundNav:
     def _take(self) -> None:
         """Ours if it is the nav's or nobody's: the operator's release, then our claim."""
         with self.lock:
+            if self.owner_at is None:
+                return                           # who holds it not heard yet: a claim now could be refused
             owner, self.took_at = self.owner, self.clock()
         if owner not in (self.NAV, None, self.OURS):
             return                               # someone else's (a teleop, a show): not taken from them
@@ -659,15 +661,16 @@ class HoundNav:
         with self.lock:
             hold, owner, renewed, took = self.hold, self.owner, self.renewed_at, self.took_at
         if hold:
-            if self.paused and owner != self.OURS and renewed is None:
-                if owner == self.NAV and (took is None or now - took >= self.RETAKE_S):
-                    self._take()
-            elif owner == self.OURS or (renewed is not None and now - renewed < self.RETAKE_S):
+            if owner == self.OURS:               # ours: renewed (only a claim we have; a refused one is no lease)
                 if renewed is None or now - renewed >= self.RENEW_S:
                     self.claim({"owner": self.OURS, "ttl_s": self.TTL_S})
                     with self.lock:
                         self.renewed_at = now
-            elif took is None or now - took >= self.RETAKE_S:
+            elif took is not None and now - took < self.RETAKE_S:
+                pass                             # a take under way: its answer comes on /base/owner
+            elif self.paused and owner != self.NAV:
+                pass                             # paused: only taken from the nav
+            else:
                 self._take()
         if self.sent_at is None or now - self.sent_at >= self.RESEND_S:
             self._send()

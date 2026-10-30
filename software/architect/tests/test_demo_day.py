@@ -309,6 +309,26 @@ class Hound(unittest.TestCase):
         self.nav.tick()
         self.assertEqual(self.sel.owner, "demo_day")
 
+    def test_before_the_owner_is_heard_nothing_is_claimed_then_it_is_taken(self):
+        """opendubs2, 2026-10-29: a claim sent before the latched /base/owner arrived was refused (the nav
+        held it), and was then 'renewed' for ever instead of the base being taken."""
+        sel = Selector(owner="nav")
+        nav = dd.HoundNav(publish=lambda h: None, claim=sel.claim, release=sel.release, clock=self.clock)
+        sel.nav = nav
+        nav.stop()
+        self.assertEqual(sel.log, [])
+        sel._say()                                          # /base/owner: the nav's
+        nav.tick()
+        self.assertEqual((sel.log[:2], sel.owner), ([("release", "*"), ("claim", "demo_day")], "demo_day"))
+
+    def test_a_refused_claim_is_not_renewed_for_ever(self):
+        self.nav.stop()
+        self.sel.owner = "nav"; self.sel._say()             # lost the race
+        for _ in range(5):
+            self.clock.t += dd.HoundNav.RENEW_S
+            self.nav.tick()
+        self.assertEqual(self.sel.owner, "demo_day")
+
     def test_never_taken_from_another_owner_and_then_not_still(self):
         self.sel.owner = "teleop"; self.sel._say()
         self.nav.stop()

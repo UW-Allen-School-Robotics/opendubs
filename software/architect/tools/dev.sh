@@ -302,11 +302,11 @@ listen() {  # the Jabra, the spotter, Parakeet and Kokoro; posts to the runner o
 mode_env() {  # $1: a unit; its mode's settings (an Environment= value) for MODE=show (default) or gafro
   case "${MODE:-show}:$1" in
     show:archit-architect-listener) echo "SHOW=${SHOW} DAY=1 PROGRAM=${PROGRAM:-software/architect/examples/bucket_offer.py} SHOW_AUDIO=1 START=held" ;;
-    show:archit-architect-day)      echo "SHOW=${SHOW} PAUSED=1" ;;
+    show:archit-architect-day)      echo "SHOW=${SHOW} PAUSED=1${NAV:+ NAV=${NAV}}" ;;   # NAV=hound: the robot's nav
     # the random picks off ("EVERY" a day): the shows go through the show runner, which refuses any gripper cue
     # on gafro (the dashboard reports no gripper there yet)
     gafro:archit-architect-listener) echo "DAY=1" ;;
-    gafro:archit-architect-day)      echo "CANDY_RUNNER=1 PAUSED=1 \"EVERY=86400 86400\"" ;;
+    gafro:archit-architect-day)      echo "CANDY_RUNNER=1 PAUSED=1 \"EVERY=86400 86400\"${NAV:+ NAV=${NAV}}" ;;
     *) echo "MODE=${MODE:-show}" ;;
   esac
 }
