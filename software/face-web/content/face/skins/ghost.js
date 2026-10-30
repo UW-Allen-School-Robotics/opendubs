@@ -1034,9 +1034,11 @@ function frame(nowMs) {
   }
   // the dance's own looks, over the groove (DANCE, above)
   let danceScale = 1, danceFloat = 0, riseSweat = 0, danceFocus = 0, danceFocusLook = 0;
-  if (DL && !jumped) for (const dt2 of DL.swaps) blink = Math.max(blink, blinkAt(QUICK.close - dt2));   // not on a scrub
+  const waking = !!(DL && DL.prev === "doze" && DL.look !== "drowsy");   // just jolted out of a DOZE
+  if (DL && !jumped && !(waking && DL.e < 0.4)) for (const dt2 of DL.swaps) blink = Math.max(blink, blinkAt(QUICK.close - dt2));   // not on a scrub, nor on waking: the eyes fly open
   if (DL) {
     const pop = Math.exp(-DL.frac * 5), a = ease(danceAmt), L2 = DL.look;
+    if (waking) danceScale = 1 + 0.14 * clamp01(1 - DL.e * 2.5);    // the jolt: the eyes pop wide, then settle
     if (L2 === "beatpop") { danceScale = 1 + 0.12 * pop; pose = mixPose(pose, POSE.eek, 0.22 * pop); }   // ALERT: pop on every beat
     if (L2 === "tick" && DL.frac < 0.5) blink = Math.max(blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
     if (a > 0) {
