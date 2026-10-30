@@ -786,6 +786,7 @@ function danceLook(t) {
       const name = steps[k][1], e = Math.max(0, s - steps[k][0]);
       let run = 0; while (k - run > 0 && steps[k - run - 1][1] === name) run++;   // how many of this look just before it
       return { look: LOOK_AS[name] || name, name, e, B, beats: e / B, frac: (g / B) % 1, every, g, costume: wear(k), run,
+               er: Math.max(0, s - steps[k - run][0]),   // since the first of this run of the same look
                len: k + 1 < steps.length ? steps[k + 1][0] - steps[k][0] : Infinity,
                first: k === 0 && steps[0][0] <= 0, prev: k > 0 ? steps[k - 1][1] : null };
     };
@@ -930,16 +931,19 @@ const idleFloat = t => U * 3.5 * Math.sin(t * 1.15);
 // scrub, a replay and the robot all show the same thing at the same second.
 function stepFace(D, t) {
   const L2 = D.look, a = GROOVY.includes(L2) ? 0 : 1;
+  // the look's own clock runs from the first of a run of the same look (a LOOKOUT split in two, say,
+  // for a costume, carries on looking rather than starting over); SMILE's turns are its own (D.run)
+  const e = D.er ?? D.e, beats = e / D.B;
   const out = { side: 0, blink: 0, nod: 0, giggle: 0, bob: 0, scale: 1, float: 0, sweat: 0,
                 focus: 0, focusLook: 0, cheer: L2 === "cheer" ? 1 : 0, scared: L2 === "rise" ? 1 : 0, jolt: 0 };
   // where the eyes look: LOOKOUT's turn and blink; the waves' arm, held or swept
-  const LK = L2 === "lookout" ? lookout(D.e % (2 * ctl.turn + 2 * ctl.hold + ctl.sweep)) : null;
+  const LK = L2 === "lookout" ? lookout(e % (2 * ctl.turn + 2 * ctl.hold + ctl.sweep)) : null;
   if (LK) { out.side = LK.side; out.blink = LK.blink; }
-  else out.side = L2 === "wavelook" ? 0.9 * Math.sin(Math.PI * D.beats / 2) : L2 === "wave-r" ? 0.9 : L2 === "wave-l" ? -0.9 : 0;
+  else out.side = L2 === "wavelook" ? 0.9 * Math.sin(Math.PI * beats / 2) : L2 === "wave-r" ? 0.9 : L2 === "wave-l" ? -0.9 : 0;
   // DOZE: the idle doze's lids sinking (fighting it), quicker for a short step, then held; a show that
   // opens on DOZE is asleep already, breathing slowly under the lids
   if (L2 === "drowsy") {
-    const u = clamp01(D.e / Math.min(ctl.nodDroop, 1.2));
+    const u = clamp01(e / Math.min(ctl.nodDroop, 1.2));
     out.nod = D.first ? 0.94 + 0.06 * Math.sin(t * 1.6)
       : clamp01(u * u * (3 - 2 * u) - 0.10 * Math.sin(u * Math.PI * 2.5) * u * (1 - u) * 2);
   }
@@ -959,28 +963,28 @@ function stepFace(D, t) {
   if (L2 === "tick" && D.frac < 0.5) out.blink = Math.max(out.blink, 0.6);   // SLEEPY, robot style: half shut, on and off the beat
   if (a) {
     if (L2 === "nod" || L2 === "bow" || L2 === "sway") pose = mixPose(pose, POSE.smile2, a);
-    if (L2 === "nod") out.float = U * 7 * Math.sin(Math.PI * D.beats);              // up on one beat, down on the next
+    if (L2 === "nod") out.float = U * 7 * Math.sin(Math.PI * beats);              // up on one beat, down on the next
     if (L2 === "bow") {                                                             // dip, hold, and a slow blink
-      out.float = U * 12 * ease(clamp01(D.e / 1.2));
-      if (D.e > 1.6) out.blink = Math.max(out.blink, blinkAt((D.e - 1.6) % 2.4));
+      out.float = U * 12 * ease(clamp01(e / 1.2));
+      if (e > 1.6) out.blink = Math.max(out.blink, blinkAt((e - 1.6) % 2.4));
     }
-    if (L2 === "sway") out.giggle += 1.2 * Math.sin(Math.PI * D.beats);              // SOFT: rock with the beat
+    if (L2 === "sway") out.giggle += 1.2 * Math.sin(Math.PI * beats);              // SOFT: rock with the beat
     if (L2 === "wavelook" || L2 === "wave-r" || L2 === "wave-l") out.scale = 1.05;   // wide open; the side does the looking
     if (L2 === "smile") {                                                           // SMILE's own eyes and giggle, danced
       const se = smileEyes(D.e, (D.run || 0) % 2 === 1);
       pose = mixPose(pose, se.pose, 1); out.giggle += ctl.giggle * se.both * giggleAt(se.since);
     }
-    const sway2 = 0.5 - 0.5 * Math.cos(Math.PI * D.beats / 2);                    // there and back, two beats each way
+    const sway2 = 0.5 - 0.5 * Math.cos(Math.PI * beats / 2);                    // there and back, two beats each way
     if (L2 === "focus") { pose = mixPose(pose, POSE.focus, 1); out.focus = 1; out.focusLook = sway2; }   // FOCUS, its highlights glancing to the beat
     if (L2 === "puzzled") pose = mixPose(pose, mixPose(POSE.think1, POSE.think2, sway2), 1);   // the puzzled tilt, rocking
     if (L2 === "creep") {                                                           // SQUINT: the fierce faces, two beats each
-      const i = Math.floor(D.beats / 2), u = ease(clamp01((D.beats / 2 - i) * 2));
+      const i = Math.floor(beats / 2), u = ease(clamp01((beats / 2 - i) * 2));
       pose = mixPose(pose, mixPose(POSE[i % 2 ? "peek2" : "peek3"], POSE[i % 2 ? "peek3" : "peek2"], u), 1);
     }
     if (L2 === "rise") {                       // EEK! danced: its face (the cross-fade brings it in fast), the
-      const R = eek(Math.min(D.e, EEK_IN + ctl.eekHold * 0.5));   // idle EEK!'s pop and jolt, then held, sweating
+      const R = eek(Math.min(e, EEK_IN + ctl.eekHold * 0.5));   // idle EEK!'s pop and jolt, then held, sweating
       pose = POSE.eek; out.scale = R.scale + 0.08;
-      out.jolt = Math.max(out.jolt, clamp01(1 - D.e * 3)); out.sweat = R.sweat;
+      out.jolt = Math.max(out.jolt, clamp01(1 - e * 3)); out.sweat = R.sweat;
     }
     if (L2 === "drowsy") pose = mixPose(pose, POSE.doze2, 0.75);                     // SLEEPY: doze-2's lids
   }
