@@ -51,36 +51,79 @@ video tracks. Tracking (`tracking: tablet` on the Head & face page) loads MediaP
 A content code skin for the Halloween demo: a ghost with ten expressions (DOZE, LOOKOUT, GROOVE,
 SMILE, PEEK, EEK!, FOCUS, HAPPY, PUZZLED for THINK, and the flame mouth that never stops). Which one
 shows follows the demo day's coordinator (`demo_day.py`: patrolling, going to someone, a show, the
-candy), the face tracker (someone in view) and the ARCHITECT demo runner. While a palette show plays,
-the ghost dances with it. Each short show has its own timeline of the ghost's expressions and dance
-looks, at the show's time and on its beats, in costumes that change within the show (pumpkin, cat,
-monster or the classic black and white); each step fades into the next (softly, quicker into the
-startled faces), from the show's time alone, so a scrub shows what the robot will. Another show's FACE
-cues pick its looks. All of it is this one
-skin, so a show needs no SKIN cue (`DANCES` in `ghost.js`). **The state machine, with every expression
-animated** (tabs: V1, the design; V2, as built; V3, the demo day, with the short shows danced whole): [`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
-(download it and open it in a browser; it needs nothing else).
+candy), the face tracker (someone in view) and the ARCHITECT demo runner. Each short show
+(`wave-and-nod`, `robotic-smile`, `celebrate`) has its own timeline of the ghost's looks, at the show's
+time, in costumes that change within the show (pumpkin, cat, monster or the classic black and white),
+each step fading into the next. Another show's FACE cues pick its looks. All of it is this one skin, so
+a show needs no SKIN cue (`DANCES` in `ghost.js`). **The state machine, every expression animated:**
+[`notes/design/face-halloween-ghost-states.html`](../../notes/design/face-halloween-ghost-states.html)
+(download it and open it in a browser).
 
-| | |
+This section is in two parts: **what has to change for it to run on the robot**, and **what is only
+for previewing and testing**.
+
+### Part 1: needed on the robot
+
+| File | |
 |---|---|
-| `content/face/skins/ghost.js` | **added.** The skin, one file: the drawing, `ghostStage()`, which picks the expression from the coordinator's and the runner's state, and `DANCES`, each show's tempo, costume and looks. Imports nothing from the engine |
+| `content/face/skins/ghost.js` | **added.** The skin, one file: the drawing, `ghostStage()`, which picks the expression from the coordinator's and the runner's state, and `DANCES`, each show's face timeline, costumes and tempo. Imports nothing from the engine |
+| `../kiosk-dashboard/backend/architect_proxy.py` | **added.** `GET /api/architect/day` (the coordinator, 127.0.0.1:8096) and `GET /api/architect/state` (the runner, 127.0.0.1:8098), read-only, for the face to poll; the tablet can't reach those ports itself |
+| `../kiosk-dashboard/backend/app.py` | **changed** (a shared path). Includes that router |
+
+No engine file, show file or head-protocol message changes. A reserved state (E_STOP, DEGRADED) still
+draws the default eyes.
+
+| # | Step | Who |
+|---|---|---|
+| 1 | Review and merge this branch into `main`. CI runs the face conformance tests, the ghost's tests and the proxy's tests. | Tablet lane (owns `face-web` outside the engine, and the dashboard backend); one shared path, `backend/app.py` |
+| 2 | Deploy the dashboard as usual, so the robot has the two `/api/architect/*` routes. | Whoever deploys (`deploy-all.sh`) |
+| 3 | Put `ghost.js` in the **content repository** at `face/skins/ghost.js` (on the robot, `$OPENDUBS_SHOWS_DIR/face/skins/ghost.js`). Code skins reach the robot **only** from the content repository by its sync, never by upload (`backend/head_looks.py`). | The content repository's owner |
+| 4 | Run the coordinator (`demo_day.py`, port 8096) on the robot for the day; it is not on `main` yet. Without it the ghost still dozes, looks round, grooves and smiles at people; the shows' dances, EEK!, FOCUS and HAPPY need it (or the demo runner on 8098). | The coordinator's owner |
+| 5 | Send `SKIN ghost` for the day (Head & face page, or the operator). It stays on through every show: the three short shows have no `skin` key on their FACE track, and must not get one. | Operator; Choreography lane for the show files |
+
+**Optional.** *Music:* each short show has an original synthesized track (ENCORE's
+`demo/halloween-shorts/make_music.py`, below); to play one on the robot, copy it to
+`software/choreo/shows/audio/` there and point the show's `music.file` at it (Choreography lane; audio
+is never committed). *Spoken lines,* if the Voice lane wants them (a show can't trigger speech yet;
+they keep to the listener's rules: no promise of movement, nothing about how someone looks):
+wave-and-nod 0.2 s "Happy Halloween!", 17.0 s "Thank you, thank you."; robotic-smile 0.3 s "Mmm… is
+someone there?", 25.2 s "Eek!", 29.2 s "Ha ha! Happy Halloween!"; celebrate 0.1 s "Boo!", 4.2 s "We did
+it!".
+
+**Changing a show's face later:** edit `DANCES[show].steps` in `ghost.js` (`[seconds into the show,
+look, costume?]`; the looks and costumes it takes are `TIMELINE`, at the end of the file), run
+`node tests/test_ghost_skin.mjs`, and repeat step 3. ENCORE's ghost lane (Part 2) draws the steps and
+copies them out in this form.
+
+### Part 2: for previewing and testing only (the robot doesn't use these)
+
+| File | |
+|---|---|
 | `tests/test_ghost_skin.mjs` | **added.** `ghostStage()` row by row, the dances' table, reading the emote back from the eye, when someone counts as in view, every look drawing in every costume, and each show's steps fading in without a jump |
 | `tests/conformance.sh` | **changed.** Runs the test above |
-| `../kiosk-dashboard/backend/architect_proxy.py` | **added.** `GET /api/architect/day` (the coordinator, 127.0.0.1:8096) and `GET /api/architect/state` (the runner, 127.0.0.1:8098), read-only, from the dashboard the face already talks to; neither is in the tablet's reach |
-| `../kiosk-dashboard/backend/app.py` | **changed** (a shared path). Includes that router |
 | `../kiosk-dashboard/backend/tests/test_architect_proxy.py` | **added.** The routes, and a service that is not there reading as `{"available": false}` |
 | `../../notes/design/face-halloween-ghost-states.html` | **added.** The state machine above |
-| `../../notes/design/face-halloween-ghost-handover.md` | **added.** The handover: what each lane does to put it on the robot, and the ENCORE preview tools |
 
-No engine file is touched. A reserved state (E_STOP, DEGRADED) still draws the default eyes.
-
-To put it on the robot, copy `ghost.js` to `face/skins/` in the robot's content folder
-(`$OPENDUBS_SHOWS_DIR`), then send `SKIN ghost`. The steps, who takes each, and the ENCORE tools for
-previewing it: [`notes/design/face-halloween-ghost-handover.md`](../../notes/design/face-halloween-ghost-handover.md). Without the coordinator or the runner it still dozes,
-looks around, dances and smiles at people; EEK!, FOCUS, HAPPY and the shows' dances need one of them. To
-try it in a browser with no robot, set its inputs from the console:
+To try the skin in a browser with no robot, set its inputs from the console:
 `window.ghostInputs = { day: { available: true, state: "CHOREO", show: "wave-and-nod", since_s: 0 } }`
 (add `costume: "cat"` to dress it whatever the show).
+
+**In ENCORE** (`UW-Allen-School-Robotics/encore`, the branch of the same name as this one). ENCORE is
+the choreography studio; these let it preview a show in the ghost and draw the ghost's face timeline.
+They're recorded here in case they aren't merged there.
+
+| Commit | |
+|---|---|
+| `3fc3f87` | **Wear…** in the Face pane: preview a show in one of the content folder's skins (`ENCORE_FACE_CONTENT`), without putting it in the show; the skin is registered from ENCORE's own page, `vendor/` untouched |
+| `44d269d` | The Wear menu first in the toolbar; the proposal `docs/proposals/halloween-ghost.md` |
+| `5be3650` | Wearing the ghost, **Look…** and **Costume…** replace Emote… and Skin… and put a look or costume at the playhead. The draft is kept in the project (`wear/ghost/<show>.json`, `GET/PUT/DELETE /api/wear/<skin>/<show>`), never in the show; **Copy for the skin** copies it out as `ghost.js` writes it |
+| `a1282df` | The ghost's steps as a lane on the Timeline, under the face: drag, double-click to add, right-click for a look, a costume, delete, Copy for the skin, Back to the skin's own |
+| `9e649fd` | Steps snap onto markers (a held note, a section) when dragged near one |
+| `18f0d9a` | `demo/halloween-shorts/`: a project per short show, and `make_music.py`, which synthesizes their Halloween tracks (to `~/.encore/halloween-shorts/`, never committed) |
+
+To use it, in ENCORE: `uv run python demo/halloween-shorts/make_music.py`, then
+`ENCORE_FACE_CONTENT=/path/to/opendubs/software/face-web/content/face uv run encore`, open one of the
+three projects (File › Open project…), and choose **Wear: ghost** in the Face pane.
 
 ## Render a show offline
 
