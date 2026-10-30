@@ -791,6 +791,13 @@ function danceLook(t) {
            g: e + Math.floor(Math.max(0, cueT0 - danceT0) / B) * B, costume: (danceSpec && danceSpec.force) || costume, swaps: [] };
 }
 
+// Whether the path, as drawn now, holds every one of these points (in the current drawing coordinates).
+function holds(path, pts) {
+  if (!ctx.isPointInPath || !ctx.getTransform) return true;
+  const m = ctx.getTransform();
+  return pts.every(([x, y]) => ctx.isPointInPath(path, m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f));
+}
+
 // ---- costumes: what each one adds behind the face, drawn in the art's own coordinates ---------------
 function costumeBack(P) {
   if (P.rib) {                                 // the pumpkin's ribs, and its stem at the top
@@ -1121,7 +1128,12 @@ function frame(nowMs) {
         // the cat has no white of the eye: its fierce faces' dents filled in, for one whole cat's eye
         if (P.pupil && fierce) for (const d of eyeDents(e, cy)) ctx.fill(d);
         // inside the eye, clipped to it: the cat's slit pupil, and the pumpkin's candle glow
-        if (P.pupil && !squint) { ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(cx + 8 * gx, cy + 6, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+        // (the fierce faces keep it; otherwise only where the eye holds the whole slit: a squint, a wink's
+        // crescent or a half-shut eye is the cat's eye colour alone, never a cut-off piece of pupil)
+        const px = cx + 8 * gx, py = cy + 6;
+        if (P.pupil && !squint && (fierce || holds(path, [[px, py], [px, py - 46], [px, py + 46], [px - 9, py], [px + 9, py]]))) {
+          ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(px, py, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        }
         if (P.glow && !squint) {
           ctx.save(); ctx.clip(path); ctx.globalAlpha = 0.8 + 0.15 * Math.sin(t * 9 + cx);
           ctx.save(); ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
