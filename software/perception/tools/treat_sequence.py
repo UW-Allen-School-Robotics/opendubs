@@ -30,10 +30,10 @@ SUCCESS, NOT_FOUND = 0, 5
 # stage's right edge, the rim at z 0.553 and the candy piled 2 cm below it, in her chassis frame. Here in arm_mount,
 # move_pose's frame: her chassis frame less (0.423, 0, 0.3575) m, not turned.
 CANDY_XY = (0.282, -0.07)        # over the bucket, near its centre (hers 0.705, -0.07): the open fingers clear the wall
-CANDY_Z = 0.2367                 # 6 cm above the pile, 4 cm above the rim (hers 0.545, i.e. 0.1875 here; at 0.535 the
+CANDY_Z = 0.2567                 # 8 cm above the pile, 6 cm above the rim (hers 0.545, i.e. 0.1875 here; at 0.535 the
                                  # open fingers pushed into it). 2026-10-30: straight from ready, 0.2067 drove the
-                                 # fingers into the candy and the move ended 18.9 mm off; 0.2267, then 0.2367 at the
-                                 # user's word. --candy-z
+                                 # fingers into the candy and the move ended 18.9 mm off; 0.2267, then 3 cm higher at
+                                 # the user's word. --candy-z
 # The fingers (the hand's +z) 20 deg off vertical, forward and left, as hers: (0.242, 0.242, -0.940). The smallest turn
 # from the ready hand that points them so (76 deg), w, x, y, z. The arm service's simulator reached every pose of the
 # pick with it (2026-10-30: from ready straight to the candy 3.3 mm and 0.9 deg off; on the way the hand came within 5
