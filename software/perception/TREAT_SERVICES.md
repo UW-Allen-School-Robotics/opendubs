@@ -180,10 +180,10 @@ hold           {"seconds": 5}
 ready          {}
 ```
 
-The gripper is on by default (`--no-gripper` leaves it alone): `gripper_close {}` runs first and `gripper_open {}` runs
-after `move_joints`. With the gripper, the candy is taken after the first `ready` (`--no-candy` skips it):
-`move_pose` over the bucket with the fingers down, `gripper_open`, `move_pose` down to the candy in 2 moves
-(`--candy-steps`; 3 cm above the pile), `gripper_close`, back up the same way, `ready`; a failed step there leaves the arm where it is.
+The gripper is on by default (`--no-gripper` leaves it alone). It starts open (the robot runs with it open; nothing
+opens it first), and with it the candy is taken after the first `ready` (`--no-candy` skips it): `move_pose` from
+`ready` straight down to the candy with the fingers down (3 cm above the pile), `gripper_close`, `move_pose` up over the
+bucket, `ready`; a failed step there leaves the arm where it is. `gripper_open {}` after `move_joints` drops the candy.
 The bucket's place is Daphne's (`candy_gafro.py` on daphne/halloween), in arm_mount. Exit codes: 0 done,
 1 a step failed, 2 no hand held out, 3 nobody found, 4 stopped (deadman), 130 Ctrl-C (`stop` is called).
 
