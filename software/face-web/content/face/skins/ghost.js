@@ -842,6 +842,26 @@ function costumeNose(P, noses) {                // the cat's whiskers: out to ei
   }
   ctx.restore();
 }
+// The cat's tongue: in a mouth opened wide, at the bottom of it in the middle, clipped to the mouth (the
+// path paintMouth just drew). It grows in as the mouth opens past a doze's or a smile's.
+function costumeTongue(P, mouth) {
+  const mid = ART_W / 2;
+  let top = 0, bottom = 0, dt = Infinity, db = Infinity;
+  for (let i = 0; i < MOUTH_SIDE; i++) {
+    const ut = Math.abs(mouth[2 * i] - mid), lb = Math.abs(mouth[2 * (MOUTH_SIDE + i)] - mid);
+    if (ut < dt) { dt = ut; top = mouth[2 * i + 1]; }
+    if (lb < db) { db = lb; bottom = mouth[2 * (MOUTH_SIDE + i) + 1]; }
+  }
+  const k = clamp01((bottom - top - 110) / 30);
+  if (k <= 0) return;
+  const y = Math.min(bottom, ART_H) + 2, rx = 74 * k, ry = 40 * k;
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = P.tongue;
+  ctx.beginPath(); ctx.ellipse(mid, y, rx, ry, 0, Math.PI, 2 * Math.PI); ctx.lineTo(mid + rx, y + 40); ctx.lineTo(mid - rx, y + 40); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = P.ink || "#000"; ctx.globalAlpha = 0.35; ctx.lineWidth = 3; ctx.lineCap = "round";   // the groove down its middle
+  ctx.beginPath(); ctx.moveTo(mid, y - ry * 0.7); ctx.lineTo(mid, y + 10); ctx.stroke();
+  ctx.restore();
+}
 // The dents in an eye's outline below its middle: in black and white, where the white of the eye shows
 // (PEEK's fierce faces). Each as a Path2D, along the outline and back across the dent's mouth.
 function eyeDents(e, cy) {
@@ -1093,6 +1113,7 @@ function frame(nowMs) {
   layer(0.35, () => {                                   // the mouth, furthest back
     ctx.fillStyle = P.mouth || ink;
     paintMouth(pose.mouth, t, ctl.thinkDrop * ease(thinkAmt), thinkSide);
+    if (P.tongue) costumeTongue(P, pose.mouth);
   });
   // Keep the nose aligned with the eyes as the smile fades in and out.
   layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P, pose.noses); });
@@ -1369,7 +1390,7 @@ export const EMOTE_LOOKS = { NEUTRAL: "groove", ALERT: "beatpop", SQUINT: "creep
 export const COSTUMES = {
   classic: { bg: "#fff", ink: "#0b0b0b" },
   pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 17 },
-  cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", pupil: "#0d0c10",
+  cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", tongue: "#e2557f", pupil: "#0d0c10",
              ear: "#1a181e", earIn: "#ff8fb3", whisker: "#d9d6e0", line: "#d9d6e0" },
   monster: { bg: "#8ccf5e", ink: "#13200c", hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
 };
