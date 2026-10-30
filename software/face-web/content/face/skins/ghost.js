@@ -882,7 +882,7 @@ function costumeTongue(P, mouth, open = 0) {
   }
   const k = Math.max(clamp01((bottom - top - 110) / 30), open);
   if (k <= 0) return;
-  const y = Math.min(bottom, ART_H) + 2 - 14 * open, rx = 74 * k + 46 * open, ry = 40 * k + 8 * open;   // HAPPY's: wider, up past the chin
+  const y = Math.min(bottom, ART_H) + 2 - 14 * open, rx = 74 * k, ry = 40 * k;   // HAPPY's: the same tongue, up past the chin
   ctx.save(); ctx.clip();
   ctx.fillStyle = P.tongue;
   ctx.beginPath(); ctx.ellipse(mid, y, rx, ry, 0, Math.PI, 2 * Math.PI); ctx.lineTo(mid + rx, y + 40); ctx.lineTo(mid - rx, y + 40); ctx.closePath(); ctx.fill();
