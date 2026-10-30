@@ -6,6 +6,7 @@ import socketserver
 import sys
 import threading
 import time
+import types
 
 import pytest
 
@@ -248,6 +249,39 @@ def test_effector_status_reports_each_arm_from_its_service(arms):
     assert eff["arm_left"]["state"] == "down" and "no arm service for the left arm" in eff["arm_left"]["why"], eff["arm_left"]
     for side in ("left", "right"):
         assert eff[f"grip_{side}"]["state"] == "down" and eff[f"grip_{side}"]["excluded"], "a gripper nobody enabled must not read ok"
+
+
+@pytest.fixture
+def fingers(monkeypatch):
+    """The arm service up for the right arm only (its status as `supervised` says), and the dashboard's /joint_states reader (arm_clearance) with no gripper finger seen yet.
+    No socket: this is the gripper rule, not the protocol."""
+    import arm_clearance
+    supervised = {"right": False}
+    monkeypatch.setattr(openarm, "active_stack", lambda: ("gafro", "the arm service is running for: right"))
+    monkeypatch.setattr(openarm, "_service_status", lambda side: None if side != "right" else
+                        f"right arm, openarm: held; last: none\njoints (deg) +0.0 +0.0 +0.0 +0.0 +0.0 +0.0 +0.0\nsupervised: {'yes' if supervised['right'] else 'no'}")
+    arm_clearance.last["fingers"].clear()
+    yield types.SimpleNamespace(note=arm_clearance.note, supervised=supervised)
+    arm_clearance.last["fingers"].clear()
+
+
+def test_a_gripper_is_ok_only_when_its_arm_is_ok_and_its_finger_is_live(fingers):
+    """Shows with grippers play under the arm service: its gripper action answers once its driver has the gripper, and the finger on /joint_states is the sign of that."""
+    fingers.note({"name": ["openarm_right_finger_joint1", "openarm_right_finger_joint2"], "position": [0.02, 0.02]})
+    grip = openarm.effector_status()["grip_right"]
+    assert grip["state"] == "down" and "the right arm is degraded" in grip["why"], grip     # unsupervised: the service refuses its gripper too
+    fingers.supervised["right"] = True
+    assert openarm.effector_status()["grip_right"] == {"state": "ok"}
+    assert openarm.effector_status()["grip_left"]["state"] == "down", "no left service and no left finger"
+
+
+def test_a_gripper_whose_finger_is_not_on_joint_states_is_down(fingers):
+    fingers.supervised["right"] = True
+    grip = openarm.effector_status()["grip_right"]
+    assert grip["state"] == "down" and grip["excluded"] and "not on /joint_states at all" in grip["why"], grip
+    fingers.note({"name": ["openarm_right_finger_joint1"], "position": [0.0]}, now=time.monotonic() - 10)
+    grip = openarm.effector_status()["grip_right"]
+    assert grip["state"] == "down" and "none for 10 s" in grip["why"], grip
 
 
 def test_an_arm_that_is_up_but_not_supervised_is_not_ok_and_says_how_to_fix_it(arms):
