@@ -1239,7 +1239,7 @@ function frame(nowMs) {
       const k = 1 + tw * 0.22 * Math.sin(t * 4.1), rot = tw * 0.18 * Math.sin(t * 2.3);
       ctx.save(); ctx.globalAlpha = ease(focusShown);        // solid black: it twinkles by size and turn only
       ctx.translate(sx, sy); ctx.rotate(rot); ctx.scale(k, k); ctx.translate(-sx, -sy);
-      ctx.fillStyle = P.eye || ink; ctx.fill(FOCUS_SPARKLE); ctx.restore();   // the cat's in its eyes' yellow
+      ctx.fillStyle = P.sparkle || ink; ctx.fill(FOCUS_SPARKLE); ctx.restore();   // the cat's yellow
     });
   }
   // EEK!'s sweat: all the strokes draw on together, then vanish from the eye side outward, over and over
@@ -1419,7 +1419,7 @@ export const EMOTE_LOOKS = { NEUTRAL: "groove", ALERT: "beatpop", SQUINT: "creep
 export const COSTUMES = {
   classic: { bg: "#fff", ink: "#0b0b0b" },
   pumpkin: { bg: "#f2851d", ink: "#2b1400", rib: "#d66a0c", stem: "#4f7f2a", glow: "#ffb22e", rim: 17 },
-  cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", tongue: "#e2557f", pupil: "#0d0c10",
+  cat:     { bg: "#2a2730", ink: "#0d0c10", eye: "#c9ec3f", nose: "#ff8fb3", tongue: "#e2557f", sparkle: "#ffd23f", pupil: "#0d0c10",
              ear: "#1a181e", earIn: "#ff8fb3", whisker: "#d9d6e0", line: "#d9d6e0" },
   monster: { bg: "#8ccf5e", ink: "#13200c", hair: "#13200c", bolt: "#9aa1a8", stitch: "#2f4a1d" },
 };
