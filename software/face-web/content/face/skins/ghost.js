@@ -1169,7 +1169,7 @@ function frame(nowMs) {
         // (the fierce faces keep it; otherwise only where the eye holds the whole slit: a squint, a wink's
         // crescent or a half-shut eye is the cat's eye colour alone, never a cut-off piece of pupil)
         const px = cx + 8 * gx, py = cy + 6;
-        if (P.pupil && !squint && (fierce || holds(path, [[px, py], [px, py - 46], [px, py + 46], [px - 9, py], [px + 9, py]]))) {
+        if (P.pupil && !squint && focusShown < 0.5 && (fierce || holds(path, [[px, py], [px, py - 46], [px, py + 46], [px - 9, py], [px + 9, py]]))) {
           ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(px, py, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
         }
         // in TICK an eye that is squinted (half shut on the beat, or the groove's wink under it) is the socket
@@ -1220,10 +1220,12 @@ function frame(nowMs) {
   });
   if (focusShown > 0) {
     layer(1, () => {
-      ctx.save(); ctx.globalAlpha = ease(focusShown) ** 2; ctx.fillStyle = P.glow || bg;   // the pumpkin's in its candle light
+      // the pumpkin's in its candle light; the cat's are its pupils, the big one a narrow slit at the same angle
+      ctx.save(); ctx.globalAlpha = ease(focusShown) ** 2; ctx.fillStyle = P.glow || P.pupil || bg;
       FOCUS_LIGHTS.focus1.forEach((a, i) => {
         const b = FOCUS_LIGHTS.focus2[i], m = (k) => a[k] + (b[k] - a[k]) * focusLook;
-        ctx.beginPath(); ctx.ellipse(m(0), m(1), m(2), m(3), m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
+        const rx = P.pupil && a[2] > 12 ? m(2) * 0.42 : m(2);
+        ctx.beginPath(); ctx.ellipse(m(0), m(1), rx, m(3), m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
       });
       ctx.restore();
     });
@@ -1232,7 +1234,7 @@ function frame(nowMs) {
       const k = 1 + tw * 0.22 * Math.sin(t * 4.1), rot = tw * 0.18 * Math.sin(t * 2.3);
       ctx.save(); ctx.globalAlpha = ease(focusShown);        // solid black: it twinkles by size and turn only
       ctx.translate(sx, sy); ctx.rotate(rot); ctx.scale(k, k); ctx.translate(-sx, -sy);
-      ctx.fillStyle = ink; ctx.fill(FOCUS_SPARKLE); ctx.restore();
+      ctx.fillStyle = P.eye || ink; ctx.fill(FOCUS_SPARKLE); ctx.restore();   // the cat's in its eyes' yellow
     });
   }
   // EEK!'s sweat: all the strokes draw on together, then vanish from the eye side outward, over and over
