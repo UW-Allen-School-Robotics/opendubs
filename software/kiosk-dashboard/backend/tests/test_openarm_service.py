@@ -145,32 +145,32 @@ def test_the_snapshot_shows_each_service(arms, monkeypatch):
 
 
 class Unit:
-    """`systemctl` as the dashboard calls it: a start brings the fake service up (or does not), `show` reports the unit's state."""
+    """`arm up <side>` as the dashboard calls it: it brings the fake service up (or does not) and says so on stdout, or says why not on stderr with a non-zero status."""
 
-    def __init__(self, arms, side, comes_up=True, rc=0, stderr="", state=None):
-        self.arms, self.side, self.comes_up, self.rc, self.stderr, self.state, self.calls = arms, side, comes_up, rc, stderr, state or {}, []
+    def __init__(self, arms, side, comes_up=True, rc=0, stderr="", **_):
+        self.arms, self.side, self.comes_up, self.rc, self.stderr, self.calls = arms, side, comes_up, rc, stderr, []
 
     def __call__(self, argv, timeout):
         import subprocess
 
-        if "show" not in argv:                      # what is asked of systemd to change; reading a unit's state is not a call worth counting
-            self.calls.append(list(argv))
-        if "start" in argv:
+        if "show" in argv:                          # the dashboard reading a unit's state: not a call worth counting
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        self.calls.append(list(argv))
+        if argv[:2] == [openarm.ARM_CLI, "up"]:
             if self.rc == 0 and self.comes_up:
                 self.arms(self.side)
-            return subprocess.CompletedProcess(argv, self.rc, "", self.stderr)
-        if "show" in argv:
-            return subprocess.CompletedProcess(argv, 0, "".join(f"{k}={v}\n" for k, v in self.state.items()), "")
+                return subprocess.CompletedProcess(argv, 0, f"arm up {argv[2]}: {argv[2]} arm, mujoco: held; last: -\n", "")
+            return subprocess.CompletedProcess(argv, self.rc or 1, "", self.stderr)
         raise AssertionError(f"unexpected command {argv}")
 
 
-def test_start_runs_exactly_what_the_sudoers_rule_allows_and_waits_for_the_service(arms, monkeypatch):
+def test_start_is_arm_up_and_waits_for_the_service(arms, monkeypatch):
     unit = Unit(arms, "right")
     monkeypatch.setattr(openarm, "_run", unit)
     assert openarm.start_op("start", "right")[0]
     op = wait()
     assert op["rc"] == 0 and op["error"] is None and "started" in op["out"], op
-    assert unit.calls[0] == ["sudo", "-n", "/usr/bin/systemctl", "start", "opendubs-arm@right.service"], unit.calls[0]
+    assert unit.calls == [[openarm.ARM_CLI, "up", "right"]], unit.calls
 
 
 def test_start_does_nothing_for_a_service_already_up(arms, monkeypatch):
@@ -188,21 +188,21 @@ def test_start_is_per_arm(arms, monkeypatch):
     assert not ok and "per arm" in detail
 
 
-def test_a_refused_sudo_says_which_rule(arms, monkeypatch):
-    monkeypatch.setattr(openarm, "_run", Unit(arms, "right", rc=1, stderr="sudo: a password is required"))
+def test_a_refused_start_shows_what_arm_up_said(arms, monkeypatch):
+    message = "opendubs-arm: arm_right is still BUS-OFF after a restart: it has no power behind it (e-stop pressed, contactor open) or its CAN connector is loose."
+    monkeypatch.setattr(openarm, "_run", Unit(arms, "right", rc=1, stderr=message))
     assert openarm.start_op("start", "right")[0]
     op = wait()
-    assert op["rc"] == 1 and "password is required" in op["error"] and "opendubs-arm.sudoers" in op["error"], op
+    assert op["rc"] == 1 and "e-stop" in op["error"] and "connector" in op["error"], op
 
 
-def test_a_unit_that_ends_before_it_answers_is_reported_at_once(arms, monkeypatch):
-    unit = Unit(arms, "right", comes_up=False, state={"ActiveState": "failed", "Result": "exit-code", "ExecMainStatus": "2"})
-    monkeypatch.setattr(openarm, "_run", unit)
-    began = time.time()
+def test_arm_up_missing_on_this_host_is_said(arms, monkeypatch):
+    def missing(argv, timeout):
+        raise FileNotFoundError(argv[0])
+    monkeypatch.setattr(openarm, "_run", missing)
     assert openarm.start_op("start", "right")[0]
     op = wait()
-    assert op["rc"] == 1 and "exit status 2" in op["error"] and "old arm stack" in op["error"], op
-    assert time.time() - began < 10, "it waited out the whole timeout for a unit that had already failed"
+    assert op["rc"] == 1 and "not installed" in op["error"], op
 
 
 def test_there_is_no_stop(arms):

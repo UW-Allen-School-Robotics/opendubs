@@ -192,7 +192,7 @@ _SERVICE_TIMEOUT = 180.0
 #: written: the full path and the `.service`. There is no `stop` here: `down` is how the service ends, and it refuses an arm that is not at stow, which `systemctl stop` would not.
 SYSTEMCTL = "/usr/bin/systemctl"
 UNIT_OPS = {"start": "enables the arm's motors and holds it where it is"}
-_UNIT_TIMEOUT = 60.0
+_UNIT_TIMEOUT = 300.0     # `arm up`: up to 3 starts, then up to 90 s for the service to answer
 
 
 # The viewer (viser, `arm viewer <side> <port>`): the browser view of an arm and its pose target. The dashboard starts it and stops it, and only ever stops one it started: a port that is
@@ -300,26 +300,21 @@ def _unit_state(side):
 
 
 def _start_unit(side):
-    """`systemctl start` the arm's service and wait until it answers on its socket. Returns (output, error)."""
+    """Bring the arm's service up with `arm up <side>` and return (output, error). `arm up` is the one bringup, for a person at a shell and for this button alike: the unit's preflight
+    heals a CAN link in error, a start that failed for a reason a retry can mend is retried, and it waits until the service answers and says what it found when it cannot."""
     if _service_status(side) is not None:
         return f"{side}: the arm service is already running", None
     try:
-        r = _run(_sudo([SYSTEMCTL, "start", _unit(side)]), 30)
+        r = _run([ARM_CLI, "up", side], _UNIT_TIMEOUT)
+    except FileNotFoundError:
+        return "", f"{ARM_CLI} not found: the arm tooling is not installed here (software/openarm/provision-arm-service.sh)"
+    except subprocess.TimeoutExpired:
+        return "", f"{side}: `arm up {side}` did not finish in {int(_UNIT_TIMEOUT)} s: `journalctl -u {_unit(side)}`"
     except Exception as e:                           # noqa: BLE001
-        return "", f"{side}: systemctl start failed: {type(e).__name__}: {e}"
+        return "", f"{side}: arm up failed: {type(e).__name__}: {e}"
     if r.returncode != 0:
-        return "", f"{side}: " + (r.stderr.strip() or f"systemctl start returned {r.returncode}") + f" (sudoers: opendubs-arm.sudoers allows `{SYSTEMCTL} start {_unit(side)}`)"
-    deadline = time.time() + _UNIT_TIMEOUT
-    while time.time() < deadline:
-        status = _service_status(side)
-        if status is not None:
-            return f"{side}: started; " + status.splitlines()[0], None
-        state = _unit_state(side)
-        if state.get("ActiveState") in ("failed", "inactive"):
-            return "", (f"{side}: the unit ended ({state.get('Result', '?')}, exit status {state.get('ExecMainStatus', '?')}) before it answered: "
-                        f"`journalctl -u {_unit(side)}` says why (exit 2 is the old arm stack still running)")
-        time.sleep(0.5)
-    return "", f"{side}: the arm service did not answer in {int(_UNIT_TIMEOUT)} s: `journalctl -u {_unit(side)}`"
+        return "", (r.stderr.strip() or r.stdout.strip() or f"arm up {side} returned {r.returncode}")[-1500:]
+    return f"{side}: started; " + (r.stdout.strip().splitlines() or [""])[-1].removeprefix(f"arm up {side}: "), None
 
 
 def _service_status(side):
