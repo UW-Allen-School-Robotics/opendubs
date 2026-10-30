@@ -24,9 +24,11 @@ THE SERVICES, /perception/treat/<name>; each returns when its step has ended (do
                                                          (plan_jaws); data: joints, pose, mm from the goal
   hold           {"seconds"?: 5}                         waits with the arm where it is (the treat); --real: a lost
                                                          permit meanwhile latches the stop and returns STOPPED
-  gripper_open   {"position"?: 0.044}                    the gripper open (m of finger travel; 0.044 fully open)
-  gripper_close  {"position"?: 0.0}                      the gripper shut; one that stops on something (a candy) is a
-                                                         success: data "holding": true
+  gripper_open   {}                                      the gripper fully open (the arm service's open_gripper)
+  gripper_close  {}                                      the gripper shut (close_gripper). Both succeed whatever the
+                                                         gripper was doing and whatever is between the fingers (data
+                                                         "holding": true if it stopped on something); only an error
+                                                         (refused, no gripper, timeout, stop) fails
   stop           {}                                      cancels any running move (the arm holds) and stops the head
   rearm          {}                                      --real: clears the stop that a lost permit latched
   status         (RobotQuery)                            mode, permit, stopped, busy, the arm's joints, the head
@@ -377,18 +379,20 @@ class Treat:
             time.sleep(0.05)
         return f"held {seconds:.0f} s", {}
 
-    def grip(self, req, position, closing):
-        """The gripper's own action (/right_gripper_controller/gripper_cmd, control_msgs/GripperCommand): `position` in
-        metres of finger travel, 0 shut, gripper.TRAVEL (0.044) open, gated as every move. A close that stops on
-        something before it gets there is ABORTED as stalled by the arm service: for gripper_close that is the candy
-        held, a success. On the real arm the gripper is driven only if its hardware config has use_gripper."""
+    def grip(self, req, closing):
+        """The gripper through the arm service's own commands on /right_arm/command (ArmCommand `open_gripper`,
+        `close_gripper`; software/openarm/gafro/commands.py, 2026-10-29), gated as every move: fully open or fully
+        shut, no position. Whatever the gripper was doing before (already open, already shut) and whatever is between
+        the fingers (nothing, a candy), a command the arm service ran to the end is a SUCCESS: the arm service's own
+        "closed on nothing" and a finger stopped on something are successes here, with data "holding" saying which.
+        A FAILURE is only an error: refused, the gripper not available (use_gripper and its calibration in the arm's
+        hardware config), timed out, cancelled or stopped. (Was the gripper_cmd action, which never moved the gripper
+        on opendubs2, 2026-10-28.)"""
         from action_msgs.msg import GoalStatus
-        from control_msgs.action import GripperCommand
+        from opendubs_arm_interfaces.action import ArmCommand
+        name = "close_gripper" if closing else "open_gripper"
         self.motion_gate()
-        goal = GripperCommand.Goal()
-        goal.command.position = float(req.get("position", position))
-        goal.command.max_effort = float(req.get("max_effort", 0.0))
-        handle = self.send(self.grip_client, goal, "gripper_cmd")
+        handle = self.send(self.arm_client, ArmCommand.Goal(name=name, params="{}"), name)
         result = handle.get_result_async()
         deadline = time.monotonic() + float(req.get("timeout_s", 10.0))
         try:
@@ -401,26 +405,28 @@ class Treat:
             self.goal = None
         if not result.done():
             handle.cancel_goal_async()
-            raise Refused(self.RC.TIMEOUT, "the gripper did not finish: cancelled")
+            raise Refused(self.RC.TIMEOUT, f"{name} did not finish: cancelled")
         status, r = result.result().status, result.result().result
-        mm = round(float(r.position) * 1000, 1)
-        if status == GoalStatus.STATUS_SUCCEEDED:
-            return f"gripper {'closed' if closing else 'open'} at {mm} mm", {"position_mm": mm, "holding": False}
-        if closing and status == GoalStatus.STATUS_ABORTED and r.stalled:
-            if mm >= 0.044 * 1000 - 3.0:
-                # stalled where it started, fully open: it never moved (on opendubs2, 2026-10-28, with derived and not
-                # measured motor angles, every close "stalled" at 42.7 mm and was taken for a held candy)
-                raise Refused(self.RC.FAILURE, f"the gripper did not move (still {mm} mm open): is it enabled and "
-                                               "calibrated in the arm's hardware config?")
-            return f"gripper closed on something at {mm} mm (holding it)", {"position_mm": mm, "holding": True}
-        why = "cancelled" if status == GoalStatus.STATUS_CANCELED else ("stalled" if r.stalled else "did not reach")
-        raise Refused(self.RC.FAILURE, f"the gripper {why} at {mm} mm")
+        if status == GoalStatus.STATUS_CANCELED:
+            raise Refused(self.RC.FAILURE, f"{name} cancelled (stop): the gripper holds where it is")
+        data = json.loads(r.data) if r.data else {}
+        mm = round(float(data["position"]) * 1000, 1) if data.get("position") is not None else None
+        at = f" at {mm} mm" if mm is not None else ""
+        # the arm service aborts a close that shut on nothing ("closed on nothing") and a finger that stalled short of
+        # its goal; both ran to the end, so both are a success here. Anything else it aborts is an error.
+        ran = status == GoalStatus.STATUS_SUCCEEDED or (
+            status == GoalStatus.STATUS_ABORTED and (data.get("stalled") or r.message.startswith("closed on nothing")))
+        if not ran:
+            raise Refused(self.RC.FAILURE, f"{name}: {r.message or NAMES.get(r.result_code, r.result_code)}{at}")
+        holding = bool(data.get("holding"))
+        return (f"gripper {'closed' if closing else 'open'}{at}" + (" (holding something)" if holding else "")
+                + (f" ({r.message})" if r.message and r.message != "reached" else "")), {"position_mm": mm, "holding": holding}
 
     def gripper_open(self, req):
-        return self.grip(req, 0.044, closing=False)
+        return self.grip(req, closing=False)
 
     def gripper_close(self, req):
-        return self.grip(req, 0.0, closing=True)
+        return self.grip(req, closing=True)
 
     def stop(self, req):
         h = self.goal
@@ -515,8 +521,6 @@ def main():
     arm_node.create_subscription(JointState, "/joint_states", t.on_arm_joints, 10)
     t.arm_client = ActionClient(arm_node, ArmCommand, "/right_arm/command")
     t.traj_client = ActionClient(arm_node, FollowJointTrajectory, "/right_controller/follow_joint_trajectory")
-    from control_msgs.action import GripperCommand
-    t.grip_client = ActionClient(arm_node, GripperCommand, "/right_gripper_controller/gripper_cmd")
     g2s.spin_in_thread(rclpy, arm_node, arm_ctx)
     if args.real:
         threading.Thread(target=t.watch_permit, daemon=True).start()
