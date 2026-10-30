@@ -1139,7 +1139,7 @@ function frame(nowMs) {
       ctx.translate(0, U * 3 * grooveBob);                     // the eyes dip on each beat
       ctx.translate(cx, cy);
       // NOD: flatter than SMILE's, and tipped so the inner end, by the nose, sits a little lower
-      if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 9 * Math.PI / 180 * nodFlip);
+      if (nodFlip) ctx.rotate((cx < ART_W / 2 ? 1 : -1) * 15 * Math.PI / 180 * nodFlip);
       ctx.scale(sc, sc * (1 - 0.88 * blink) * (1 - 1.62 * nodFlip)); ctx.translate(-cx, -cy);
       if (happyOutline) {
         // HAPPY fully in, nothing over it: the eye from its matched outlines, open -> squinted by the blink
@@ -1163,7 +1163,8 @@ function frame(nowMs) {
         if (P.pupil && !squint && (fierce || holds(path, [[px, py], [px, py - 46], [px, py + 46], [px - 9, py], [px + 9, py]]))) {
           ctx.save(); ctx.clip(path); ctx.fillStyle = P.pupil; ctx.beginPath(); ctx.ellipse(px, py, 11, 58, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
         }
-        if (P.glow && !squint) {
+        // TICK's eyes are narrowed throughout (the groove under it, half shut on the beat): the socket alone
+        if (P.glow && !(DL && DL.look === "tick")) {
           ctx.save(); ctx.clip(path); ctx.globalAlpha = 0.8 + 0.15 * Math.sin(t * 9 + cx);
           ctx.save(); ctx.translate(cx, cy + 14); ctx.scale(0.62, 0.55); ctx.translate(-cx, -cy - 14); ctx.fillStyle = P.glow; ctx.fill(path); ctx.restore();
           // and a rim of the socket's ink all round inside it, so the glow never touches the edge (a smile's
