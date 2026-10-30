@@ -833,7 +833,7 @@ function costumeBack(P) {
     ctx.stroke(); ctx.restore();
   }
 }
-function costumeNose(P, noses) {                // the cat's whiskers: out to either side of its nose, wherever it is
+function costumeNose(P, noses, t = 0, twitch = 0) {   // the cat's whiskers: out to either side of its nose, wherever it is
   if (!P.whisker || !noses || !noses.length) return;
   let x0 = Infinity, x1 = -Infinity, y = 0, k = 0;
   for (const n of noses) for (let i = 0; i < n.length; i += 6) { x0 = Math.min(x0, n[i+4]); x1 = Math.max(x1, n[i+4]); y += n[i+5]; k++; }
@@ -841,9 +841,16 @@ function costumeNose(P, noses) {                // the cat's whiskers: out to ei
   ctx.save(); ctx.strokeStyle = P.whisker; ctx.lineWidth = 3; ctx.lineCap = "round";
   // clear of the eyes, their inner ends evenly down the line of the eye's outer edge, curving in under it;
   // fanned out and down, each steeper than the one above. [out from the nose, below it, length, fall]
-  for (const m of [1, -1]) for (const [out, dy, len, fall] of [[136, 12, 130, 14], [118, 38, 130, 52], [96, 62, 125, 92]]) {
-    const x = m > 0 ? x1 + out : x0 - out;
-    ctx.beginPath(); ctx.moveTo(x, y + dy); ctx.quadraticCurveTo(x + m * len / 2, y + dy + fall * 0.3, x + m * len, y + dy + fall); ctx.stroke();
+  // `twitch` (HAPPY): each side flicks up twice, now and then, on its own beat, turning about the whiskers' roots
+  for (const m of [1, -1]) {
+    const ph = (t * 0.8 + (m > 0 ? 0 : 0.45)) % 1, flick = ph < 0.22 ? Math.sin(ph / 0.22 * Math.PI * 2) * Math.sin(ph / 0.22 * Math.PI) : 0;
+    const turn = -m * twitch * 0.11 * flick, rx = m > 0 ? x1 + 118 : x0 - 118, ry = y + 38;
+    ctx.save(); ctx.translate(rx, ry); ctx.rotate(turn); ctx.translate(-rx, -ry);
+    for (const [out, dy, len, fall] of [[136, 12, 130, 14], [118, 38, 130, 52], [96, 62, 125, 92]]) {
+      const x = m > 0 ? x1 + out : x0 - out;
+      ctx.beginPath(); ctx.moveTo(x, y + dy); ctx.quadraticCurveTo(x + m * len / 2, y + dy + fall * 0.3, x + m * len, y + dy + fall); ctx.stroke();
+    }
+    ctx.restore();
   }
   ctx.restore();
 }
@@ -854,7 +861,7 @@ function costumeFangs(P, mouth) {
   for (const fx of [ART_W * 0.22, ART_W * 0.78]) {
     let top = 0, best = Infinity;
     for (let i = 0; i < MOUTH_SIDE; i++) { const d = Math.abs(mouth[2 * i] - fx); if (d < best) { best = d; top = mouth[2 * i + 1]; } }
-    const f = new Path2D(), w = 19, h = 62, y = top - 8;     // from just above the edge, so no gap shows
+    const f = new Path2D(), w = 20, h = 84, y = top - 8;     // from just above the edge, so no gap shows
     f.moveTo(fx - w, y); f.lineTo(fx + w, y);
     f.quadraticCurveTo(fx + w * 0.7, y + h * 0.55, fx, y + h);   // curving in to the point
     f.quadraticCurveTo(fx - w * 0.7, y + h * 0.55, fx - w, y);
@@ -863,8 +870,9 @@ function costumeFangs(P, mouth) {
   ctx.restore();
 }
 // The cat's tongue: in a mouth opened wide, at the bottom of it in the middle, clipped to the mouth (the
-// path paintMouth just drew). It grows in as the mouth opens past a doze's or a smile's.
-function costumeTongue(P, mouth) {
+// path paintMouth just drew). It grows in as the mouth opens past a doze's or a smile's, and in HAPPY's
+// grin (`open`), wide but shallow in the middle, it is out all the same.
+function costumeTongue(P, mouth, open = 0) {
   const mid = ART_W / 2;
   let top = 0, bottom = 0, dt = Infinity, db = Infinity;
   for (let i = 0; i < MOUTH_SIDE; i++) {
@@ -872,9 +880,9 @@ function costumeTongue(P, mouth) {
     if (ut < dt) { dt = ut; top = mouth[2 * i + 1]; }
     if (lb < db) { db = lb; bottom = mouth[2 * (MOUTH_SIDE + i) + 1]; }
   }
-  const k = clamp01((bottom - top - 110) / 30);
+  const k = Math.max(clamp01((bottom - top - 110) / 30), open);
   if (k <= 0) return;
-  const y = Math.min(bottom, ART_H) + 2, rx = 74 * k, ry = 40 * k;
+  const y = Math.min(bottom, ART_H) + 2 - 14 * open, rx = 74 * k + 46 * open, ry = 40 * k + 8 * open;   // HAPPY's: wider, up past the chin
   ctx.save(); ctx.clip();
   ctx.fillStyle = P.tongue;
   ctx.beginPath(); ctx.ellipse(mid, y, rx, ry, 0, Math.PI, 2 * Math.PI); ctx.lineTo(mid + rx, y + 40); ctx.lineTo(mid - rx, y + 40); ctx.closePath(); ctx.fill();
@@ -1154,10 +1162,10 @@ function frame(nowMs) {
     ctx.fillStyle = P.mouth || ink;
     paintMouth(pose.mouth, t, ctl.thinkDrop * ease(thinkAmt), thinkSide);
     if (P.fang) costumeFangs(P, pose.mouth);
-    if (P.tongue) costumeTongue(P, pose.mouth);
+    if (P.tongue) costumeTongue(P, pose.mouth, ease(happyAmt));
   });
   // Keep the nose aligned with the eyes as the smile fades in and out.
-  layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P, pose.noses); });
+  layer(0.6 + 0.4 * ease(smileAmt), () => { ctx.fillStyle = P.nose || ink; for (const n of pose.noses) ctx.fill(loopPath(n)); costumeNose(P, pose.noses, t, ease(happyAmt)); });
   // PEEK's fierce faces, in the idle peek or danced (CREEP)
   const focusShown = Math.max(focusAmt, danceFocus);     // FOCUS, idle or danced
   if (focusAmt <= 0) focusLook = danceFocusLook;
@@ -1229,7 +1237,7 @@ function frame(nowMs) {
     ctx.restore();
   }
   // HAPPY's sweets in the mouth, and FOCUS's highlights in the eyes and its twinkling sparkle
-  if (happyAmt > 0) layer(0.35, () => {
+  if (happyAmt > 0 && !P.tongue) layer(0.35, () => {   // the cat's grin has its tongue out instead
     const a = ease(happyAmt);
     ctx.translate(0, 10);                     // the sweets moved down with the mouth (996:1369, 996:1333)
     const sweet = (i) => P.sweets ? P.sweets[i % P.sweets.length] : bg;   // the pumpkin's are yellows, apart from its orange
