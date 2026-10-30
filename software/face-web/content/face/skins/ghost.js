@@ -835,9 +835,10 @@ function costumeNose(P, noses) {                // the cat's whiskers: out to ei
   for (const n of noses) for (let i = 0; i < n.length; i += 6) { x0 = Math.min(x0, n[i+4]); x1 = Math.max(x1, n[i+4]); y += n[i+5]; k++; }
   y /= k;
   ctx.save(); ctx.strokeStyle = P.whisker; ctx.lineWidth = 3; ctx.lineCap = "round";
-  // set out from the nose and below the eyes, fanning: the top one a little up, the others more and more down
-  for (const m of [1, -1]) for (const [dy, fall] of [[20, -12], [34, 16], [48, 46]]) {
-    const x = m > 0 ? x1 + 50 : x0 - 50;
+  // below the eyes, fanning: the top one a little up, the others more and more down; their inner ends
+  // step in towards the nose as they go down, an even way off the curve of the eye above them
+  for (const m of [1, -1]) for (const [out, dy, fall] of [[74, 16, -12], [50, 32, 16], [28, 48, 48]]) {
+    const x = m > 0 ? x1 + out : x0 - out;
     ctx.beginPath(); ctx.moveTo(x, y + dy); ctx.quadraticCurveTo(x + m * 80, y + dy + fall * 0.3, x + m * 160, y + dy + fall); ctx.stroke();
   }
   ctx.restore();
