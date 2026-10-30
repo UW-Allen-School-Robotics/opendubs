@@ -1142,6 +1142,7 @@ function frame(nowMs) {
   const fierce = (PK && PK.mix > 0.5 && PK.to !== "peek1" && PK.to !== "peek4") || (DL && DL.look === "creep" && danceAmt > 0.5);
   // TICK's half-shut eyes are plain: no cat's pupil or pumpkin's glow in the squint
   const squint = DL && DL.look === "tick" && DL.frac < 0.5;
+  const eyeClips = [];                                  // each eye's outline as drawn, left to right
   layer(1, () => {                                      // the eyes: bigger when attentive, squashed by a blink
     ctx.fillStyle = P.eye || ink;
     for (const e of pose.eyes) {
@@ -1168,6 +1169,7 @@ function frame(nowMs) {
       } else {
         const path = loopPath(e);
         ctx.fill(path);
+        eyeClips.push({ path, at: ctx.getTransform() });     // FOCUS's highlights stay inside it
         // the cat has no white of the eye: its fierce faces' dents filled in, for one whole cat's eye
         if (P.pupil && fierce) for (const d of eyeDents(e, cy)) ctx.fill(d);
         // inside the eye, clipped to it: the cat's slit pupil, and the pumpkin's candle glow
@@ -1227,16 +1229,22 @@ function frame(nowMs) {
     layer(1, () => {
       // the pumpkin's in its candle light; the cat's are its pupils, the big one a narrow slit at the same angle
       ctx.save(); ctx.globalAlpha = ease(focusShown) ** 2; ctx.fillStyle = P.glow || P.pupil || bg;
+      const here = ctx.getTransform();
       FOCUS_LIGHTS.focus1.forEach((a, i) => {
         const b = FOCUS_LIGHTS.focus2[i], m = (k) => a[k] + (b[k] - a[k]) * focusLook;
+        if (i % 2 === 0) {                     // each eye's pair clipped to that eye (a blink, a narrow eye)
+          if (i) ctx.restore();
+          ctx.save();
+          const c = eyeClips[i / 2];
+          if (c) { ctx.setTransform(c.at); ctx.clip(c.path); ctx.setTransform(here); }
+        }
         if (!P.pupil) { ctx.beginPath(); ctx.ellipse(m(0), m(1), m(2), m(3), m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill(); return; }
-        if (i % 2) return;                     // the cat: each eye's pair drawn from its big one
-        // a bigger slit, and the dot below it on the slit's own long axis, a little gap between
-        const ang = m(4) * Math.PI / 180, rx = m(2) * 0.55, ry = m(3) * 1.3, r = 8, gap = 5;
-        const dx = -Math.sin(ang), dy = Math.cos(ang), d = ry + gap + r;
-        ctx.beginPath(); ctx.ellipse(m(0), m(1), rx, ry, ang, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(m(0) + dx * d, m(1) + dy * d, r, 0, Math.PI * 2); ctx.fill();
+        // the cat: the big one a bigger slit at the same angle, the small one a dot where FOCUS has it, by
+        // the slit on the outer side, both well inside the eye
+        if (i % 2) { ctx.beginPath(); ctx.arc(m(0), m(1), m(2) * 1.15, 0, Math.PI * 2); ctx.fill(); return; }
+        ctx.beginPath(); ctx.ellipse(m(0), m(1), m(2) * 0.55, m(3) * 1.2, m(4) * Math.PI / 180, 0, Math.PI * 2); ctx.fill();
       });
+      ctx.restore();
       ctx.restore();
     });
     layer(0.8, () => {
