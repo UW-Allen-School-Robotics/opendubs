@@ -1,8 +1,10 @@
 # Example shows as format tests — findings (plan 7.3)
 
 Four shows were written on 2026-10-07 to find what the format cannot say: a show that cannot be
-written is a format finding, discovered without a robot. All four validate and are in
-`software/choreo/shows/`, so CI checks them from now on.
+written is a format finding, discovered without a robot. They are the project's own content, so they
+now live in the content repository (`notes/design/choreo-content-split.md`). Copies of `reach`,
+`celebrate`, `shrug` and `robotic-smile` stay in `software/choreo/tests/fixtures/shows/`, where the
+tests read them.
 
 | show | written by | what it tests | closest approach it creates (twin) |
 |---|---|---|---|

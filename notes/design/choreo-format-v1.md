@@ -652,8 +652,10 @@ and `right` are the arm flanges, `base` is the floor, on a leash tied to the cha
 a primitive built from the same channels), and its **driver** (`output`; `null` = none yet, twin
 only). A type may be another one **mirrored** (`mirror_of`): `surge_left` is `surge_right` reflected
 through the hand's own sagittal plane, and a test proves every body and geom lands at its reflection.
-Types today: `openarm_gripper` (the default, with a driver), `surge_right` / `surge_left`, and
-`suction_cup` / `pneumatic_gripper` (registry and primitive twin only, to show the seams).
+The engine's own types: `openarm_gripper` (the default, with a driver), and `suction_cup` /
+`pneumatic_gripper` (registry and primitive twin only, to show the seams). Other types come from a
+**tool pack** in the content folder (`tools/<pack>/`, with its gaits and its `drivers/`): the project's
+`surge_right` / `surge_left` are one, in the content repository's `tools/surge/`.
 
 **What is fitted** is per robot and lives on it: `$OPENDUBS_TOOLS`, else `/etc/opendubs/tools.yaml`
 (`effectors.py template`, `effectors.py check`). No file means today's robot: grippers on both arms.

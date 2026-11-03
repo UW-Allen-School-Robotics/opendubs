@@ -12,6 +12,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
+# the Surge pack is content (the content repository's tools/surge/): the tests use a fixture copy of it
+os.environ["OPENDUBS_SHOWS_DIR"] = os.path.join(HERE, "fixtures", "content")
 
 import cue  # noqa: E402
 import effectors as E  # noqa: E402
@@ -151,9 +153,9 @@ check("a gait with no simulated speed on a trailing leash is refused", has(m, "t
 m = problems(show(CR, "  - { t: 1, slot: CRAWL, do: walk, dir: sideways, secs: 2 }\n", "[CRAWL]"))
 check("a crawling hand cannot sidestep", has(m, "cannot sidestep"), m)
 
-print("the real hand's sequence (export-effector -> drivers/surge_at.py)")
+print("the real hand's sequence (export-effector -> the Surge pack's drivers/surge_at.py)")
 import json, tempfile  # noqa: E402
-sys.path.insert(0, os.path.join(HERE, "..", "drivers"))
+sys.path.insert(0, os.path.join(HERE, "fixtures", "content", "tools", "surge", "drivers"))
 import surge_at  # noqa: E402
 LH = CR.replace("surge_right", "surge_left").replace("start", "start").replace("crawler: {", "crawler: { start: [1.0, 0, 0],")
 bench = show(LH, "  - { t: 0.5, slot: CRAWL, do: walk, gait: bare_flexstroke, secs: 3 }\n"
@@ -209,7 +211,7 @@ try:
           and reg["pack_cup"].output == "pack_driver"
           and E.driver_path(reg["pack_cup"]) == os.path.join(_pack, "drivers", "pack_driver.py"),
           (reg["pack_cup"].dirs, reg["pack_cup"].output))
-    check("... and an engine tool's driver is still the engine's (drivers/surge_at.py for the Surge hand)",
+    check("... and an engine tool's driver is still the engine's (its drivers/), never a pack's",
           all(E.driver_path(t) in (None, os.path.join(E.HERE, "drivers", f"{t.output}.py"))
               for t in reg.values() if t.dirs[0] == E.REG_DIR), None)
     open(os.path.join(_pack, "suction_cup.yaml"), "w").write(open(os.path.join(E.REG_DIR, "suction_cup.yaml")).read())
