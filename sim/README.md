@@ -192,8 +192,8 @@ a clearance check and a pick plan all see the same object. By default it sits on
 (the robot description's `bucket_stage_top`), which rides the lift, so the bucket rises with it: its
 candy is 0.54 m above the floor with the lift down. A description without the stage puts it on a
 floor stand at the coverage study's earlier spot (0.40 m forward, 0.20 m right, 0.90 m above the
-floor); `--candy-bucket X,Y,H` puts it on a floor stand there. The mesh in `props/` is the user's
-Fusion model, flipped right way up and in metres; it is drawn only, and the bucket collides as a
+floor); `--candy-bucket X,Y,H` puts it on a floor stand there. The meshes in `props/` are the project's
+own Fusion CAD (CERN-OHL-W-2.0, `LICENSE-HARDWARE`), flipped right way up and in metres; it is drawn only, and the bucket collides as a
 base, wall panels and a handle, so its inside stays free for a hand. The bucket is a free body
 (2.2 kg, half a load of candy) resting on its stand by contact, with its target site as a child, so
 it can be moved, knocked or picked up; `scene.py --check --candy-bucket` drops it 5 mm onto the
