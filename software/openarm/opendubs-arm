@@ -12,6 +12,8 @@
 #   OPENDUBS_ARM_WS       the ROS workspace with opendubs_arm_interfaces (default /opt/opendubs/ws, built by provision-arm-service.sh), sourced after the gafro
 #                         environment when it is there. Without it the service runs but serves no `command` action (it logs why).
 #   OPENDUBS_PYTHON       python to run (default `python`, which the venv of that setup puts first).
+#   OPENDUBS_ARM_MAX_TORQUE  N m: the force limit (`--max-torque`): a move or following stops when a joint's measured torque reaches it. Unset: the service's default, 12.
+#                         A variable of its own, not part of OPENDUBS_ARM_ARGS: a unit's drop-in that sets OPENDUBS_ARM_ARGS (the left arm's --max-error) would replace it there.
 #   OPENDUBS_ARM_ARGS     more arguments for the service, e.g. `--backend mujoco --no-ros` to try the unit without an arm, or `--move-seconds 6`.
 #
 # The DDS profile is NOT a setting: the service runs as kiosk, and Fast DDS's shared memory does not cross to another Unix user, so without the profile a client in a
@@ -74,6 +76,7 @@ fi
 args=(run --side "$side" --socket "${OPENDUBS_ARM_SOCKET_DIR:-/run/opendubs-arm}/opendubs-arm-service-$side.sock")
 config="${OPENDUBS_ARM_CONFIG:-/etc/opendubs/openarm-gafro-$side.yaml}"
 if [ -n "${OPENDUBS_ARM_CONFIG:-}" ] || [ -r "$config" ]; then args+=(--hardware-config "$config"); fi
+[ -n "${OPENDUBS_ARM_MAX_TORQUE:-}" ] && args+=(--max-torque "$OPENDUBS_ARM_MAX_TORQUE")
 # shellcheck disable=SC2206
 [ -n "${OPENDUBS_ARM_ARGS:-}" ] && args+=($OPENDUBS_ARM_ARGS)
 
