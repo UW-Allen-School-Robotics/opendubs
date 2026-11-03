@@ -27,6 +27,11 @@ because the arms are an optional payload.
 `gafro/arm_service.py` is one process per arm that does what ros2_control and `openarm-up` did (the lifecycle by command, `FollowJointTrajectory`, `GripperCommand`,
 pose targets). `opendubs-arm@right.service` / `opendubs-arm@left.service` run it as the user `kiosk`.
 
+> **Not buildable from public sources yet:** the gafro stack installs three repositories that are not public (gafro,
+> gafro-robot-interface and openarm-driver; see [`gafro/README.md`](gafro/README.md)). Until they are, you cannot build it yourself. The
+> other stack for the same arms is the ROS 2 one, `openarm-up` ([docs/openarm-setup.md](../../docs/openarm-setup.md)), whose image also
+> clones one repository that is not public, the teleop bridge (`image/repos.lock`).
+
 Day to day, with the settings file in place, one command does all of it (the side is `right` unless given):
 
 ```sh
