@@ -90,7 +90,7 @@ class UplinkState(unittest.TestCase):
     def test_reassociation_is_a_drop(self):
         prev = netmon.summarize(RAW, ONLINE, None, 1000.0)
         raw = copy.deepcopy(RAW)
-        raw["reg"][2].update({"mac-address": "AC:23:16:ED:E9:91", "uptime": "18s"})
+        raw["reg"][2].update({"mac-address": "02:00:00:00:00:02", "uptime": "18s"})
         cur = netmon.summarize(raw, ONLINE, prev, 1005.0)
         evs = netmon.events_between(prev, cur)
         self.assertEqual([e["event"] for e in evs], ["uplink_reassociated"])

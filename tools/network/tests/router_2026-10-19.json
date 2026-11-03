@@ -3,7 +3,7 @@
  "reg": [
   {".id": "*1", "interface": "wlan1", "mac-address": "02:00:00:00:00:13", "ap": "false", "rx-rate": "78Mbps-20MHz/1S", "tx-rate": "72.2Mbps-20MHz/1S/SGI", "bytes": "70530901,31761489", "uptime": "3h8m48s", "signal-strength": "-48@24Mbps", "signal-to-noise": "53", "tx-ccq": "83", "p-throughput": "54711", "last-ip": "10.42.2.13"},
   {".id": "*2", "interface": "wlan1", "mac-address": "02:00:00:00:00:16", "ap": "false", "rx-rate": "150Mbps-40MHz/1S/SGI", "tx-rate": "108Mbps-40MHz/1S", "bytes": "7133231,12362366", "uptime": "2h28m28s", "signal-strength": "-39@6Mbps", "signal-to-noise": "62", "tx-ccq": "88", "p-throughput": "83987", "last-ip": "10.42.2.16"},
-  {".id": "*4", "interface": "wlan2", "mac-address": "AC:23:16:ED:A5:91", "ap": "true", "rx-rate": "52Mbps-20MHz/1S", "tx-rate": "144.4Mbps-20MHz/2S/SGI", "bytes": "506076593,23896892180", "uptime": "1h43m36s", "signal-strength": "-83@12Mbps", "signal-to-noise": "25", "last-ip": "44.235.6.101"}
+  {".id": "*4", "interface": "wlan2", "mac-address": "02:00:00:00:00:01", "ap": "true", "rx-rate": "52Mbps-20MHz/1S", "tx-rate": "144.4Mbps-20MHz/2S/SGI", "bytes": "506076593,23896892180", "uptime": "1h43m36s", "signal-strength": "-83@12Mbps", "signal-to-noise": "25", "last-ip": "44.235.6.101"}
  ],
  "wireless": [
   {".id": "*5", "name": "wlan1", "ssid": "Opendubs2", "mode": "ap-bridge", "disabled": "false", "running": "true"},

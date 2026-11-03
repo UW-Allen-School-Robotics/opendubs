@@ -9,7 +9,7 @@
  "uplink": {
   "via": "wifi",
   "network": "UW MPSK",
-  "ap": "AC:23:16:ED:A5:91",
+  "ap": "02:00:00:00:00:01",
   "associated": true,
   "signal_dbm": -83,
   "snr_db": 25,
