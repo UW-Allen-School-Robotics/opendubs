@@ -114,7 +114,10 @@ and `SKIN <id>` take any id the robot has. Agreed with Face & HRI (the face's lo
 - **The dashboard** answers `GET /api/head/looks` (that list, plus the library's image and video skins)
   and serves the content files to the face at `/face/content/{themes,skins}/<file>`.
 - **The show validator** reads the same ids (`looks.theme_ids()`, `looks.code_skin_ids()`).
-- Until the content moves, the built-ins still include `halloween` and the `monster_*` skins.
+- **The core's built-ins** are the `plain` theme and the `default`, `ring` and `fireworks` skins. The
+  `halloween` theme and the seven `monster_*` skins live in the content repository and reach a robot
+  through its content folder. On a robot whose folder lacks them, `THEME halloween` answers
+  `ERR unknown theme`, and `SKIN monster_wolf` answers `ERR unknown skin monster_wolf (showing default)`.
 - **A content skin is code the face runs**, with everything the page has (its door included). It is
   served from the dashboard's own origin (which is also what lets the face `import()` it) out of the
   robot's own content folder, filled from the private content repository: the same trust as the page.
