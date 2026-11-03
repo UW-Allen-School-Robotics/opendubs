@@ -43,7 +43,7 @@ class UplinkState(unittest.TestCase):
         self.assertIn("-83 dBm on UW MPSK", say)
         u = s["uplink"]
         self.assertEqual((u["via"], u["snr_db"], u["rate_mbps"], u["since_s"]), ("wifi", 25, 52.0, 6216))
-        self.assertEqual([c["name"] for c in s["robot_wifi"]], ["esp32s3-977DF0", "Galaxy-Tab-A11"])
+        self.assertEqual([c["name"] for c in s["robot_wifi"]], ["esp32s3-000016", "Galaxy-Tab-A11"])
 
     def test_good_signal(self):
         raw = copy.deepcopy(RAW)

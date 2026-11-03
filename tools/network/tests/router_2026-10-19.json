@@ -19,7 +19,7 @@
  ],
  "leases": [
   {"address": "10.42.2.10", "mac-address": "02:00:00:00:00:10", "comment": "opendubs2 thor", "host-name": "opendubs2"},
-  {"address": "10.42.2.16", "active-address": "10.42.2.16", "mac-address": "02:00:00:00:00:16", "host-name": "esp32s3-977DF0"},
+  {"address": "10.42.2.16", "active-address": "10.42.2.16", "mac-address": "02:00:00:00:00:16", "host-name": "esp32s3-000016"},
   {"address": "10.42.2.13", "active-address": "10.42.2.13", "mac-address": "02:00:00:00:00:13", "host-name": "Galaxy-Tab-A11"}
  ],
  "resource": {"uptime": "3h10m10s", "cpu-load": "6", "version": "7.20.7 (long-term)"},
