@@ -29,6 +29,10 @@ anything about force, timing or mass out of these files.
 Licences: `LICENSE-openarm-models` (Apache-2.0, the arm models), `LICENSE-openarm_assets` (MIT,
 the packaging), `urdf/LICENSE.txt` (Apache-2.0, the URDF).
 
+`opendubs/` is the project's own: its meshes are the project's CAD under the repository's hardware
+licence (CERN-OHL-W-2.0, `LICENSE-HARDWARE`), and `dimensions.yaml` (`meshes:`) records where each
+came from.
+
 ### Refreshing the arms
 
 ```bash
