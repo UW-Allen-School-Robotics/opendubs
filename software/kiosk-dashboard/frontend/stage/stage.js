@@ -123,10 +123,55 @@
   // the page streams from the robot, and the GO waits until `buffer_s` (the show's, from projector.json) is
   // buffered ahead of where it starts; it keeps reading ahead while it plays. It reports
   // {"preload": {id, ready, local, buffered_s, need_s}} until the show starts.
+  //
+  // PRE-FETCH (a desktop browser, or ?prefetch=1): streamed, only the first item has a head start, and a
+  // later one starts from nothing at its cue, mid-show. So a page with no stage device behind it fetches
+  // EVERY item it plays whole before it reports ready, into a Blob URL (seekable anywhere, no network
+  // during the show). Each is kept for the page's life, and in IndexedDB by sha256, so the next show or a
+  // reload fetches it again only if it changed. buffered_s / need_s are then the items' show time,
+  // weighted by the bytes in. An item that fails to fetch is streamed, as before. ?prefetch=0 turns it
+  // off. A stage Pi plays its own copies instead and never pre-fetches unless told to. Decided when a show
+  // loads, after one look for the device if none has answered yet: a page opened just before the show
+  // pre-fetches too (it streamed on the desk, 2026-10-29, loaded 6 s after it opened).
   const MIN_START_S = 8;                            // the least head start a streamed video starts on
   let pre = { id: null };
   const localUrl = {};                              // a show's url -> the box's copy, for the show loaded now
   const src = (url) => localUrl[url] || url;
+  const prefetching = () => q.get("prefetch") === "1"
+    || (q.get("prefetch") !== "0" && !device && !window.OpenDubsKiosk && (readDevice.misses || 0) >= 1);   // not a stage device
+  const blobs = new Map();                          // sha256 (else url) -> a Blob URL, for the page's life
+  const idb = () => idb.p || (idb.p = new Promise((ok, no) => {
+    const r = indexedDB.open("opendubs-stage", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("media");
+    r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+  }));
+  const kept = (key) => idb().then((db) => new Promise((ok) => {
+    const g = db.transaction("media").objectStore("media").get(key);
+    g.onsuccess = () => ok(g.result || null); g.onerror = () => ok(null);
+  })).catch(() => null);
+  const keep = (key, blob) => idb().then((db) => db.transaction("media", "readwrite").objectStore("media").put(blob, key))
+    .catch(() => {});                               // no room: this page still has it
+  function fetchWhole(v, rec) {                     // rec.frac: how much of it is in, 0..1
+    const key = v.sha256 || v.url;
+    if (!blobs.has(key)) blobs.set(key, (async () => {
+      let blob = v.sha256 ? await kept(key) : null;
+      if (!blob) {
+        const r = await fetch(v.url, { cache: "no-store" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const total = Number(r.headers.get("content-length")) || 0, parts = [], rd = r.body.getReader();
+        for (let got = 0; ;) {
+          const { done, value } = await rd.read();
+          if (done) break;
+          parts.push(value); got += value.length;
+          if (total) rec.frac = Math.min(0.99, got / total);
+        }
+        blob = new Blob(parts, { type: r.headers.get("content-type") || "video/mp4" });
+        if (v.sha256) keep(key, blob);
+      }
+      return URL.createObjectURL(blob);
+    })().catch((e) => { blobs.delete(key); throw e; }));
+    return blobs.get(key);
+  }
   function ahead(from) {                            // seconds buffered from `from` onward, in one stretch
     const b = video.buffered;
     for (let i = 0; i < b.length; i++) if (b.start(i) <= from + 0.5 && b.end(i) > from) return b.end(i) - from;
@@ -137,9 +182,10 @@
     const me = pre = { id: m.id, local: false, buffered: 0, need: 0, ready: false, error: null };
     me.report = () => send({ preload: { id: me.id, role: ROLE, ready: me.ready, local: me.local, need_s: me.need,
                                         buffered_s: Math.round(me.buffered * 10) / 10, error: me.error || undefined } });
-    const first = (m.videos || []).filter(plays)[0];
+    const mine = (m.videos || []).filter(plays), first = mine[0];
     if (!first) { me.ready = true; return me.report(); }
-    for (const v of (m.videos || []).filter(plays)) {
+    if (!device && !readDevice.misses) await readDevice();   // no answer yet: one look before deciding
+    for (const v of mine) {
       delete localUrl[v.url];
       if (!v.sha256 || !(device && device.device === "stage-pi")) continue;
       const u = `${DEVICE_URL}/media/${v.sha256}?id=${encodeURIComponent(v.lib || "")}`;
@@ -147,19 +193,47 @@
     }
     if (pre !== me) return;
     me.local = !!localUrl[first.url];
-    me.need = Math.min(m.buffer_s || 25, Math.max(1, first.end_t - first.t));
-    video.dataset.url = first.url; video.loop = false; video.preload = "auto"; video.src = src(first.url);
-    video.addEventListener("loadedmetadata", () => { if (video.paused) video.currentTime = first.from_s; }, { once: true });
+    const head = me.need = Math.min(m.buffer_s || 25, Math.max(1, first.end_t - first.t));
+    // every item not on the box, whole, one at a time in show order (the first is in soonest)
+    me.fetch = prefetching() ? mine.filter((v) => !localUrl[v.url]).map((v) => ({ v, frac: 0, done: false, failed: null })) : null;
+    if (me.fetch) (async () => {
+      for (const rec of me.fetch) {
+        try { localUrl[rec.v.url] = await fetchWhole(rec.v, rec); } catch (e) { rec.failed = String(e.message || e); }
+        rec.frac = 1; rec.done = true;
+      }
+    })();
+    const firstRec = me.fetch && me.fetch.find((r) => r.v === first);
+    const load = () => {                            // the first item: the box's copy, its Blob URL, or streamed
+      video.dataset.url = first.url; video.loop = false; video.preload = "auto"; video.src = src(first.url);
+      video.addEventListener("loadedmetadata", () => { if (video.paused) video.currentTime = first.from_s; }, { once: true });
+    };
+    if (!firstRec) load();
     video.onerror = () => { if (pre === me) me.error = `the video would not load (${video.error && video.error.code})`; };
-    (function tick() {
-      if (pre !== me || !show || show.id !== me.id || show.state !== "loaded") return;   // started, or replaced
-      me.buffered = ahead(first.from_s);
+    function streamed() {                           // the first item's head start, streamed
+      const got = ahead(first.from_s);
       const rest = video.duration ? video.duration - first.from_s : Infinity;   // a short video: all of it
       // A paused <video> buffers only so far (Chromium caps it in BYTES: ~14 MB, 14 s of an 8 Mbit/s file,
       // a minute of a 2 Mbit/s one), so the head start is `need` seconds OR, when the browser has stopped
       // loading because it can already play through, whatever it holds — at least MIN_START_S.
-      const satisfied = video.readyState === 4 && video.networkState === 1 && me.buffered >= MIN_START_S;
-      me.ready = me.local || me.buffered >= Math.min(me.need, rest) - 0.25 || satisfied;
+      const satisfied = video.readyState === 4 && video.networkState === 1 && got >= MIN_START_S;
+      return { got, ok: got >= Math.min(head, rest) - 0.25 || satisfied };
+    }
+    (function tick() {
+      if (pre !== me || !show || show.id !== me.id || show.state !== "loaded") return;   // started, or replaced
+      if (firstRec && firstRec.done && !me.loaded) { me.loaded = true; load(); }
+      if (me.fetch) {                               // ready when every item is in (a failed one: streamed)
+        const span = (v) => Math.max(0.1, v.end_t - v.t);
+        me.need = me.fetch.reduce((a, r) => a + span(r.v), 0);
+        me.buffered = me.fetch.reduce((a, r) => a + span(r.v) * r.frac, 0);
+        const failed = me.fetch.filter((r) => r.failed);
+        if (failed.length) me.error = `${failed.length} item(s) would not pre-fetch, streamed instead: ${failed[0].failed}`;
+        const firstOk = !firstRec ? me.local || streamed().ok : firstRec.failed ? streamed().ok : video.readyState >= 1;
+        me.ready = me.fetch.every((r) => r.done) && firstOk;
+      } else {
+        const s = streamed();
+        me.buffered = s.got;
+        me.ready = me.local || s.ok;
+      }
       // a HEARD item on a box that has no sound now (the speaker off, #591): not ready, and why
       const mute = !silent && heardHere(m) && device && device.audio_output === "none";
       if (mute) { me.ready = false; me.error = `no sound: ${device.audio_why || "the stage box has no sound output"}`; }
