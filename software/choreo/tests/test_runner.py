@@ -18,7 +18,13 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 import runner as R  # noqa: E402
 R.REQUIRE_SWEEP = False      # these tests' throwaway shows are not about collisions (test_sweep.py is)
 
-SHOWS = os.path.join(HERE, "..", "shows")
+# The palette's test folder: the repository's example shows plus the test-data copies of shows that are
+# content (tests/fixtures/shows), assembled once, so the tests never depend on content that moves out.
+SHOWS = tempfile.mkdtemp()
+for _d in (os.path.join(HERE, "..", "shows"), os.path.join(HERE, "fixtures", "shows")):
+    for _n in os.listdir(_d):
+        if _n.endswith(".yaml") and not os.path.exists(os.path.join(SHOWS, _n)):
+            shutil.copy(os.path.join(_d, _n), SHOWS)
 LIMITS = os.path.join(HERE, "joint_limits_fixture.yaml")
 fails = []
 
@@ -91,16 +97,6 @@ r, end, _ = run("hello.yaml", R.FakeRobotState(ch5="MANUAL"))
 check("CH5 not in the show's required mode refuses", end[0] == "REFUSED" and "CH5 must be AUTO" in end[2], end)
 r, end, _ = run("hello.yaml", R.FakeRobotState(arms="inactive"))
 check("arms not active refuses", end[0] == "REFUSED" and "arms" in end[2], end)
-_rq = {"tab5": True, "rc_authority": "AUTO"}
-_st = {"estop": False, "deadman": True, "fault": None, "ch5": "AUTO", "tab5": False}
-check("the head not up refuses a show that needs it", any("Tab5" in w for _c, w in R.preflight(_rq, _st)))
-os.environ["OPENDUBS_WAIVE_HEAD_UP"] = "1"
-try:
-    check("... unless the head-up check is waived (OPENDUBS_WAIVE_HEAD_UP=1, temporary), and only that check",
-          R.preflight(_rq, _st) == [] and R.preflight(_rq, dict(_st, ch5="MANUAL")) != []
-          and R.preflight(_rq, dict(_st, deadman=False)) != [])
-finally:
-    del os.environ["OPENDUBS_WAIVE_HEAD_UP"]
 
 print("\nrunner: ending a show")
 r, end, lines = run("hello.yaml", flip_after=10.0, change={"estop": True})
@@ -243,11 +239,42 @@ check("an e-stop cuts it (DEC-6)", end[0] == "ESTOPPED" and au.calls[-1] == {"op
 
 au = R.NullAudio(holder=None)
 r, end, lines = run_audio(au)
-check("with no device holding show audio the routine still runs — silently, with a warning (decided), "
-      "once the device has had AUDIO_HOLDER_GRACE_S to appear",
-      end[0] == "COMPLETED" and [c["op"] for c in au.calls] == ["load", "cut"]
-      and "no device is playing show audio" in (r.audio_note or "")
-      and any(x["kind"] == "audio_warning" for x in lines), (end, au.calls, r.audio_note))
+check("with no device on the run's sound output the routine is REFUSED (SHOW_AUDIO_OUTPUT_MISSING), once the "
+      "device has had AUDIO_HOLDER_GRACE_S to appear — never run silently or moved elsewhere (2026-10-28)",
+      end[:2] == ("REFUSED", "SHOW_AUDIO_OUTPUT_MISSING") and au.calls == [], (end, au.calls))
+
+
+def run_choice(audio, choice):
+    robot = R.FakeRobotState()
+    sc = SimClock(robot)
+    r = R.Runner(AUDIO_SHOW, LIMITS, robot, log=io.StringIO(), clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
+                 audio=audio, audio_output=choice)
+    return r, r.run()
+
+
+# the 2026-10-28 bug: the speakerphone held "the" role, so every show's music played on it
+au = R.NullAudio(outputs={"tablet": "tablet", "speakerphone": "Jabra"})
+r, end = run_choice(au, None)
+check("two devices on the hub: by default the music loads on the tablet output, not on the speakerphone",
+      end[0] == "COMPLETED" and au.calls[0].get("output") == "tablet", au.calls[:1])
+au = R.NullAudio(outputs={"tablet": "tablet", "speakerphone": "Jabra"})
+r, end = run_choice(au, "speakerphone")
+check("... and on the speakerphone when the operator chooses it", end[0] == "COMPLETED"
+      and au.calls[0].get("output") == "speakerphone" and r.audio_device == "speakerphone", au.calls[:1])
+au = R.NullAudio(outputs={"tablet": "tablet"})
+r, end = run_choice(au, "speakerphone")
+check("a chosen device that isn't there refuses the run, naming the ones that are ready",
+      end[:2] == ("REFUSED", "SHOW_AUDIO_OUTPUT_MISSING") and "ready now: tablet" in end[2] and au.calls == [], end)
+sh = R.cue.load_show(AUDIO_SHOW)
+tl = sh.export(R.cue.load_limits(LIMITS), LIMITS)
+po = lambda **kw: R.plays_on(sh, tl, **kw)  # noqa: E731
+check("the Shows page's plays_on uses the run's precedence: the operator's choice, else the show's own, else the "
+      "robot's default — and says which",
+      po(audio_override="speakerphone")["sound"] == "speakerphone" and po(audio_override="speakerphone")["sound_from"] == "your choice"
+      and po()["sound"] == "tablet" and po()["sound_from"] == "the robot's default" and po()["video"] is None,
+      (po(audio_override="speakerphone"), po()))
+r, end = run_choice(R.NullAudio(hub=False), "stage")
+check("a runner with no show-audio hub (a laptop's twin) never refuses on a device", end[0] == "COMPLETED", end)
 
 
 class LateHolder(R.NullAudio):
@@ -275,8 +302,7 @@ lines = [json.loads(x) for x in log.getvalue().splitlines()]
 check("a device that claims show audio 0.5 s after the check (the tablet switching to its face) plays the "
       "music: load, start, stop — not silent (found at the robot 2026-10-14)",
       end[0] == "COMPLETED" and [c["op"] for c in au.calls] == ["load", "start", "stop"]
-      and not any(x["kind"] == "audio_warning" for x in lines)
-      and any(x["kind"] == "audio_note" for x in lines), (au.calls, [x for x in lines if "audio" in x["kind"]]))
+      and not any(x["kind"] == "audio_warning" for x in lines), (au.calls, [x for x in lines if "audio" in x["kind"]]))
 
 au = R.NullAudio(holder="tablet", ready=False)
 r, end, lines = run_audio(au)
@@ -495,6 +521,12 @@ os.environ["OPENDUBS_HEAD_NECK_HOST"] = ""
 os.environ["OPENDUBS_HEAD_FACE_HOST"] = "127.0.0.1"
 check("an empty neck keeps its old meaning: the face's box", FB.head_neck_host() == "127.0.0.1", FB.head_neck_host())
 del os.environ["OPENDUBS_HEAD_NECK_HOST"], os.environ["OPENDUBS_HEAD_FACE_HOST"]
+_was_tab5 = os.environ.pop("OPENDUBS_TAB5_HOST", None)
+check("with nothing set, the face and the neck stay on this machine (a laptop never reaches a real head)",
+      FB.head_face_host() == "127.0.0.1" and FB.head_neck_host() == "127.0.0.1",
+      (FB.head_face_host(), FB.head_neck_host()))
+if _was_tab5 is not None:
+    os.environ["OPENDUBS_TAB5_HOST"] = _was_tab5
 
 robot, plog = R.FakeRobotState(), io.StringIO()
 sc = SimClock(robot)
@@ -935,14 +967,21 @@ face = ArmedFace()
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False),
                                   changes=[(2.0, {"ch5": "MANUAL"})], face=face)
 check("CH5 leaving AUTO while armed disarms it, with the reason",
-      end[:2] == ("ABORTED", "AUTHORITY") and "disarmed" in end[2] and "CH5" in end[2] and not r.sent, end)
+      end[:2] == ("ABORTED", "AUTHORITY") and "before it started" in end[2] and "CH5" in end[2] and not r.sent, end)
 check("... and the face is told ARMED OFF", face.said[-1] == "OFF", face.said)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"estop": True})])
-check("an e-stop while armed disarms it as ESTOPPED", end[0] == "ESTOPPED" and "disarmed" in end[2], end)
+check("an e-stop while armed disarms it as ESTOPPED", end[0] == "ESTOPPED" and "nothing had moved" in end[2], end)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"arms": "inactive"})])
 check("the arms going inactive while armed disarms it", end[:2] == ("ABORTED", "ARMS"), end)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False), changes=[(2.0, {"deadman": False})])
 check("letting go while armed is not an abort (it times out only)", end[1] == "START_TIMEOUT", end)
+check("... and the time-out says READY's word, never 'armed'", "ready for" in end[2] and "armed" not in end[2], end)
+check("every run state has the words a person reads, and READY says nothing moves until the deadman",
+      all(R.phase(s_) for s_ in (R.VALIDATING, R.PREFLIGHT, R.ARMED, R.COUNTDOWN, R.PREPPING, R.WAITING, R.RUNNING,
+                                 R.COMPLETED, R.ABORTED, R.ESTOPPED, R.REFUSED))
+      and R.phase(R.ARMED) == {"word": "READY", "say": "nothing moves until you press and hold the deadman"}
+      and R.phase(R.COUNTDOWN, 4.2)["word"] == "STARTING in 5"
+      and not any("ARM" in w for w, _ in R.PHASE_WORDS.values()), R.PHASE_WORDS)
 r, end, lines, st, sc = run_start("deadman", R.FakeRobotState(deadman=False, estop=True))
 check("everything but the deadman is still preflighted: an e-stop refuses before arming",
       end[0] == "REFUSED" and "ARMED_WAITING" not in st, (end, st))
@@ -1003,8 +1042,9 @@ class LateFaceDoor:
         line = data.decode().strip()
         self.sent.append((self.clock(), line))
         up = self.appear_at is not None and self.clock() >= self.appear_at
-        if line.startswith("ARMED"):
-            self.out.append(f"OK armed {line.split()[1].lower()}" if up else "ERR face not showing")
+        if line.startswith(("READY", "ARMED")):              # v10's READY, and ARMED, its alias
+            word, what = line.split()[:2]
+            self.out.append(f"OK {word.lower()} {what.lower()}" if up else "ERR face not showing")
 
     def recv(self, n):
         if not self.out:
@@ -1029,8 +1069,8 @@ r.face.note = lambda kind, **kw: r._log(kind, **kw)
 sc.r = r
 end = r.run()
 lines = [json.loads(x) for x in log.getvalue().splitlines()]
-waits_after = [t for t, ln in sc.door.sent if ln == "ARMED WAIT" and t >= sc.door.appear_at]
-check("a face that appears 2 s after the run arms is sent ARMED WAIT within about a second (re-sent "
+waits_after = [t for t, ln in sc.door.sent if ln == "READY WAIT" and t >= sc.door.appear_at]
+check("a face that appears 2 s after the run arms is sent READY WAIT within about a second (re-sent "
       "every second while armed; found on the robot 2026-10-13: the tablet switches to its face AS the run arms)",
       end[0] == "COMPLETED" and waits_after and waits_after[0] - sc.door.appear_at <= R.ARMED_RESEND_S + 0.05,
       (end, sc.door.appear_at, waits_after[:2]))
@@ -1045,8 +1085,8 @@ sock = FakeSock()
 lf = FB.LiveFace("127.0.0.1", sock=sock)
 for w in ("WAIT", "5", "OFF"):
     lf.armed(w)
-check("the real face is sent ARMED WAIT / ARMED <seconds> / ARMED OFF (head protocol v5)",
-      sock.lines == ["ARMED WAIT", "ARMED 5", "ARMED OFF"], sock.lines)
+check("the real face is sent READY WAIT / READY <seconds> / READY OFF (head protocol v10; ARMED is its alias)",
+      sock.lines == ["READY WAIT", "READY 5", "READY OFF"], sock.lines)
 srv = R.serve(R.TwinFeed(), R.FakeRobotState(deadman=False), {}, "127.0.0.1", 0,
               R.Palette(SHOWS, LIMITS, R.FakeRobotState(deadman=False), R.TwinFeed(), io.StringIO()))
 port = srv.server_address[1]

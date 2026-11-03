@@ -72,7 +72,7 @@ def library_ids(show, tl: dict) -> list:
         ids.append(music["song"])
     for e in (tl.get("tracks") or {}).get("FACE", []):
         c = e.get("cue") or {}
-        if c.get("do") == "skin" and c.get("name") and c["name"] not in cue.CODE_SKINS and c["name"] not in ids:
+        if c.get("do") == "skin" and c.get("name") and c["name"] not in cue.code_skins() and c["name"] not in ids:
             ids.append(c["name"])
     for e in (tl.get("tracks") or {}).get("VIDEO", []):        # projector videos (kind `video`)
         v = (e.get("cue") or {}).get("video")
@@ -122,8 +122,12 @@ def _repo_ids(t: LS.Target, repo_shows: str) -> dict:
 
 def _folder_ready(t: LS.Target, create: bool) -> None:
     q = shlex.quote(t.root)
-    if _run(t, f"test -d {q} && test -w {q}").returncode == 0:
+    res = _run(t, f"test -d {q} && test -w {q}")
+    if res.returncode == 0:
         return
+    if res.returncode == 255:
+        err = res.stderr.decode(errors="replace").strip()
+        raise ShowSyncError(f"could not connect to {t.host}: {err or 'ssh connection failed'}")
     if not create:
         raise ShowSyncError(f"the robot's shows folder {t.root} on {t.host} is missing or not writable — "
                             "create it once with --create")

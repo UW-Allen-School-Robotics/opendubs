@@ -36,6 +36,9 @@ import timeline_notes  # noqa: E402  notes for the next editor, their history, t
 import yamledit  # noqa: E402
 
 FIXTURE_LIMITS = os.path.join(CHOREO, "tests", "joint_limits_fixture.yaml")
+# Folders of the content folder (content.py) whose YAML is not a cue sheet: ENCORE's own sources, and
+# tool packs (tool types for the effector registry).
+NOT_SHOWS = {"encore", "tools"}
 STATIC_DIR = os.path.join(HERE, "static")
 AUDIO_EXT = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".flac": "audio/flac",
              ".m4a": "audio/mp4"}
@@ -48,6 +51,19 @@ MAX_SONG_S = 20 * 60
 
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _marker_of(text: str) -> dict | None:
+    """The `generated:` marker of a show's text (cue.generated_marker), None if it has none or does not parse."""
+    try:
+        return cue.generated_marker(yaml.safe_load(text))
+    except yaml.YAMLError:
+        return None
+
+
+def _generated_refusal(rel: str, g: dict) -> "ApiError":
+    return ApiError(f"{rel} was made by {g.get('by', 'another tool')} from {g.get('source', 'its source')}, and is "
+                    f"made again from it at every push: edit the source there, or Save As a new show", 409)
 
 
 class ApiError(Exception):
@@ -88,6 +104,18 @@ class Composer:
         return p
 
     def info(self) -> dict:
+        try:
+            import arm_planner_bridge
+            planners = arm_planner_bridge.get_available_planners()
+        except ImportError:
+            planners = {
+                "spline": {
+                    "id": "spline",
+                    "name": "Spline (Standard Hermite)",
+                    "available": True,
+                    "description": "Standard cubic Hermite trajectory interpolation",
+                }
+            }
         return {"shows_dir": self.shows_dir, "library_dir": self.library_dir,
                 "library_exists": library.load_index(self.library_dir) is not None,
                 "max_song_mb": MAX_SONG_BYTES // (1024 * 1024), "song_types": sorted(library.SONG_TYPES),
@@ -95,12 +123,14 @@ class Composer:
                 "limits_are_test_fixture": self.fixture, "preview_only": True,
                 "slots": list(cue.SLOTS), "face_emotes": list(cue.FACE_EMOTES),
                 "slot_requires": {s: cue.slot_requirements(s) for s in cue.SLOTS},
-                "speed_caps": cue.SPEED_CAP_DEG_S}
+                "speed_caps": cue.SPEED_CAP_DEG_S,
+                "planners": planners}
 
     def list_shows(self) -> list:
         out = []
         for root, dirs, files in os.walk(self.shows_dir):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]      # .history is not a show
+            dirs[:] = [d for d in dirs if not d.startswith(".")      # .history is not a show
+                       and not (root == self.shows_dir and d in NOT_SHOWS)]
             for f in sorted(files):
                 if f.endswith((".yaml", ".yml")):
                     rel = os.path.relpath(os.path.join(root, f), self.shows_dir)
@@ -130,6 +160,7 @@ class Composer:
             return out
         tl["show"]["source"] = rel
         out["timeline"] = tl
+        out["generated"] = cue.generated_marker(show.doc)       # made by another tool: open it read-only
         with self._twin_lock:
             self._twin.update(rev=self._twin["rev"] + 1, path=rel, timeline=tl)
         out["authored"] = cue._jsonable(show.cues if isinstance(show.cues, list) else [])
@@ -245,6 +276,8 @@ class Composer:
         new = self._new_rel(name, rel)
         old_slug = os.path.splitext(os.path.basename(rel))[0]
         out = self._retitle(text, old_slug, os.path.splitext(os.path.basename(new))[0])
+        if "generated" in (yaml.safe_load(out) or {}):        # the copy is a show of its own, written here
+            out = yamledit.drop_top(out, "generated")
         with open(self._path(new), "x", encoding="utf-8") as fh:
             fh.write(out)
         return self.load(new)
@@ -255,9 +288,12 @@ class Composer:
         p = self._path(rel)
         if not os.path.isfile(p):
             raise ApiError("no such show", 404)
-        new = self._new_rel(name, rel)
         with open(p, encoding="utf-8") as fh:
             text = fh.read()
+        g = _marker_of(text)
+        if g:
+            raise _generated_refusal(rel, g)
+        new = self._new_rel(name, rel)
         old_slug = os.path.splitext(os.path.basename(rel))[0]
         out = self._retitle(text, old_slug, os.path.splitext(os.path.basename(new))[0])
         q = self._path(new)
@@ -428,6 +464,13 @@ class Composer:
             raise ApiError(f"not saved: the text is not valid YAML: {e}") from e
         if not isinstance(doc, dict):
             raise ApiError("not saved: a show is a mapping")
+        on_disk = None
+        if os.path.isfile(p):
+            with open(p, encoding="utf-8") as fh:
+                on_disk = _marker_of(fh.read())
+        g = on_disk or cue.generated_marker(doc)
+        if g:
+            raise _generated_refusal(rel, g)
         # the file as it was is kept first: every save can be compared and restored (History)
         timeline_notes.snapshot(p, "composer")
         tmp = p + ".composer-tmp"
@@ -617,3 +660,41 @@ class Composer:
         return {"side": side, "slot": "ARM_L" if side == "left" else "ARM_R",
                 "joints": {str(k): v for k, v in sorted(joints.items())},
                 "source": joint_state.get("source", "unknown")}
+
+    def plan_arm(self, rel: str, text: str, index: int, planner: str = "cbirrt", reach: str | list | None = None) -> dict:
+        """Plan a collision-free motion for an arm cue using the selected planner (spline, cbirrt, curobo)."""
+        self._path(rel)
+        try:
+            doc = cue.show_from_text(text, self._path(rel)).doc
+        except Exception:
+            doc = yaml.safe_load(text)
+        try:
+            import importlib
+            import arm_planner_bridge
+            import yamledit
+            importlib.reload(arm_planner_bridge)
+            importlib.reload(yamledit)
+        except ImportError as e:
+            raise ApiError(f"Motion planning bridge is unavailable: {e}") from e
+        try:
+            res = arm_planner_bridge.plan_arm_move(
+                doc=doc,
+                text=text,
+                index=int(index),
+                planner_choice=planner,
+                reach_target=reach,
+                limits_path=self.limits_path,
+            )
+        except Exception as e:
+            raise ApiError(f"Motion planning error: {e}") from e
+
+        ana = self.analyse(rel, res["text"])
+        return {
+            "ok": True,
+            "planner": res["planner"],
+            "text": res["text"],
+            "message": res["message"],
+            "min_clearance_mm": res["min_clearance_mm"],
+            "waypoints_inserted": res["waypoints_inserted"],
+            "analysis": ana,
+        }

@@ -34,6 +34,8 @@ permissions:
 
 jobs:
   test:
+    # a draft's skipped job must not carry the real check's name, or the check list shows the skip
+    name: "${{ github.event.pull_request.draft && 'test (draft, skipped)' || 'test' }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +46,7 @@ jobs:
       - run: pip install pyyaml mujoco numpy psutil platformdirs pillow   # mujoco: ik.py's tests; pillow: the projection screen's frames; psutil, platformdirs: the studio launcher's
       - run: python3 software/choreo/tests/test_cue.py
       - run: python3 software/choreo/tests/test_composer.py
+      - run: python3 software/choreo/tests/test_arm_planner_bridge.py
       - run: python3 software/choreo/tests/test_bridge.py
       - run: python3 software/choreo/tests/test_runner.py
       - run: python3 software/choreo/tests/test_arm_goals.py   # a rejected or unanswered arm goal ends the show

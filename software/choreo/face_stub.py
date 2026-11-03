@@ -19,7 +19,7 @@ import socket
 import sys
 import time
 
-KNOWN = ("PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "ARMED", "SKIN")
+KNOWN = ("PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "READY", "ARMED", "SKIN")   # ARMED: READY's v10 alias
 IDLE_REPLY = {"SKIN": "OK skin idle default", "THEME": "OK theme idle plain"}   # no idle settings: defaults
 BRIGHT_MIN = 0.15                              # the head's floor: it never dims below this
 DEFAULTS = {"VOLUME": 0.7, "BRIGHT": 0.8}      # its own levels, which IDLE hands back

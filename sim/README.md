@@ -41,6 +41,10 @@ at runtime. Planners are *consumers* of this description, not owners of it:
   executes multi-arm trajectories. It moves **the arms and grippers, and nothing else** — not
   the lift, the head, the base, sound, the face or the lights. Those are ours whatever planner
   is in use.
+- **OpenArm Simulation Motion Planning (`sim/planner/`)**: Modular testbed supporting **CBiRRT + SSIK**
+  and **NVIDIA cuRobo GPU** motion planning, statistical benchmarking (`sim/planner/benchmark.py`),
+  and Choreo Composer integration (`software/choreo/composer/`). See [`sim/planner/README.md`](planner/README.md)
+  and [`docs/motion-planning.md`](../docs/motion-planning.md).
 - **Direct joint trajectories** through `ros2_control`, which is what the hand-written demos do
   today, and which needs no planner at all.
 - **A full-body planner** is on the roadmap. It will consume the same description.
@@ -181,6 +185,27 @@ top of the extrusion it used to cover (`--chest-cover` draws it again for compar
 Caveat worth remembering: the arm model's *collision* geometry is a single `body_link0.stl`
 that still contains the cover's volume, so clearance against the torso is conservative until we
 supply our own frame collision mesh.
+
+**Props: the candy bucket** for ARCHITECT's trick-or-treat pick. `--candy-bucket` adds it, on a
+stand, to `scene.py` and `clearance.py` (and `scene.build(candy_bucket=True)` for code), so a render,
+a clearance check and a pick plan all see the same object. By default it sits on the bucket stage
+(the robot description's `bucket_stage_top`), which rides the lift, so the bucket rises with it: its
+candy is 0.54 m above the floor with the lift down. A description without the stage puts it on a
+floor stand at the coverage study's earlier spot (0.40 m forward, 0.20 m right, 0.90 m above the
+floor); `--candy-bucket X,Y,H` puts it on a floor stand there. The mesh in `props/` is the user's
+Fusion model, flipped right way up and in metres; it is drawn only, and the bucket collides as a
+base, wall panels and a handle, so its inside stays free for a hand. The bucket is a free body
+(2.2 kg, half a load of candy) resting on its stand by contact, with its target site as a child, so
+it can be moved, knocked or picked up; `scene.py --check --candy-bucket` drops it 5 mm onto the
+stage or stand and fails unless it settles seated and upright relative to it. `--bucket-variant handle_down` swaps in the
+same bucket with its handle folded down onto the rim (`handle_up` is the default). Details in
+`props.py`.
+
+```bash
+python3 scene.py --candy-bucket --render /tmp/bucket.png --az 200 --el -15 --dist 2.2
+python3 scene.py --candy-bucket --bucket-variant handle_down --check
+python3 clearance.py --candy-bucket --joints "right:2=40,right:4=90"   # the wrist ends up inside the wall
+```
 
 ## Status
 

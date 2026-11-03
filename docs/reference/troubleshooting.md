@@ -387,7 +387,7 @@ The StamPLC link is healthy, but its report of the lift — height, motion and t
 **What to do**
 
 1. Do not move the lift until it reports again; the pinch guard's state is unknown.
-2. The fault stays shown after the report returns. Restarting the robot clears it.
+2. It clears by itself once the lift reports again.
 
 **See also:** [Scissor Lift Module](../build/scissor-lift.md)
 
@@ -806,9 +806,35 @@ The TELEOP page is not receiving the arms' joint states, so its arm view is blan
 
 Check in this order:
 
-1. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
-2. [The projector output couldn't be changed because a show is playing](#show-video-busy)
-3. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
+1. [A show was refused because the device its sound plays on isn't ready](#show-audio-output-missing)
+2. [A show won't start because the head tablet isn't showing its face](#show-head-not-up)
+3. [A show with projector video was refused because the projector isn't ready](#show-video-not-ready)
+4. [The projector output couldn't be changed because a show is playing](#show-video-busy)
+5. [A show with dance steps was refused because the base tracker isn't ready](#show-base-not-ready)
+
+### A show was refused because the device its sound plays on isn't ready {#show-audio-output-missing}
+
+`SHOW_AUDIO_OUTPUT_MISSING` · Refused action · seen on the dashboard
+
+Each show's music plays on one device: the head's tablet, the speakerphone, or the stage box's speaker. The operator chooses it on the projector card ("Show sound on"); otherwise the show's own choice is used, else the stage box when the show's video plays there, else the tablet. That device wasn't connected or couldn't make sound, so the show was refused before anything moved, rather than playing silently or on a different speaker. The sentence after the code names the device, why it can't play, and which devices are ready now.
+
+**What to do**
+
+1. Look at the "Show sound on" row of the projector card; it shows each device and what is missing.
+2. For the stage box, check its Bluetooth speaker is on, in range and paired (the Stage Box Sound card).
+3. For the tablet, check the head's tablet is showing the face or the dashboard.
+4. Or choose a device that is ready on the projector card, then start the show again.
+
+### A show won't start because the head tablet isn't showing its face {#show-head-not-up}
+
+`SHOW_HEAD_NOT_UP` · Refused action · seen on the dashboard
+
+The show uses the head (its face, its neck or its volume and brightness), and the head tablet is not ready for it: the face page is not showing on the tablet, or a video call is holding the tablet. The face and the show's sound could not play there, so the show was refused rather than run without them.
+
+**What to do**
+
+1. If a video call is up on the tablet, end it.
+2. Make sure the head tablet is on and showing the face page, then start the show again.
 
 ### A show with projector video was refused because the projector isn't ready {#show-video-not-ready}
 
@@ -851,29 +877,54 @@ A sound sent to the robot plays on its own speaker. It is refused while a show h
 
 Check in this order:
 
-1. [A sound sent to the robot was refused because a show has the speaker](#show-audio-busy)
-2. [A sound sent to the robot was refused because no speaker is connected](#show-audio-no-device)
+1. [The stage box is not reporting](#link-stage-box-offline)
+2. [A sound sent to the robot was refused because a show has the speaker](#show-audio-busy)
+3. [A sound sent to the robot was refused because no speaker is connected](#show-audio-no-device)
+4. [A show was refused because the device its sound plays on isn't ready](#show-audio-output-missing)
+5. [The stage box's sound won't change during a show](#show-stage-sound-busy)
+
+### The stage box is not reporting {#link-stage-box-offline}
+
+`LINK_STAGE_BOX_OFFLINE` · Refused action · seen on the dashboard
+
+The stage box (the small computer that shows the stage page on a projector or a TV, and plays the show's music) reports its sound to the robot every 2 seconds. The dashboard has heard nothing from it for a while, so it cannot pass it a sound setting, a pairing or a test tone.
+
+**What to do**
+
+1. Check that the box is powered (its red light) and within range of the robot's Wi-Fi.
+2. Wait a minute after powering it on; the card on the Shows page shows it once it reports.
 
 ### A sound sent to the robot was refused because a show has the speaker {#show-audio-busy}
 
 `SHOW_AUDIO_BUSY` · Refused action · seen on the dashboard
 
-Someone asked the robot to play a sound file (the dashboard's "Play to robot" page) while a show was loaded, waiting to start, or running. A show has the robot's speaker to itself, so the request was refused rather than queued; nothing is played later.
+Someone asked the robot to play a sound file (the dashboard's "Play to robot" page) while a show was loaded, waiting to start, or running. A show has the robot's speaker to itself, so the request was refused rather than queued; nothing is played later. The same code refuses a change to where a show's sound plays (the projector card's "Show sound on" row) while a show is running.
 
 **What to do**
 
-1. Wait for the show to finish or be stopped, then send the sound again.
+1. Wait for the show to finish or be stopped, then send the sound again, or change the output.
 
 ### A sound sent to the robot was refused because no speaker is connected {#show-audio-no-device}
 
 `SHOW_AUDIO_NO_DEVICE` · Refused action · seen on the dashboard
 
-The robot plays shows, ambient music and sounds sent from a phone through one device: the tablet on its head, running the dashboard. No device was connected to play it, so the request was refused. A show started now would run without music for the same reason.
+The robot plays shows, ambient music and sounds sent from a phone through one device: the tablet on its head, running the dashboard. No device was connected to play it, so the request was refused. A show started now whose sound plays on the tablet would be refused for the same reason (SHOW_AUDIO_OUTPUT_MISSING).
 
 **What to do**
 
 1. Check that the head's tablet is on and showing the dashboard or the face.
 2. On the dashboard's Shows page, use "Play show audio here" on the device that should play.
+
+### The stage box's sound won't change during a show {#show-stage-sound-busy}
+
+`SHOW_STAGE_SOUND_BUSY` · Refused action · seen on the dashboard
+
+While a show is loaded or playing, the stage box's sound output, its test tone and pairing a Bluetooth speaker are refused: the audience would hear the first two, and a newly connected speaker can take the sound. Its volume can still be changed.
+
+**What to do**
+
+1. Stop the show on the Shows page, then change the output, pair or play the test tone.
+2. Set up the sound before the show is loaded.
 
 ## The robot won't listen or talk {#voice-quiet}
 
@@ -973,7 +1024,7 @@ One of the robot's internal temperature sensors reads 70 °C or more, so the das
 
 1. Stop and let the robot cool.
 2. Check that the cooling fan runs and that its airflow is not blocked. The dashboard's thermal view shows which zone is hot.
-3. The fault stays shown after the temperature falls. Restarting the robot clears it.
+3. The fault stays shown after the temperature falls. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the temperature is still high.
 
 **See also:** [8 · Cooling Fan Integration](../build/cooling-fan.md)
 
@@ -987,7 +1038,7 @@ Only on a robot built with the REV Power Distribution Hub ([PDH](glossary.md#pdh
 
 1. Check the pack's charge on the dashboard.
 2. Check that the hub's input connections are tight.
-3. The fault stays shown after the voltage recovers. Restarting the robot clears it.
+3. The fault stays shown after the voltage recovers. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the brownout is still reported.
 
 **See also:** [6 · Power Bay](../build/power-bay.md)
 

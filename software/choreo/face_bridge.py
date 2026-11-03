@@ -226,7 +226,7 @@ class _HeadLink:
     """One UDP line link to the head: send a line, and read whatever the head has answered since.
     Never raises — the head is never a reason to stop a show — but says what went wrong, once.
 
-    NEVER BLOCKS. A name (opendubs-tab5.local) is looked up on a background thread, never on the
+    NEVER BLOCKS. A name (opendubs-neck.local) is looked up on a background thread, never on the
     caller's: a failed mDNS lookup of an absent head takes 5 s, and done on the show's own loop it
     stalled every tick of a live run by 5 s — face cues sent only as 5 s seeks, grip commands sent
     in bursts that cancelled each other, the deadman checked every 5 s (found at the robot,
@@ -366,17 +366,18 @@ class LiveFace(_HeadLink):
         self._idle_err[r] -= 1
         self._once("idle:" + r, kind="face_note",
                    note=f"the head answered the show-end IDLE lines with {r!r}: a head without them "
-                        "(the Tab5) — expected")
+                        "(an older head) — expected")
         return True
 
     def armed(self, what):
-        """The ARMED indication (head protocol v5, agreed with the Tablet lane 2026-10-13): `WAIT`
+        """The READY indication (head protocol v10's name for v5's ARMED, which a head still accepts as an
+        alias for one release; agreed with the Tablet lane 2026-10-13, renamed 2026-10-26): `WAIT`
         while a run waits for the deadman (the head holds it 3 s; the runner re-sends it every
         second), the countdown's seconds at the GO, `OFF` when the run starts or ends. A refusal is
         not final: `ERR face not showing` is the tablet still switching to its face (it does so when
         a run arms), and the next WAIT, a second later, reaches it. The log says each CHANGE — the
         first refusal, then the first OK after it — not every re-send."""
-        self._send(f"ARMED {what}", log=what != "WAIT")
+        self._send(f"READY {what}", log=what != "WAIT")
         for r in self._replies():
             if self._idle_refusal(r):
                 continue
@@ -384,11 +385,11 @@ class LiveFace(_HeadLink):
                 if self._armed_ok is not False:
                     self._armed_ok = False
                     self.note(kind="face_warning", reply=r,
-                              note=f"the head did not take ARMED ({r}) — re-sent every second while armed")
-            elif r.upper().startswith("OK ARMED"):
+                              note=f"the head did not take READY ({r}) — re-sent every second while ready")
+            elif r.upper().startswith(("OK READY", "OK ARMED")):
                 if self._armed_ok is not True:
                     self._armed_ok = True
-                    self.note(kind="face_armed", reply=r, note="the face shows the armed sign")
+                    self.note(kind="face_armed", reply=r, note="the face shows the READY sign")
 
     def show(self, tl):
         self.rev, self.tl, self.started = self.rev + 1, tl, False
@@ -560,26 +561,26 @@ class HeadTee:
 
 
 def head_face_host() -> str:
-    """Where the face is: OPENDUBS_HEAD_FACE_HOST (the tablet plan's name, once the head splits into
-    a face and a neck), else the dashboard's OPENDUBS_TAB5_HOST, else the head's mDNS name."""
+    """Where the face is: OPENDUBS_HEAD_FACE_HOST, else the old OPENDUBS_TAB5_HOST, else this machine
+    (127.0.0.1, the dashboard's face door): the same order and default as backend/head.py."""
     return (os.environ.get("OPENDUBS_HEAD_FACE_HOST") or os.environ.get("OPENDUBS_TAB5_HOST")
-            or "opendubs-tab5.local")
+            or "127.0.0.1")
 
 
 NO_NECK = ("none", "off")       # OPENDUBS_HEAD_NECK_HOST=none: this robot has no neck fitted
 
 
 def head_neck_host() -> str | None:
-    """Where the pan/tilt is: OPENDUBS_HEAD_NECK_HOST (the tablet plan's neck), else the face's
-    address, else the dashboard's old name, else the head's mDNS name — the same order as the
-    dashboard's backend/head.py (tablet PR #69), so the two never disagree when the face and the
-    neck are different devices. None when the neck is set to `none` or `off` (any case): no neck is
-    fitted, and pan/tilt stays in the twin. Unset or empty keeps its old meaning, the face's box."""
+    """Where the pan/tilt is: OPENDUBS_HEAD_NECK_HOST, else the face's address, else the old
+    OPENDUBS_TAB5_HOST, else this machine — the same order as the dashboard's backend/head.py, so the
+    two never disagree. With nothing set it stays local, so a run on a laptop never reaches a real
+    neck. None when the neck is set to `none` or `off` (any case): no neck is fitted, and pan/tilt
+    stays in the twin."""
     neck = (os.environ.get("OPENDUBS_HEAD_NECK_HOST") or "").strip()
     if neck.lower() in NO_NECK:
         return None
     return (neck or os.environ.get("OPENDUBS_HEAD_FACE_HOST")
-            or os.environ.get("OPENDUBS_TAB5_HOST") or "opendubs-tab5.local")
+            or os.environ.get("OPENDUBS_TAB5_HOST") or "127.0.0.1")
 
 
 def loopback_only(host: str) -> str:

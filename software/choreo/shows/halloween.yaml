@@ -9,7 +9,7 @@ slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT]
 themes: [halloween]      # content now (face/themes in the content folder), no longer built into the face
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 notes: >
   No music: a seasonal track would be copyrighted, and none is committed. Seconds throughout.

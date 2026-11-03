@@ -4,12 +4,14 @@ name: Shrug
 # partly makes up for the failure. Ends at rest, head centred.
 palette: { label: Shrug, order: 3 }
 slots: [ARM_L, ARM_R, HEAD, SOUND, FACE]
+# The shrug reads with one arm: the left arm may be left out, on the operator's approval (it must hang at rest). The run without it has its own collision stamp (sweep.py stamp).
+can_skip: [arm_left]
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 
-clearance: { min_mm: 38.9, at_s: 0.3, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "411c4416b103@dc74e24f" }
+clearance: { min_mm: 38.9, at_s: 0.3, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision / ?", checked_for: "411c4416b103@8904e831", variants: { arm_left: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision / oa_openarm_body_link0_collision", checked_for: "1009c83a27bb@8904e831" } } }
 cues:
   - { t: 0.0, slot: FACE, do: emote, name: SLEEPY }
   - { t: 0.0, slot: SOUND, do: play, sound: refuse }

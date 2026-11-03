@@ -3,6 +3,7 @@
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include <cstring>
+#include <initializer_list>
 #include <cstdio>
 
 namespace badge {
@@ -75,6 +76,22 @@ void upper(const char* in, char* out, size_t n) {
     out[i] = 0;
 }
 
+// THE TEXT FITS THE RING. The space is the chord inside the ring (inner radius 100) at a line's height,
+// less a margin: about 190 px for the state's label just above the middle (kLabelW), 170 and 150 for the
+// lines below it. A fixed size cut AUTONOMOUS off under the ring (2026-10-23).
+constexpr int kLabelW = 190;
+
+// The largest of `fonts` in which `text` fits `maxW` pixels; the smallest if none does.
+const lgfx::IFont* fit(Panel& d, const char* text, int maxW, std::initializer_list<const lgfx::IFont*> fonts) {
+    const lgfx::IFont* pick = nullptr;
+    for (const lgfx::IFont* f : fonts) {
+        pick = f;
+        d.setFont(f);
+        if (d.textWidth(text) <= maxW) return f;
+    }
+    return pick;                                     // none fits: the smallest
+}
+
 void draw(const View& v) {
     Panel& d = *g_panel;
     d.startWrite();
@@ -86,9 +103,15 @@ void draw(const View& v) {
         const uint32_t ring = v.stale ? kGrey : v.rgb;
         d.fillArc(120, 120, 119, 100, 0, 360, c565(ring));
         char l[20]; label(v.state, l, sizeof(l));
+        // ONE TYPEFACE FOR EVERY STATE, scaled down only as far as a word needs to fit the ring (about
+        // 190 px here): AUTONOMOUS is 260 px at full size, DEGRADED and CHARGING just under 200, the rest
+        // fit as they are. Stepping down a whole font size instead would shrink the warning states too.
         d.setFont(&fonts::FreeSansBold18pt7b);
+        const int w = d.textWidth(l);
+        d.setTextSize(w > kLabelW ? (float)kLabelW / w : 1.0f);
         d.setTextColor(TFT_WHITE);
         d.drawString(l, 120, 104);
+        d.setTextSize(1.0f);
     }
 
     // The line beneath: the most important thing the neck has to say, one at a time.
@@ -115,7 +138,8 @@ void draw(const View& v) {
         colour = kGrey;
     }
     if (line[0]) {
-        d.setFont(line2[0] || strlen(line) > 10 ? &fonts::FreeSans12pt7b : &fonts::FreeSansBold18pt7b);
+        if (line2[0]) d.setFont(fit(d, strlen(line) > strlen(line2) ? line : line2, 150, {&fonts::FreeSans12pt7b, &fonts::FreeSans9pt7b}));
+        else d.setFont(fit(d, line, 170, {&fonts::FreeSansBold18pt7b, &fonts::FreeSans12pt7b, &fonts::FreeSans9pt7b}));
         d.setTextColor(c565(colour));
         d.drawString(line, 120, v.told ? 150 : 120);
         if (line2[0]) d.drawString(line2, 120, v.told ? 176 : 146);

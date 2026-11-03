@@ -5,7 +5,7 @@ name: IK demo (test fixture)
 slots: [ARM_L, ARM_R, HEAD]
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 cues:
   - { t: 2.0, slot: ARM_R, reach: [0.55, -0.25, 0.75] }

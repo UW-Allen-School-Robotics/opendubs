@@ -63,10 +63,15 @@ CAST_APP = "CC1AD845"        # the Cast Default Media Receiver
 # ---- the projector's per-robot settings (never in the repo) -------------------------------------------
 SETTINGS_PATH = os.environ.get("OPENDUBS_PROJECTOR_SETTINGS") or "/var/lib/opendubs-runner/projector.json"
 # audio_lead_s / video_lead_s are the CAST path's; stage_* the stage page's (a stage Pi's USB or HDMI sound,
-# a Bluetooth speaker, the screen's own picture delay): each started that much early, set by ear
+# a Bluetooth speaker, the screen's own picture delay): each started that much early, set by ear.
+# stage_audio_leads_s: the stage's audio lead PER OUTPUT the box can select (its device.json audio_output),
+# so switching to the Bluetooth speaker and back never loses the other's tuning. An output with no entry of
+# its own starts by the box's estimate of its delay (device.json audio_latency_ms) plus stage_audio_lead_s
+# (choreo-stage.md, "The audio path").
+STAGE_AUDIO_OUTPUTS = ("hdmi", "jack", "usb", "bt")   # the box's device.json audio_output names
 SETTINGS_DEFAULTS = {"audio_lead_s": CAST_AUDIO_LEAD_S, "video_lead_s": CAST_LEAD_S,
                      "music_as": os.environ.get("OPENDUBS_CAST_MUSIC_AS") or "audio",
-                     "stage_audio_lead_s": 0.0, "stage_video_lead_s": 0.0,
+                     "stage_audio_lead_s": 0.0, "stage_video_lead_s": 0.0, "stage_audio_leads_s": {},
                      # the head start a streamed stage video needs before the GO (seconds buffered)
                      "stage_buffer_s": 25.0}
 BUFFER_RANGE_S = (5.0, 120.0)
@@ -85,18 +90,40 @@ def load_settings(path: str | None = None) -> dict:
             out.update({k: v for k, v in got.items() if k in SETTINGS_DEFAULTS})
     except (OSError, ValueError):
         pass
+    leads = out.get("stage_audio_leads_s")
+    out["stage_audio_leads_s"] = ({k: v for k, v in leads.items() if k in STAGE_AUDIO_OUTPUTS and _is_lead(v)}
+                                  if isinstance(leads, dict) else {})
     return out
 
 
+def _is_lead(v) -> bool:
+    return not isinstance(v, bool) and isinstance(v, (int, float)) and LEAD_RANGE_S[0] <= v <= LEAD_RANGE_S[1]
+
+
 def save_settings(change: dict, path: str | None = None) -> dict:
-    """Merge `change` (any of the LEAD_KEYS, music_as) into projector.json; ValueError on a
-    bad value. Written atomically. Returns the settings now in force."""
+    """Merge `change` (any of the LEAD_KEYS, stage_audio_leads_s, stage_buffer_s, music_as) into
+    projector.json; ValueError on a bad value. Written atomically. Returns the settings now in force.
+    stage_audio_leads_s MERGES by output ({"bluetooth": 0.2} sets that one; null removes it)."""
     cur = load_settings(path)
     for k, v in change.items():
         if k in LEAD_KEYS:
-            if isinstance(v, bool) or not isinstance(v, (int, float)) or not LEAD_RANGE_S[0] <= v <= LEAD_RANGE_S[1]:
+            if not _is_lead(v):
                 raise ValueError(f"{k} must be seconds, {LEAD_RANGE_S[0]:g} to {LEAD_RANGE_S[1]:g}")
             cur[k] = round(float(v), 3)
+        elif k == "stage_audio_leads_s":
+            if not isinstance(v, dict):
+                raise ValueError(f"{k} must be a mapping of output ({', '.join(STAGE_AUDIO_OUTPUTS)}) to seconds")
+            leads = dict(cur[k])
+            for out_name, lead in v.items():
+                if out_name not in STAGE_AUDIO_OUTPUTS:
+                    raise ValueError(f"{k}: {out_name!r} is not a stage audio output ({', '.join(STAGE_AUDIO_OUTPUTS)})")
+                if lead is None:
+                    leads.pop(out_name, None)
+                elif not _is_lead(lead):
+                    raise ValueError(f"{k}.{out_name} must be seconds, {LEAD_RANGE_S[0]:g} to {LEAD_RANGE_S[1]:g}")
+                else:
+                    leads[out_name] = round(float(lead), 3)
+            cur[k] = leads
         elif k == "stage_buffer_s":
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not BUFFER_RANGE_S[0] <= v <= BUFFER_RANGE_S[1]:
                 raise ValueError(f"{k} must be seconds, {BUFFER_RANGE_S[0]:g} to {BUFFER_RANGE_S[1]:g}")
@@ -530,14 +557,22 @@ class StageOutput:
             return 0
 
     def status(self) -> dict:
+        """Ready when a page is open. `page`: the page that answers for the stage's SOUND, `sound_pages`: every
+        page that carries sound. A page's `role` (stage.js ?role=video|sound|both, `both` when it says none)
+        decides: a `video` page plays the picture muted, so it never answers for sound. Of the sound pages,
+        the first that can't make sound answers (so the run is refused with its reason), else the first."""
         try:
             got = self._get()
             n = int(got.get("pages") or 0)
         except Exception:  # noqa: BLE001
             return {"present": False, "ready": False, "why": "the dashboard isn't answering"}
         self.why = None if n else "no stage page is open (the projector's app, or a browser at /stage/)"
-        info = (got.get("pages_info") or [None])[0]
-        return {"present": True, "ready": n > 0, "pages": n, "why": self.why, "page": info}
+        sound = sound_pages(got.get("pages_info"))
+        mute = [p for p in sound if not page_has_sound(p)]
+        info = (mute or sound or [None])[0]
+        video = sum(1 for p in got.get("pages_info") or [] if page_role(p) == "video")
+        return {"present": True, "ready": n > 0, "pages": n, "why": self.why, "page": info,
+                "sound_pages": max(0, n - video)}     # a page that hasn't said what it is counts as both
 
     def url(self, path: str) -> str:
         """A library file's address as the dashboard serves it to the page (same origin as the page)."""
@@ -545,8 +580,24 @@ class StageOutput:
         root = os.path.abspath(self.library_root or library.root())
         return "/api/choreo/media/library/" + os.path.relpath(os.path.abspath(path), root).replace(os.sep, "/")
 
-    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None):
-        return StageShow(self, items, music, log, on_lost, buffer_s)
+    def make_show(self, items, music, log=None, on_lost=None, buffer_s=None, audio_leads_s=None, skeletons=False):
+        return StageShow(self, items, music, log, on_lost, buffer_s, audio_leads_s, skeletons)
+
+
+def page_role(info) -> str:
+    """A stage page's role (stage.js ?role=): video (the picture, muted), sound (the sound, no picture) or
+    both, which a page that reports no role is."""
+    r = info.get("role") if isinstance(info, dict) else None
+    return r if r in ("video", "sound") else "both"
+
+
+def sound_pages(infos) -> list:
+    """The pages that carry the show's sound: every page but a `video` one."""
+    return [p for p in (infos or []) if isinstance(p, dict) and page_role(p) != "video"]
+
+
+def page_has_sound(info) -> bool:
+    return isinstance(info, dict) and info.get("audio_output") not in (None, "", "none")
 
 
 class StageShow:
@@ -555,17 +606,25 @@ class StageShow:
     thread, as ShowVideo's, so the runner never waits on the dashboard. A page that goes away mid-run
     is LOST (the tablet then takes the music, when the video carried it)."""
 
-    def __init__(self, out: StageOutput, items, music, log=None, on_lost=None, buffer_s=None):
+    def __init__(self, out: StageOutput, items, music, log=None, on_lost=None, buffer_s=None, audio_leads_s=None,
+                 skeletons=False):
+        # audio_leads_s: the stage's audio lead per output (projector.json); an item whose lead_kind is "audio"
+        # starts by the one for the output the page's box reports, else by its own lead_s. skeletons: the
+        # show draws the stage page's skeleton layer (the dancer, a live person) over its video
+        self.audio_leads_s, self.skeletons = dict(audio_leads_s or {}), bool(skeletons)
         self.out, self.items, self.log, self.on_lost = out, sorted(items, key=lambda x: x["t"]), log or (lambda *a, **k: None), on_lost
         self.id = f"stage@{time.time():.3f}"
         m = music or {}
         self.beat = ({"offset_s": float(m.get("offset_s") or 0.0), "bpm": float(m["bpm"])} if m.get("bpm") else None)
-        self.failed = self.lost = None
+        self.failed = self.lost = self.late = None
         self.done, self._clock, self._stop, self._thread, self.seeks = False, None, threading.Event(), None, 0
         self._end_status, self._loaded = None, False
         self.buffer_s = float(buffer_s or SETTINGS_DEFAULTS["stage_buffer_s"])
         # every page has its head start (a local copy, or buffer_s streamed); how far the slowest has got
         self.preloaded, self.buffered, self.need, self.dropped, self.stalled = False, 0.0, self.buffer_s, None, None
+        # mute the pages on a stall only when another device holds the music to take over (the runner says);
+        # when the stage box is the ONLY device with it, a muted page is silence for the rest of the show
+        self.mute_on_stall = True
 
     def _send(self, msg):
         try:
@@ -584,14 +643,18 @@ class StageShow:
         self._clock = show_clock
 
     def _loop(self):
-        # lead_s: this item starts that much early (the stage's audio or video delay, set by ear); audio:
-        # a song with no picture (the music alone), played under the page's own scene
+        # lead_s: this item starts that much early (the stage's audio or video delay, set by ear); lead_kind
+        # "audio" (it is heard: the page uses the lead for its own sound output, when the robot has one)
+        # or "video" (a picture alone); audio: a song with no picture (the music alone), played under the
+        # page's own scene
         videos = [{"t": it["t"], "end_t": it["end_t"], "url": it.get("url") or self.out.url(it["path"]), "from_s": it["from_s"],
                    "end": it.get("end", "black"), "id": it["id"], "lead_s": float(it.get("lead_s") or 0.0),
+                   "lead_kind": it.get("lead_kind") or ("audio" if it.get("audio") else "video"),
                    "audio": bool(it.get("audio")), "sha256": it.get("sha256"),
                    # the library id a stage box keeps its own copy under (videos: their id; songs: `lib`)
                    "lib": it.get("lib") or (None if it.get("audio") else it.get("id"))} for it in self.items]
-        self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat, "buffer_s": self.buffer_s})
+        self._send({"op": "load", "id": self.id, "videos": videos, "beat": self.beat, "buffer_s": self.buffer_s,
+                    "audio_leads_s": self.audio_leads_s, "skeletons": self.skeletons})
         self._loaded = True                                 # the pages load the video themselves
         polled = 0.0
         while self._clock is None and not self._stop.is_set():
@@ -642,14 +705,29 @@ class StageShow:
     def _check_stall(self, got: dict):
         """A page that ran dry mid-show: handled like a dropout — logged, the pages muted, and the tablet
         takes the music from the same point (on_lost). The show never stops for it; the page catches up on
-        the show's clock when the data comes back."""
+        the show's clock when the data comes back.
+
+        Every page is an equal peer: the music is LOST only when every page that carries sound has stalled
+        (a `video` page's stall never counts for sound). One page stalling while another still plays the
+        sound is logged, and nothing is muted or handed over: the mute goes to every page."""
         st = [p for p in (got.get("stalls") or []) if isinstance(p, dict) and p.get("id") == self.id]
-        if st and self.stalled is None:
-            self.stalled = f"a stage page ran out of video at {float(st[0].get('at_s') or 0):.1f} s"
-            self.log("video_error", output="stage", error=self.stalled)
-            if self.on_lost:
-                self._send({"op": "mute", "id": self.id})        # the tablet plays the music from here
-                self.on_lost(self.stalled)
+        heard = [p for p in st if page_role(p) != "video"]
+        if not st or self.stalled is not None:
+            return
+        video = sum(1 for p in got.get("pages_info") or [] if page_role(p) == "video")
+        n_sound = max(len(heard), int(got.get("pages") or 0) - video)
+        if len(st) > getattr(self, "_stalls_seen", 0):
+            self._stalls_seen = len(st)
+            self.log("video_warning", output="stage",
+                     note=f"{len(st)} stage page(s) ran out of video ({len(heard)} of {n_sound} carrying sound)")
+        if not heard or len(heard) < n_sound:
+            return                                  # another page still plays the sound: nothing to take over
+        self.stalled = f"a stage page ran out of video at {float(heard[0].get('at_s') or 0):.1f} s"
+        self.log("video_error", output="stage", error=self.stalled)
+        if self.on_lost:
+            if self.mute_on_stall:
+                self._send({"op": "mute", "id": self.id})    # the tablet plays the music from here
+            self.on_lost(self.stalled)
 
     def ready(self) -> bool:
         """Every stage page has the show's whole video (or telling them failed, or it was dropped)."""
@@ -657,6 +735,35 @@ class StageShow:
 
     def waiting_for(self) -> str:
         return f"the stage video (buffering, {self.buffered:.0f} of {self.need:.0f} s)"
+
+    def start_with_ready(self, why: str) -> bool:
+        """Not every page loaded in time: start with the ones that did, when they cover the show — some ready
+        page carries the picture (role video or both), if the show has one, and some ready page carries the
+        sound (sound or both), if its sound is on the stage. True: the show starts so, the late pages logged
+        (each still joins on the show's clock when it can). False: they don't cover it (always, with one page):
+        the caller drops the stage video, as before. Every page an equal peer: one slow page no longer costs
+        the others their show."""
+        try:
+            got = self.out._get()
+        except Exception:  # noqa: BLE001
+            return False
+        mine = [p for p in (got.get("preload") or []) if isinstance(p, dict) and p.get("id") == self.id]
+        n = int(got.get("pages") or 0)
+        ready = [p for p in mine if p.get("ready")]
+        if not ready or len(ready) >= n:
+            return False
+        picture = any(not it.get("audio") for it in self.items)
+        heard = any((it.get("lead_kind") or ("audio" if it.get("audio") else "video")) == "audio" for it in self.items)
+        if picture and not any(page_role(p) != "sound" for p in ready):
+            return False
+        if heard and not any(page_role(p) != "video" for p in ready):
+            return False
+        late = [f"a {page_role(p)} page ({float(p.get('buffered_s') or 0):.0f} of {float(p.get('need_s') or 0):.0f} s)"
+                for p in mine if not p.get("ready")] + ["a page that never reported"] * (n - len(mine))
+        self.late = f"{len(ready)} of {n} stage pages ready ({why}); started without " + ", ".join(late)
+        self.preloaded = True
+        self.log("video_warning", output="stage", note=self.late + ": each joins on the show's clock when it can")
+        return True
 
     def drop(self, why: str):
         """Not loaded in time: the pages are stopped and the show runs without its stage video (the tablet

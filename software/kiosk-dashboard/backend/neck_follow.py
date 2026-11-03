@@ -278,6 +278,24 @@ def touched() -> None:
     threading.Thread(target=_off, daemon=True).start()
 
 
+# A TOUCH THAT NEVER LIFTS IS NOT A PERSON (the user's decision, 2026-10-24). The tablet on the robot's
+# USB power registers phantom touches (charger noise, seen 2026-10-23), and each one paused the head. The
+# pages (face main.js, dashboard app.js) report a touch at once, as before, but a pointer that has not
+# lifted within their PHANTOM window is reported here as a phantom: the pause it started ends at once,
+# and it is logged with what the page saw, so the source can be found. Real taps and holds lift in time
+# and are untouched.
+phantoms = {"count": 0, "last": None}
+
+
+def released(info: dict | None = None, end_pause: bool = True) -> None:
+    """A phantom touch: log it, and (unless a real touch is still holding) end the pause at once."""
+    phantoms["count"] += 1
+    phantoms["last"] = {"at": time.time(), **(info or {})}
+    log.info("touch: a phantom ignored (no lift within the page's window): %s", info or {})
+    if end_pause:
+        _touch["at"] = None
+
+
 def being_touched() -> bool:
     return _touch["at"] is not None and _clock() - _touch["at"] < TOUCH_HOLD_S
 
@@ -386,7 +404,7 @@ async def start() -> None:
 def status() -> dict:
     tr = state["tracker"]
     tracker = dict(tr, age_s=round(time.monotonic() - state["tracker_at"], 1)) if tr else None
-    return {"why": state["why"], "tracker": tracker, "kind": state.get("kind"),
+    return {"why": state["why"], "tracker": tracker, "kind": state.get("kind"), "phantom_touches": phantoms,
             "neck": state["neck"],
             "neck_age_s": round(_clock() - state["neck_at"], 1) if state["neck"] else None,
             "sent": state["sent"], "sent_count": state["sent_count"],

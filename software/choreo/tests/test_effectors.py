@@ -184,6 +184,51 @@ try:
 except ImportError:
     print("  skip  the hand models (no MuJoCo here)")
 
+# ---- tool packs in the content folder (content.py: <dir>/tools/<pack>/) ------------------------------
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+
+import content  # noqa: E402
+
+_tmp = tempfile.mkdtemp()
+_pack = os.path.join(_tmp, "tools", "demo_pack")
+os.makedirs(os.path.join(_pack, "drivers"))
+_doc = open(os.path.join(E.REG_DIR, "suction_cup.yaml")).read().replace("id: suction_cup", "id: pack_cup")
+open(os.path.join(_pack, "pack_cup.yaml"), "w").write(_doc.replace("output: null", "output: pack_driver"))
+open(os.path.join(_pack, "pack_cup.gaits.json"), "w").write('{"cycles": {}}')
+open(os.path.join(_pack, "drivers", "pack_driver.py"), "w").write("# a pack's driver\n")
+_was = os.environ.get("OPENDUBS_SHOWS_DIR")
+os.environ["OPENDUBS_SHOWS_DIR"] = _tmp
+E._REG = None
+try:
+    reg = E.registry()
+    check("a tool pack in the content folder adds its tool types to the engine's",
+          "pack_cup" in reg and "openarm_gripper" in reg and content.tool_packs() == [_pack], sorted(reg))
+    check("... its gaits file and its driver are found in the pack",
+          E.tool_file(reg["pack_cup"], "pack_cup.gaits.json") == os.path.join(_pack, "pack_cup.gaits.json")
+          and reg["pack_cup"].output == "pack_driver"
+          and E.driver_path(reg["pack_cup"]) == os.path.join(_pack, "drivers", "pack_driver.py"),
+          (reg["pack_cup"].dirs, reg["pack_cup"].output))
+    check("... and an engine tool's driver is still the engine's (drivers/surge_at.py for the Surge hand)",
+          all(E.driver_path(t) in (None, os.path.join(E.HERE, "drivers", f"{t.output}.py"))
+              for t in reg.values() if t.dirs[0] == E.REG_DIR), None)
+    open(os.path.join(_pack, "suction_cup.yaml"), "w").write(open(os.path.join(E.REG_DIR, "suction_cup.yaml")).read())
+    E._REG = None
+    try:
+        E.registry()
+        dup = None
+    except E.RegistryError as e:
+        dup = str(e)
+    check("a pack that redefines an engine tool type is refused, naming both files",
+          dup is not None and "defined in both" in dup, dup)
+finally:
+    if _was is None:
+        os.environ.pop("OPENDUBS_SHOWS_DIR", None)
+    else:
+        os.environ["OPENDUBS_SHOWS_DIR"] = _was
+    E._REG = None
+    shutil.rmtree(_tmp)
+
 print()
 if FAILS:
     for f in FAILS:

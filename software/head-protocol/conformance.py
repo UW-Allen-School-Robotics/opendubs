@@ -206,6 +206,10 @@ class Run:
         for line, want in (("ARMED WAIT", "OK armed wait"), ("ARMED 5", "OK armed 5"), ("ARMED OFF", "OK armed off")):
             self.expect(F, line, line, "ARMED", lambda r, w=want: r == w)
         self.expect(F, "ARMED <malformed>", "ARMED SOON", "ARMED", lambda r: bool(hp.REPLY["armed_err"].match(r)))
+        # v10: READY is ARMED's name now (ARMED stays, as its alias, for a release).
+        for line, want in (("READY WAIT", "OK ready wait"), ("READY 5", "OK ready 5"), ("READY OFF", "OK ready off")):
+            self.expect(F, line, line, "READY", lambda r, w=want: r == w)
+        self.expect(F, "READY <malformed>", "READY SOON", "READY", lambda r: bool(hp.REPLY["ready_err"].match(r)))
         # v6: the pack's charge for the gauge; out of range is an ERR, never clamped.
         self.expect(F, "BATT 64 1", "BATT 64 1", "BATT", lambda r: r == "OK batt 64 1")
         self.expect(F, "BATT - 0 (no BMS reading)", "BATT - 0", "BATT", lambda r: r == "OK batt - 0")

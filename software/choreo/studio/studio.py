@@ -28,7 +28,8 @@ PORTS. The usual ones (composer 8091; face page 8765/8766; face and neck 4244/42
 free; otherwise the system picks free ones (the face door binds port 0 and reports what it got), and
 `status` says which. A busy port is never taken over.
 
-FOLDERS. Shows: $OPENDUBS_STUDIO_SHOWS, else `shows_dir` in the settings file, else ~/opendubs-shows
+FOLDERS. Shows (the CONTENT folder: shows, clips, themes, tool packs; content.py): $OPENDUBS_SHOWS_DIR,
+else the old $OPENDUBS_STUDIO_SHOWS, else `shows_dir` in the settings file, else ~/opendubs-shows
 when it exists, else a `shows` folder in the platform's data folder, first filled with the example
 shows. The library: $OPENDUBS_LIBRARY, else `library_dir`, else ~/opendubs-library when it exists,
 else `library` in the data folder. Neither is ever inside the app or the repository. Settings live
@@ -95,10 +96,11 @@ def load_settings() -> dict:
             s.update({k: v for k, v in tomllib.load(fh).items() if k in DEFAULTS})
     env = {"composer_port": ("OPENDUBS_STUDIO_PORT", int), "head": ("OPENDUBS_STUDIO_HEAD", str),
            "body_head": ("OPENDUBS_STUDIO_BODY_HEAD", str), "shows_dir": ("OPENDUBS_STUDIO_SHOWS", str),
+           "shows_dir_": ("OPENDUBS_SHOWS_DIR", str),
            "library_dir": ("OPENDUBS_LIBRARY", str), "limits": ("OPENDUBS_STUDIO_LIMITS", str)}
     for k, (var, typ) in env.items():
         if os.environ.get(var):
-            s[k] = typ(os.environ[var])
+            s[k.rstrip("_")] = typ(os.environ[var])     # shows_dir_: the content folder's name, which wins
     if os.environ.get("OPENDUBS_FACE_WEB_PORTS"):
         s["door_ports"] = [int(x) for x in os.environ["OPENDUBS_FACE_WEB_PORTS"].split(",")]
     if os.environ.get("OPENDUBS_NO_BROWSER"):
@@ -279,6 +281,7 @@ def cmd_up(a) -> int:
     choreo, face_web = tree / "software" / "choreo", tree / "software" / "face-web"
     shows, lib, lim = shows_dir(s), library_dir(s), limits_file(s)
     env = {**os.environ, "OPENDUBS_LIBRARY": str(lib), "PYTHONUNBUFFERED": "1",
+           "OPENDUBS_SHOWS_DIR": str(shows),            # the content folder (content.py): tool packs, themes
            "OPENDUBS_FACE_FRAMES": str(d["state"] / "face-frames.bin")}
     d["state"].mkdir(parents=True, exist_ok=True)
     py, comps, ports = sys.executable, {}, {}

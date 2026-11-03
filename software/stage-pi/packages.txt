@@ -1,0 +1,21 @@
+# The box's packages, one per line; a|b means the first of them the archive has. setup.sh installs them. A
+# signed self-update installs NONE (the robot's network may have no uplink): one that needs a package the box
+# lacks is refused, and says to run the setup by hand.
+cage
+chromium|chromium-browser
+curl
+alsa-utils
+python3
+fonts-dejavu-core
+avahi-daemon
+e2fsprogs
+parted
+openssl
+# The sound: PipeWire with WirePlumber (Raspberry Pi OS's own stack), and Bluetooth audio (stage_sound.py).
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+libspa-0.2-bluetooth
+bluez
+dbus-user-session

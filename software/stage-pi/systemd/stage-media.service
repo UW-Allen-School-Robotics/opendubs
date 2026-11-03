@@ -3,7 +3,7 @@
 [Unit]
 Description=OpenDubs stage: mount the media partition for local show videos
 After=local-fs.target systemd-udev-settle.service
-Before=stage-agent.service
+Before=stage-agent.service bluetooth.service
 
 [Service]
 Type=oneshot

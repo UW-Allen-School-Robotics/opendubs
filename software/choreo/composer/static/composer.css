@@ -61,8 +61,8 @@ button:not(:disabled):active { background: var(--line); }
 
 /* ---- timeline ---- */
 #tl { display: flex; overflow-y: auto; overflow-x: hidden; min-height: 0; border-bottom: 1px solid var(--line); }
-#heads { flex: 0 0 var(--head-w); background: var(--panel); border-right: 1px solid var(--line); z-index: 2; }
-#scroller { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; touch-action: pan-x pan-y; }
+#heads { flex: 0 0 var(--head-w); background: var(--panel); border-right: 1px solid var(--line); z-index: 2; align-self: flex-start; height: auto; }
+#scroller { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; touch-action: pan-x pan-y; align-self: flex-start; height: auto; min-height: 100%; }
 #canvas { position: relative; min-height: 100%; }
 .row { position: relative; height: var(--row-h); border-bottom: 1px solid var(--line); }
 .row.ruler { height: 30px; background: var(--panel-2); cursor: pointer; }
@@ -81,8 +81,15 @@ button:not(:disabled):active { background: var(--line); }
 .head.undeclared .name { color: var(--dim); font-weight: 400; }
 .head.muted .name { text-decoration: line-through; color: var(--dim); }
 .mute.on { background: var(--warn); color: #000; }
-.lane { cursor: crosshair; }
-.lane.undeclared { background: repeating-linear-gradient(45deg, transparent 0 8px, rgba(255,255,255,0.015) 8px 16px); }
+.lane { position: relative; cursor: crosshair; }
+.lane.undeclared { background: transparent; }
+.lane.undeclared::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(45deg, transparent 0 8px, rgba(255, 255, 255, 0.02) 8px 16px);
+}
 .lane.muted { opacity: 0.35; }
 .grid {
   background-image: linear-gradient(to right, var(--grid-bar) 1px, transparent 1px),
@@ -242,6 +249,10 @@ ul.hist { list-style: none; margin: 0; padding: 0; } ul.hist li { padding: 4px 0
 .files input, .files select { min-height: var(--hit); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; }
 button.danger { border-color: var(--bad); color: var(--bad); }
 
+/* a generated sheet (cue.py `generated:`): read-only here, edited at its source */
+#genBar { flex-basis: 100%; padding: 6px 12px; background: rgba(255, 200, 80, 0.12); border-bottom: 1px solid var(--warn, #c90); }
+#genBar[hidden] { display: none; }
+
 /* clip mode */
 #clipBar { flex-basis: 100%; display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: rgba(180, 140, 255, 0.15);
   border-bottom: 1px solid var(--clip); }
@@ -253,6 +264,237 @@ button.on { border-color: var(--accent); color: var(--accent); }
 .tnote { cursor: grab; }
 #inspector #nAtT, #inspector #nToT { font-size: 11px; }
 #audioState { font-size: 11px; min-width: 0; white-space: nowrap; }
+
+/* arm joints box */
+.arm-joints-box {
+  margin: 10px 0;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.joint-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.joint-slider-row:last-child {
+  margin-bottom: 0;
+}
+.joint-slider-row span.j-lbl {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  width: 22px;
+}
+.joint-slider-row input[type="range"] {
+  flex: 1;
+  height: 6px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  background: var(--line);
+  border: none;
+  border-radius: 3px;
+}
+.joint-slider-row span.j-val {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--txt);
+  width: 44px;
+  text-align: right;
+}
+
+/* arm routing & motion planner box */
+.arm-routing-box {
+  margin: 10px 0;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.arm-routing-box select, .arm-routing-box input {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--txt);
+  padding: 4px 6px;
+}
+.btn-plan-tool {
+  background: #38bdf8;
+  color: #0f172a;
+  font-weight: 600;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.btn-plan-tool:hover {
+  background: #7dd3fc;
+}
+.btn-plan-tool:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plan-preview-box {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+.plan-preview-box.pass {
+  background: rgba(46, 194, 126, 0.1);
+  border: 1px solid var(--good);
+}
+.plan-preview-box.fail {
+  background: rgba(224, 76, 76, 0.12);
+  border: 1px solid var(--bad);
+}
+.plan-preview-box .verdict-banner {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.plan-preview-box .verdict-banner.pass { color: var(--good); }
+.plan-preview-box .verdict-banner.fail { color: var(--bad); }
+.plan-preview-box .problems-list {
+  margin: 4px 0;
+  padding-left: 18px;
+  color: var(--bad);
+}
+.plan-preview-box .plan-msg {
+  color: var(--txt);
+  margin: 4px 0;
+  white-space: pre-wrap;
+}
+
+/* gripper control box */
+.grip-box {
+  margin: 10px 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.btn-grip {
+  background: var(--panel-2);
+  color: var(--txt);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-grip:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+.btn-grip.active {
+  background: var(--accent);
+  color: #0b1118;
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(25, 209, 196, 0.3);
+}
+.grip-slider-row input[type="range"] {
+  flex: 1;
+  height: 6px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  background: var(--line);
+  border: none;
+  border-radius: 3px;
+}
+
+/* ---- 3D Robot Visualizer Pane & Floating Overlay ---- */
+#robot3dBtn.active {
+  background: rgba(25, 209, 196, 0.22);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#bottom.has-robot3d {
+  grid-template-columns: 1fr 1.25fr 1fr 1fr;
+}
+.paneHead {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.btn-xs {
+  min-height: 22px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+.robot3d-box {
+  position: relative;
+  width: 100%;
+  height: calc(100% - 28px);
+  min-height: 180px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0a1017;
+  border: 1px solid var(--line);
+}
+.robot3d-box canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.robot3d-toolbar {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 10;
+  display: flex;
+  gap: 3px;
+  background: rgba(14, 20, 29, 0.75);
+  backdrop-filter: blur(4px);
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.robot3d-vbtn {
+  min-height: 20px;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--dim);
+}
+.robot3d-vbtn.active, .robot3d-vbtn:hover {
+  background: var(--panel-2);
+  color: var(--accent);
+  border-color: var(--line);
+}
+#robot3dPane.floating {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 500px;
+  height: 380px;
+  z-index: 900;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75);
+  padding: 8px 12px;
+}
 
 /* the crawling hand's floor plan (twin only) */
 .floorbox { display: flex; gap: 10px; align-items: flex-start; margin-top: 8px; flex-wrap: wrap; }

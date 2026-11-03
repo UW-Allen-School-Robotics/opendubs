@@ -38,8 +38,18 @@ PART = "floor_hand"
 RATE_HZ = 20.0
 
 
-def _surge_at():
-    spec = importlib.util.spec_from_file_location("surge_at", os.path.join(HERE, "drivers", "surge_at.py"))
+def _driver_module(fitted: dict):
+    """The driver module of the hand fitted at `base:` (effectors.driver_path: drivers/<output>.py in
+    its tool pack, else the engine's drivers/). A floor-hand driver provides SurgeAT and ShowPlayer, the
+    interface drivers/surge_at.py defines."""
+    import effectors
+    tid = fitted.get("base")
+    tool = effectors.registry().get(tid) if tid else None
+    path = effectors.driver_path(tool) if tool else None
+    if path is None:
+        raise RuntimeError(f"no driver for the floor hand {tid or '(none fitted)'}"
+                           + (f": drivers/{tool.output}.py is not in its pack or the engine" if tool and tool.output else ""))
+    spec = importlib.util.spec_from_file_location(tool.output, path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -57,7 +67,7 @@ class FloorHand:
 
     def mod(self):
         if self._mod is None:
-            self._mod = _surge_at()
+            self._mod = _driver_module(self.fitted())
         return self._mod
 
     def driver(self):

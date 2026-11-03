@@ -256,9 +256,123 @@ Each step still needs the user's word on the day, with a person there.
 3. **DHCP reservations** for devices on the robot Wi-Fi, each by its real MAC (randomized
    per-network MAC turned off on the device first):
    - the **show projector** (Choreography; it casts from the Thor, `notes/design/choreo-video.md`);
-   - the **stage Pi**, `opendubs-stage`: a Raspberry Pi 5 (a Pi 4 is the spare), kept on the
+   - the **stage Pi**, `opendubs2-stage` (one per robot, `opendubs<N>-stage`): a Raspberry Pi 5 (a Pi 4 is the spare), kept on the
      robot and carried off to drive a projector or a building video wall.
 4. Optional, only if the user asks: **J-1 and J-2** (`netjoin init`, `netjoin wired-first`).
+
+### Names, not addresses (approved 2026-10-24 for the next robot visit)
+
+The rule: robot devices are reached by **name**, or by an address **reserved** on the router.
+Never by a dynamic address written into code or config. The neck has already changed address
+between sessions.
+
+**Today** (read 2026-10-20 and 2026-10-22):
+- Reserved:
+  - the Thor `.10`;
+  - the StamPLC `.20`;
+  - the retired Tab5 `.14`, a stale entry.
+- Everything else is dynamic: the neck `.16`, the stage Pi `.19`, the tablets, the projector.
+- The router is the LAN's DNS server, but its only name is a default `router.lan` pointing at the
+  wrong subnet (192.168.88.1). No DHCP domain is set, and lease host names aren't published.
+  Names therefore rely on mDNS (`.local`), which Android apps and WebView resolve unreliably.
+
+**The scheme:**
+- A DHCP reservation for every robot device, at its current address (no renumbering).
+- Router DNS A records under one domain per robot, `<role>.opendubs2.internal`: `thor`,
+  `stamplc`, `neck`, `head`, `stage`, `projector`. The DHCP network hands out that domain.
+  `.internal` is reserved for private use; `.lan` works but isn't.
+- `.local` stays as a fallback for laptops and for devices that also live off the robot.
+
+**Check with the Thor lane:** the Thor is also on the campus Wi-Fi directly. With the DHCP domain
+set, its resolver should send `*.opendubs2.internal` to the wired link's DNS. Confirm once.
+
+**Then each lane swaps its addresses for names:**
+- the stage Pi's fallback URL (Tablet lane);
+- the robot-local `robot.env` and the kiosk's dashboard URL (Tablet and Thor lanes). If the tablet
+  moves to a name over HTTPS, the dashboard's certificate must list that name;
+- the Quest teleop clients (Arms lane).
+
+**Change list at the robot** (about 10 minutes, no lockout risk):
+1. Reservations: the neck → `.16`; the stage Pi → `.19`; the head tablet once its MAC is
+   confirmed (it uses a per-network private MAC, stable for Opendubs2 unless the network is
+   forgotten); the projector once identified.
+2. Remove the stale Tab5 reservation.
+3. DNS: `router.lan` → 10.42.2.1, the six A records, and the DHCP network domain.
+
+#### The runbook (prepared for review; run at the robot with the user present)
+
+**Before the visit, identify two devices.** The user can simply look:
+- **The head tablet:** on the tablet, Settings → Connections → Wi-Fi → Opendubs2 (gear icon).
+  Read the MAC shown there, and set "MAC address type" to the phone's own MAC, or leave the
+  per-network private one, which stays stable unless the network is forgotten. Alternatively, the
+  address holding the kiosk's `:8443` connections on the Thor is the head tablet's.
+- **The projector:** read its MAC under Settings → Network, with randomized MAC turned off.
+
+**1. Back up (from the Mac on Opendubs2), outside the repository:**
+
+```sh
+ssh opendubs2-router '/export terse' > "$HOME/Documents/dev/opendubs-router-backups/opendubs2-router-$(date +%F)-before-names.rsc"
+```
+
+**2. Apply.** One RouterOS script, run over `ssh opendubs2-router`.
+- Fill `NECK_MAC`, `STAGE_MAC` and `TAB5_MAC` (the stale Tab5 reservation) from
+  `/ip dhcp-server lease print` on the router. Fill `HEAD_MAC`/`HEAD_IP` and `PROJ_MAC`/`PROJ_IP`
+  at their current addresses, or delete those two lines.
+- Every new entry is tagged `opendubs-names`, so the rollback finds exactly these.
+- The Thor's and the StamPLC's existing reservations are not touched.
+
+```
+:local res do={
+  :local l [/ip dhcp-server lease find where mac-address=$mac]
+  :if ([:len $l] > 0) do={
+    :if ([/ip dhcp-server lease get ($l->0) dynamic]) do={ /ip dhcp-server lease make-static ($l->0) }
+    /ip dhcp-server lease set ($l->0) address=$ip comment=("$c opendubs-names")
+  } else={
+    /ip dhcp-server lease add server=defconf mac-address=$mac address=$ip comment=("$c opendubs-names")
+  }
+}
+$res mac=NECK_MAC ip=10.42.2.16 c="neck"
+$res mac=STAGE_MAC ip=10.42.2.19 c="stage-pi"
+$res mac=HEAD_MAC ip=HEAD_IP c="head-tablet"
+$res mac=PROJ_MAC ip=PROJ_IP c="projector"
+/ip dhcp-server lease remove [find where mac-address=TAB5_MAC]
+/ip dns static set [find where name=router.lan] address=10.42.2.1
+:foreach n,ip in={"router"="10.42.2.1";"thor"="10.42.2.10";"stamplc"="10.42.2.20";"neck"="10.42.2.16";"stage"="10.42.2.19";"head"="HEAD_IP";"projector"="PROJ_IP"} do={
+  /ip dns static add name=("$n.opendubs2.internal") address=$ip comment=opendubs-names
+}
+/ip dhcp-server network set [find where address=10.42.2.0/24] domain=opendubs2.internal
+```
+
+**3. Check** (read-only):
+
+```sh
+for n in router thor stamplc neck stage head projector; do printf '%s ' $n; dig @10.42.2.1 +short $n.opendubs2.internal; done
+```
+
+```sh
+ssh opendubs2-router '/ip dhcp-server lease print terse where comment~"opendubs-names"'
+```
+
+Devices pick up the domain at their next DHCP renewal, within 30 minutes; a Wi-Fi reconnect does
+it at once. The user can open `http://thor.opendubs2.internal:8080` on the tablet and look.
+
+**4. Roll back** (only if needed; the robot LAN keeps working either way):
+
+```
+/ip dns static remove [find where comment=opendubs-names]
+/ip dns static set [find where name=router.lan] address=192.168.88.1
+/ip dhcp-server network set [find where address=10.42.2.0/24] domain=""
+/ip dhcp-server lease remove [find where comment~"opendubs-names"]
+```
+
+The devices fall back to dynamic leases, normally at the same addresses. The retired Tab5's
+reservation is not restored: nothing uses it.
+
+**5. After it's applied, send each lane its name swaps:**
+- **Tablet:** the stage Pi's `ROBOT_FALLBACK` → `thor.opendubs2.internal`.
+- **Tablet and Thor:** `robot.env` hosts, and the kiosk's dashboard URL. The TLS certificate in
+  `/etc/opendubs/tls` must list `thor.opendubs2.internal` before the kiosk uses it over HTTPS.
+- **Arms:** the Quest clients' Thor address.
 
 ### How far the robot's Wi-Fi reaches (for the stage Pi and the projector)
 

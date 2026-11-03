@@ -4,7 +4,12 @@ page (notes/design/display-devices.md):
 
   GET  /device.json     what this box is and how it is doing, for the page's ready card:
        {"device": "stage-pi", "name": <hostname>, "model": <the board>,
-        "audio_output": "usb" | "hdmi" | "none", "audio_name": <the sound card's name> | null,
+        "audio_output": "hdmi" | "jack" | "usb" | "bt" | "none"   (what is ACTUALLY playing),
+        "audio_name": <that output's own name> | null, "audio_setting": "auto" | "hdmi" | "jack" | "usb" | "bt",
+        "audio_latency_ms": <the output's typical added delay> | null,
+        "audio_why": <why there is no sound, in the operator's words> | null   (only with "none": the robot
+                     refuses a show whose music is to play here, with this as the reason, #591),
+        "bt": {"addr", "name", "paired", "connected"} | null,
         "under_voltage_now": bool, "under_voltage_since_boot": bool, "throttled_now": bool,
         "screen": {"connected": bool, "mode": "1920x1080" | "1920x1080@60" | null},
         "media": {"items": n, "bytes": used, "free": bytes, "syncing": bool} | null}
@@ -31,6 +36,14 @@ ever served, so a copy is right or absent. Priority: videos, then songs, the mos
 When the partition is full, the lowest-priority copies (the oldest added) make room for higher ones; a
 copy no longer in the robot's index is deleted.
 
+THE SOUND (stage_sound.py): one selectable output for the show's music, set from the dashboard. The box
+pulls the dashboard's commands: every REPORT_EVERY_S it POSTs its sound report to the robot's
+/api/stage/box/report and runs what the answer carries (one at a time, beside the report), so this agent
+still listens on loopback only.
+
+THE UPDATE (stage_update.py): every UPDATE_EVERY_S the agent looks for a newer signed copy of the box's
+software on the robot, and installs it between shows, then reboots.
+
 THE WATCHDOG: once the browser has the page (stage-kiosk writes it), a page that has not checked in for
 SILENT_S is restarted (systemctl restart stage-kiosk), backing off to SILENT_MAX_S.
 
@@ -44,8 +57,10 @@ import mimetypes
 import os
 import re
 import shutil
+import queue
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -53,8 +68,15 @@ import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import stage_sound  # noqa: E402  (installed beside this file)
+import stage_update  # noqa: E402
+
 PORT = 8095
 RUN = os.environ.get("STAGE_RUN", "/run/stage")
+SOUND_RUN = os.environ.get("STAGE_SOUND_RUN", "/run/stage-sound")    # the agent's own: the kiosk's is wiped on restart
+SOUND_EVERY_S, REPORT_EVERY_S = 3, 2
+UPDATE_EVERY_S = 120
 MEDIA = os.environ.get("STAGE_MEDIA", "/srv/stage-media")
 SILENT_S, SILENT_MAX_S = 30.0, 120.0
 SYNC_EVERY_S = 60
@@ -112,26 +134,20 @@ def screen(drm: str = "/sys/class/drm", forced: str = "") -> dict:
     return {"connected": False, "mode": None}
 
 
-def audio_name(output: str | None, cards: str | None) -> str | None:
-    """The sound card's own name from /proc/asound/cards, for the output stage-audio chose."""
-    for line in (cards or "").splitlines():
-        if " - " not in line or "]:" not in line:
-            continue
-        if (output == "usb" and "USB-Audio" in line) or (output == "hdmi" and "vc4-hdmi" in line.lower().replace("_", "-")):
-            return line.split(" - ", 1)[1].strip()
-    return None
-
-
 def device() -> dict:
     try:
         thr = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=2).stdout
     except (OSError, subprocess.SubprocessError):
         thr = None
-    out = _read(f"{RUN}/audio") or "none"
+    snd = sound.report() if sound else {}
+    silent = not snd.get("actual")
     return {"device": "stage-pi", "name": socket.gethostname(),
             "model": (_read("/proc/device-tree/model") or "").rstrip("\x00") or None,
-            "audio_output": out if out in ("usb", "hdmi") else "none",
-            "audio_name": audio_name(out, _read("/proc/asound/cards")),
+            "audio_output": snd.get("actual") or "none", "audio_name": snd.get("name"),
+            "audio_setting": snd.get("setting"), "audio_latency_ms": snd.get("latency_ms"),
+            "audio_why": (snd.get("error") or snd.get("why") or ("no sound output found" if sound
+                          else "the box's sound control is not running")) if silent else None,
+            "bt": dict(snd["bt"]) if snd.get("bt") else None,
             **throttled(thr), "screen": screen(forced=_conf("MODE")), "media": media_summary()}
 
 
@@ -516,9 +532,85 @@ def watchdog() -> None:
         check_once()
 
 
+# ---- the sound, and the dashboard's commands for it --------------------------------------------------
+
+sound: stage_sound.Sound | None = None
+commands: queue.Queue = queue.Queue()
+results: dict[str, dict] = {}                     # command id -> {"ok", "text", "at"}: told to the robot
+queued: set[str] = set()
+
+
+def busy_now() -> bool:
+    """A show armed or playing on the robot that answers first; not busy when none answers."""
+    return next((b for b in (robot_busy(o) for o in origins()) if b is not None), False) is True
+
+
+def sound_loop() -> None:
+    while True:
+        try:
+            sound.tick()
+        except Exception as e:                              # noqa: BLE001 — keep applying next time
+            stage_sound.live["error"] = f"sound: {e}"[:160]
+        time.sleep(SOUND_EVERY_S)
+
+
+def worker() -> None:
+    """The dashboard's commands, one at a time (a scan or a pairing takes a while)."""
+    while True:
+        c = commands.get()
+        try:
+            r = sound.command(c)
+        except Exception as e:                              # noqa: BLE001
+            r = {"ok": False, "text": f"failed: {e}"[:160]}
+        results[c["id"]] = {**r, "at": time.time()}
+        queued.discard(c["id"])
+        for k in sorted(results, key=lambda k: results[k]["at"])[:-20]:
+            results.pop(k, None)                            # the newest 20 are enough
+
+
+def report_once(post=None) -> None:
+    """Tell the robot how the sound is, and take any commands its answer carries."""
+    body = json.dumps({"name": socket.gethostname(), "sound": sound.report(), "results": results,
+                       "queued": sorted(queued), "software": stage_update.status}).encode()
+    for o in origins():
+        try:
+            req = urllib.request.Request(o + "/api/stage/box/report", data=body, method="POST",
+                                         headers={"Content-Type": "application/json"})
+            with (post or urllib.request.urlopen)(req, timeout=4) as r:
+                answer = json.load(r) or {}
+        except (OSError, ValueError, urllib.error.URLError):
+            continue
+        for c in answer.get("commands") or []:
+            if isinstance(c, dict) and isinstance(c.get("id"), str) and c["id"] not in results and c["id"] not in queued:
+                queued.add(c["id"])
+                commands.put(c)
+        return
+
+
+def updater() -> None:
+    """The box's own update, from the robot (stage_update.py): signed, between shows, then a reboot."""
+    while True:
+        try:
+            stage_update.check_once([o for o in origins() if robot_busy(o) is not None][:1], busy_now)
+        except Exception as e:                              # noqa: BLE001 — keep running what it has
+            stage_update.status.update(state=f"check failed: {e}"[:160])
+        time.sleep(UPDATE_EVERY_S)
+
+
+def reporter() -> None:
+    while True:
+        report_once()
+        time.sleep(REPORT_EVERY_S)
+
+
 def main() -> None:
+    global sound
+    os.makedirs(SOUND_RUN, exist_ok=True)
+    sound = stage_sound.Sound(MEDIA, SOUND_RUN, _conf("AUDIO", "auto"), robot_busy=busy_now)
     threading.Thread(target=watchdog, daemon=True).start()
     threading.Thread(target=syncer, daemon=True).start()
+    for t in (sound_loop, worker, reporter, updater):
+        threading.Thread(target=t, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 

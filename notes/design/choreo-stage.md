@@ -49,6 +49,10 @@ depth camera → tracker (ROS 2 topic) → relay (#451): adapt(msg, received_mon
 
 ## The page
 
+- **A show's video plays clean.** The skeleton layer (the dancer, a live person) is drawn over a show's video
+  only when the show says `video: {skeletons: true}`, as Them Bones does; any other show's video has nothing
+  drawn over it, and the canvas is not redrawn per frame. Between shows, and for a show with no picture, the
+  page's own scene (the light table and the dancer) is shown as before.
 - Full-screen canvas over the show's video when a show is running (below), else over `?video=` for a
   test (the show's stage cut: bed + hits + song, no skeleton baked in — library `them-bones-stage`).
   `?hud=1` shows the feed, the show, the video's error, the frame rate and the latency.
@@ -61,6 +65,8 @@ depth camera → tracker (ROS 2 topic) → relay (#451): adapt(msg, received_mon
   — the running show's beat grid, else `?bpm=`. The offline renders use the richer per-section dance (`.generator/bones_dancer.py`).
 - **The kiosk:** `window.OpenDubsKiosk?.alive?.()` every 5 s from the draw loop, so a page that stops
   drawing stops checking in and the app reloads it; it reconnects its WebSocket itself, with back-off.
+- **Deploys:** the page polls `/api/frontend-version` every 15 s, as the dashboard does, and reloads
+  itself when it changes, but only between shows, so a deploy reaches the stage box with no one there.
 
 ## The show's timing — the only thing the page needs from the Thor
 
@@ -107,10 +113,12 @@ video wall, a TV) runs `/stage/` full-screen. The image is the Tablet lane's (`s
 It plays the show's video **and the show's music**: the song inside the video (the #449 rule), or the
 song alone when a show has no video. The tablet keeps dialogue.
 
-- **Any screen.** The page never assumes 1920×1080:
+- **Any screen.** The page never assumes 1920×1080 or any aspect (checked headless at 1920×1080, 3840×1080,
+  5760×1080, 1080×1920, 1366×768 and 4096×2160: the whole picture every time, never cropped):
   - the video is letterboxed or pillarboxed to its own aspect (`object-fit: contain`);
   - the skeletons are placed and scaled inside the video's picture, by its height and never wider than it;
-  - the canvas is sized only when the viewport changes, and capped at 4K pixels on a very large wall.
+  - the canvas is sized only when the viewport changes, and capped at 4K pixels on a very large wall, and at 1080p's on a stage box, whose
+    screen scales it up (a Pi drawing a 4K canvas every frame would starve the video).
 - **No screen.** On a Pi with only a speaker, the browser runs on a virtual output and may never draw.
   The show's media is also kept in step from a 250 ms timer, so the music plays to the show's clock with
   nothing drawn.
@@ -121,23 +129,32 @@ song alone when a show has no video. The tablet keeps dialogue.
   - the clock to the Thor;
   - an under-voltage warning (now, or since boot).
 
-  Once a show is **armed** (loaded) the screen goes black, and stays black until the show starts. `?card=0`
+  Once a show is **READY** (loaded, waiting for the deadman) the screen goes black, and stays black until the show starts. `?card=0`
   hides the card.
 - **The clock.** The page measures its own offset to the Thor's show clock over its WebSocket (ping/pong,
   the best of the last 40 round trips, refreshed every 10 s), as show audio does. No chrony is needed on the
   Pi. The card shows the error bound.
-- **The audio path.** `projector.json` holds the stage's own leads, set by ear at the robot beside the
-  cast's: `stage_audio_lead_s` (USB adapter, HDMI audio or the screen's speakers) and `stage_video_lead_s`
-  (the screen's picture delay). A video carrying the song starts by the audio lead; a picture alone, by the
-  video lead; the song alone, by the audio lead.
+- **The audio path.** The box plays the show's music through ONE output it selects: `hdmi`, `jack` (the Pi 4's
+  3.5 mm), `usb` (a USB adapter) or `bt` (a paired Bluetooth speaker), chosen on the box's card (Tablet lane,
+  #554) and changed only between shows. The page plays to whatever the box selected; it picks only the
+  **audio lead**, the time a heard item (the video carrying the song, or the song alone) starts early:
+  1. the robot's lead for that output, set by ear: `projector.json` `stage_audio_leads_s` {hdmi, jack, usb, bt},
+     nudged on the projector card for the output the stage page reports, so each output keeps its own;
+  2. else the box's estimate of that output's delay (`device.json` `audio_latency_ms`: hdmi 40, usb 20, jack
+     20, bt 200) plus `stage_audio_lead_s`, the stage's general trim.
+
+  The lead is fixed when the show starts, so a changing estimate never seeks the music. One lead serves the
+  picture too: the browser holds the picture back to match its sound output's delay. A picture alone starts
+  by `stage_video_lead_s` (the screen's picture delay). The page reports the lead it used (`audio_lead_ms`,
+  `audio_lead_from`), with the box's `audio_setting` (what was chosen) beside `audio_output` (what plays).
 - **The video, like a streaming service (decided 2026-10-21).** The robot's Wi-Fi is solid in the same
   room, usually fine at 10–25 m in line of sight, and marginal through walls.
   1. **The box's own copy first.** The stage box keeps copies of the library's videos and songs on its
      media stick, synced while idle from the robot's existing library routes (`GET /api/library/index`,
-     `GET /api/library/item/<sha256>`, checksum-verified), never while a show is armed or running. The page
+     `GET /api/library/item/<sha256>`, checksum-verified), never while a show is loaded (READY) or running. The page
      asks `http://127.0.0.1:8095/media/<sha256>?id=<library id>` and, given a copy, plays it from there:
      instant, no Wi-Fi involved.
-  2. **Otherwise stream, with a head start.** When the show is armed the page points its video at the robot
+  2. **Otherwise stream, with a head start.** When the show is loaded (READY) the page points its video at the robot
      and lets it buffer from where the show starts. The GO waits until the buffer reaches `stage_buffer_s`
      (projector.json, 25 s, 5–120). There is one exception: a paused video buffers only so far. Chromium
      caps it in bytes (about 14 MB measured, which is 14 s of an 8 Mbit/s file and about a minute of a
@@ -159,7 +176,7 @@ The contract with the Pi (agreed with the Tablet lane):
 
 | what | where | |
 |---|---|---|
-| device status | `GET http://127.0.0.1:8095/device.json` (CORS `*`, the Private Network Access preflight answered) | `{"device": "stage-pi", "name", "model", "audio_output": usb\|hdmi\|none, "audio_name", "under_voltage_now", "under_voltage_since_boot", "throttled_now" (null when unreadable), "screen": {"connected", "mode"}}` |
+| device status | `GET http://127.0.0.1:8095/device.json` (CORS `*`, the Private Network Access preflight answered) | `{"device": "stage-pi", "name", "model", "audio_output": hdmi\|jack\|usb\|bt\|none (what plays), "audio_setting": auto\|hdmi\|jack\|usb\|bt (what was chosen), "audio_latency_ms", "audio_name", "under_voltage_now", "under_voltage_since_boot", "throttled_now" (null when unreadable), "screen": {"connected", "mode"}}` |
 | alive | `POST http://127.0.0.1:8095/alive` every 5 s | from the draw loop, so a page that stops drawing stops checking in. With no screen it is sent from the sync timer instead. The Pi restarts the browser after 30 s of silence |
 | local copies | `HEAD/GET http://127.0.0.1:8095/media/<sha256>?id=<library id>` | 200/206 with byte ranges, or 404; only verified copies. `device.json` adds `"media": {"items", "bytes", "free", "syncing"}` (null without a media stick), shown on the ready card |
 | upward | `{"page": {...}}` every 5 s over `/ws/skeleton` | the device's fields (the screen's flattened to `screen_connected`, `screen_mode`), plus `viewport`, `dpr`, `clock_err_ms`, and `sound` (`on`, or `muted` when the browser refused autoplay with sound). The dashboard keeps the newest per page (`GET /api/stage` → `pages_info`); the projector card reads the first as `outputs.stage.page` |

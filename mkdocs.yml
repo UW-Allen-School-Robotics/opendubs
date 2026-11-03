@@ -109,7 +109,7 @@ nav:
       - Payload Modules (in development):
           - Scissor Lift Module: build/scissor-lift.md
           - Pan/Tilt HMI Module: build/pan-tilt-hmi.md
-          - Depth Camera Mount: build/depth-camera.md
+          - Depth Camera Mount (Femto Bolt): build/depth-camera.md
       - Lidar (Front & Rear): build/lidar.md
       - RC Receiver: build/rc-receiver.md
       - Stage Display Box (for shows): build/stage-display.md
@@ -129,8 +129,10 @@ nav:
       - Deployment & portability: portability-audit.md
       - Network architecture: network-architecture.md
       - OpenArm setup: openarm-setup.md
+      - The arm service on gafro: openarm-arm-service.md
       - WebXR teleop: teleop-setup.md
       - Arm controls on the tablet: arm-dashboard.md
+      - Arm motion planning (simulation): motion-planning.md
   - Hardware:
       - Bill of materials: hardware-bom.md
   - Reference:

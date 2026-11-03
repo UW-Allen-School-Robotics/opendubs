@@ -76,9 +76,11 @@ ARM_SLOTS = ("ARM_L", "ARM_R")
 CH5_MODES = ("STANDBY", "MANUAL", "AUTO")
 CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_IDLE": "STANDBY",
                  "AUTONOMOUS": "AUTO", "AUTONOMOUS_CONTROL": "AUTO", "MANUAL_CONTROL": "MANUAL"}
-REQUIRES_KEYS = ("arms", "tab5", "rc_authority")
+REQUIRES_KEYS = ("arms", "head", "rc_authority")
+REQUIRES_OLD_NAMES = {"tab5": "head"}   # the old names a show may still use; read as the new one
+
 MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE", "CRAWL")
-TAB5_SLOTS = ("HEAD", "FACE", "DEVICE")   # the pan/tilt head, the face and its volume/brightness
+TAB5_SLOTS = ("HEAD", "FACE", "DEVICE")   # the parts the head drives: the neck, the face and its volume/brightness
 
 # ---- DEVICE: the head's media volume and screen brightness (head protocol v5) -------------------
 # Show-level `device: {volume, brightness}` sets both at the start; a DEVICE cue changes one, with an
@@ -287,7 +289,12 @@ SOUND_SECS_SANITY = (0.05, 600.0)
 # Where sound plays (workplan DEC-5 / DEC-11, item 1.5). A show may say, for its music and for each
 # sound; the operator may override at run time (Show.audio_override), and the show is re-checked
 # against the override — a sound an output cannot play is an ERROR, never silence.
-AUDIO_OUTPUTS = ("tablet", "tab5", "thor")
+AUDIO_OUTPUTS = ("tablet", "tab5", "thor", "speakerphone", "stage")
+# The devices a show's music can be CHOSEN to play on at play time (notes/design/choreo-audio-output.md):
+# the operator's choice, else the show's music output, else the stage box when the show's video plays
+# there, else the tablet. tablet and speakerphone are show-audio outputs on the dashboard's hub; stage is
+# the stage box's speaker, through the stage page. A chosen device that isn't ready refuses the run.
+MUSIC_DEVICES = ("tablet", "speakerphone", "stage")
 # What a sound IS (notes/design/choreo-audio.md, the user's decision 2026-10-20): MUSIC (the soundtrack,
 # background, effects) plays from the projector's speaker when a projector is ready; DIALOGUE (scripted
 # lines, the voice assistant) always from the tablet. Unmarked is dialogue, so speech never reaches the
@@ -297,7 +304,8 @@ DEFAULT_AUDIO_ROLE = "dialogue"
 DEFAULT_AUDIO_OUTPUT = "tablet"          # DEC-5: the tablet, unless the show or operator says otherwise
 # What each output can play TODAY. The Tab5 has its six built-in earcons and no path for files yet;
 # the tablet and a Thor speaker play files. No Thor speaker is fitted yet (a notice says so).
-CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",)}
+CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",), "speakerphone": ("file",),
+            "stage": ("file",)}
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's own
 # slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can override.
 # Used to WARN when a head cue arrives before the previous move can have finished; sim_preview.py
@@ -311,33 +319,22 @@ LIFT_MAX_S = 8.0               # a single continuous lift command
 # in firmware/tab5_idf/app_face/app_face.cpp (feat/tab5-idf-subtractive, 12f5845). Five, not the
 # six or seven the notes describe. The head takes them as `EMOTE <name>`, case-insensitively.
 FACE_EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
-# Themes the face KNOWS: the core's own and the content folder's face/themes/, as the head protocol's
-# looks.py discovers them (the one implementation; the content split moved the seasonal themes out
-# of the core). "none" is the old name for "plain", and the head accepts both. Others are AUTHORED:
-# installed on a head at run time by its `CFG <url>` verb, so the validator cannot know them — a show
-# lists the ones it uses under `themes:` (plan 1.10), exactly as it lists local sound files.
-HEAD_PROTOCOL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "head-protocol")
-
-
-def face_themes() -> tuple:
-    """The themes the face knows on this machine: looks.theme_ids() (the core's and the content
-    folder's), plus "none". Without the head protocol here, the core's "plain" only."""
-    try:
-        if HEAD_PROTOCOL_DIR not in sys.path:
-            sys.path.insert(0, HEAD_PROTOCOL_DIR)
-        import looks
-        found = {t.lower() for t in looks.theme_ids()}
-    except Exception:  # noqa: BLE001  no head protocol on this machine: the core's own theme
-        found = {"plain"}
-    return tuple(sorted(found | {"plain", "none"}))
-# Eye skins (plan 4.6, head protocol v2 `SKIN <name>`). The skins the face draws in CODE — one name
-# each; `default` is the standard eyes and an ordinary SKIN argument. The single source is CODE_SKINS
-# in software/face-web/engine/skins/index.js (the tablet lane); a test keeps this in step. Any other
-# skin is a LIBRARY item (library.py), checked against the library index on this machine. A Tab5
-# answers SKIN with ERR unknown; the tablet face falls back to `default` for a name it lacks, and a
-# reserved robot state (DEGRADED, E_STOP) always shows `default`.
-CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
-              "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
+# Themes the face KNOWS: the core's own and the content folder's face/themes/ (face_looks.face_themes(),
+# through the head protocol's looks.py; the content split moved the seasonal themes out of the core).
+# "none" is the old name for "plain", and the head accepts both. Others are AUTHORED: installed on a
+# head at run time by its `CFG <url>` verb, so the validator cannot know them — a show lists the ones
+# it uses under `themes:` (plan 1.10), exactly as it lists local sound files under `sounds:`.
+# Eye skins (plan 4.6, head protocol v2 `SKIN <name>`). CODE skins are drawn by code — one name each;
+# `default` is the standard eyes and an ordinary SKIN argument. CODE_SKINS are the face ENGINE's own
+# (head_protocol.CODE_SKINS, kept in step with software/face-web/engine/skins/index.js by a test);
+# code_skins() adds the content folder's (face/skins/, through the head protocol's looks.py), such as a
+# seasonal skin that left the core. Any other skin is a picture LIBRARY item (library.py), checked
+# against the library index on this machine. The tablet face falls back to `default` for a name it
+# lacks, and a reserved robot state (DEGRADED, E_STOP) always shows `default`.
+import face_looks  # noqa: E402
+CODE_SKINS = face_looks.builtin_code_skins()
+code_skins = face_looks.code_skins
+face_themes = face_looks.face_themes
 # `IDLE` is the head's own word for "the robot's idle skin / theme" (head protocol v5: every show end
 # sends SKIN IDLE and THEME IDLE), so no skin or theme may be called `idle`, and a show never names it.
 IDLE_NAME = "idle"
@@ -427,7 +424,9 @@ SLOT_KEYS = {
 VIDEO_OUTPUTS = ("cast", "hdmi", "stage", "off")   # stage: the stage page (choreo-stage.md)
 DEFAULT_VIDEO_OUTPUT = "cast"           # the user's decision, 2026-10-20: casting first
 VIDEO_ENDS = ("black", "hold")
-VIDEO_KEYS = {"output", "required"}     # the show-level `video:` block
+VIDEO_KEYS = {"output", "required", "skeletons"}     # the show-level `video:` block
+# skeletons: the stage page draws its skeleton layer (the beat's dancer, a live person) over the show's
+# video, as Them Bones does; without it a show's video plays clean on the stage (choreo-stage.md)
 PLACEMENT_KEYS = set(TIME_KEYS) | {"clip", "repeat", "strength", "time_scale", "mirror"}
 # A mirrored placement plays a clip on the other side (workplan 1.12): arm and gripper slots swap,
 # and the head's pan reflects about centre. Arm joints are written in each arm's OWN outward sense,
@@ -436,7 +435,40 @@ MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R":
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
             "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
-            "start_countdown_s", "device", "video", "can_skip", "tools", "crawler"}
+            "start_countdown_s", "device", "video", "can_skip", "tools", "crawler", "generated"}
+# GENERATED: a cue sheet another tool made from its own source (ENCORE: notes/design/choreo-content-split.md)
+# says so here. The source is the original and the sheet is made again from it at every push, so the
+# composer and studio open a marked sheet read-only. Only the marker's shape is checked; the tool that
+# made the sheet is the only writer of it.
+#   generated: { by: encore, source: encore/shows/<id>.yaml, sha256: "<the source file's bytes>",
+#                revision: "<the tool's commit>" }
+GENERATED_KEYS = ("by", "source", "sha256", "revision")
+
+
+def generated_marker(doc) -> dict | None:
+    """The sheet's `generated:` marker, or None for a sheet written by hand (or a malformed marker,
+    which the validator reports)."""
+    g = doc.get("generated") if isinstance(doc, dict) else None
+    return g if isinstance(g, dict) else None
+
+
+def generated_problems(g) -> list[str]:
+    """What is wrong with a `generated:` marker's shape (empty when nothing is)."""
+    if not isinstance(g, dict):
+        return ["must be a mapping { by, source, sha256, revision }"]
+    out = [f"unknown key {k!r} (known: {', '.join(GENERATED_KEYS)})" for k in g if k not in GENERATED_KEYS]
+    for k in ("by", "source", "sha256"):
+        if not isinstance(g.get(k), str) or not g[k].strip():
+            out.append(f"{k}: is required, as a string")
+    src = g.get("source")
+    if isinstance(src, str) and (src.startswith("/") or ".." in src.replace("\\", "/").split("/")):
+        out.append("source: is a path inside the content folder: not absolute, no ..")
+    sha = g.get("sha256")
+    if isinstance(sha, str) and not re.fullmatch(r"[0-9a-f]{64}", sha):
+        out.append("sha256: is 64 lowercase hex digits, the hash of the source file's bytes")
+    if "revision" in g and not (isinstance(g["revision"], str) and g["revision"].strip()):
+        out.append("revision: is a string (quote it: a commit id of digits reads as a number)")
+    return out
 # EFFECTORS: the robot's parts a show NEEDS — derived from the slots its cues use, never hand-listed —
 # and the names the robot reports their availability by (the runner's preflight). A show may list in
 # `can_skip:` the parts it can do without: the runner then offers that variant, the show without
@@ -491,7 +523,7 @@ NOT_EXECUTABLE = {
              "offers it without the hand on the operator's approval. Moves the real hand has not run before "
              "play too, and the run names them",
     "SOUND": "SOUND: files routed to the tablet play there (workplan 4.2); the Thor has no speaker "
-             "yet; Tab5 earcons play in the twin only — the head's audio is off by decision "
+             "yet; the head's built-in earcons play in the twin only — the head's audio is off by decision "
              "(2026-10-08) and the robot's runner holds earcons back",
 }
 
@@ -528,7 +560,7 @@ def slot_requirements(slot: str) -> dict:
     if slot in ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R"):
         out["arms"] = "active"
     if slot in TAB5_SLOTS:
-        out["tab5"] = True
+        out["head"] = True
     return out
 
 
@@ -591,6 +623,14 @@ class Show:
         self.id = doc.get("id") or ""
         self.name = doc.get("name") or self.id
         self.requires = doc.get("requires") or {}
+        # `tab5:` is the old name for `head:` (the head is the Galaxy tablet now): read as `head`
+        self.requires_old = []
+        if isinstance(self.requires, dict):
+            self.requires = dict(self.requires)
+            for old, new in REQUIRES_OLD_NAMES.items():
+                if old in self.requires:
+                    self.requires_old.append(old)
+                    self.requires.setdefault(new, self.requires.pop(old))
         self.cues = doc.get("cues") or []
         self.doc = doc
         self.audio_override = None      # the operator's run-time output choice; None = as written
@@ -894,7 +934,8 @@ class Show:
         vblock = self.doc.get("video")
         if vblock is not None:
             if not isinstance(vblock, dict):
-                P(Problem("video: must be a mapping {output: cast|hdmi|off, required: true|false}"))
+                P(Problem("video: must be a mapping {output: cast|hdmi|stage|off, required: true|false, "
+                          "skeletons: true|false}"))
             else:
                 for k in vblock:
                     if k not in VIDEO_KEYS:
@@ -903,6 +944,12 @@ class Show:
                     P(Problem(f"video: output {vblock['output']!r} is not one of {', '.join(VIDEO_OUTPUTS)}"))
                 if "required" in vblock and not isinstance(vblock["required"], bool):
                     P(Problem("video: required must be true or false"))
+                if "skeletons" in vblock and not isinstance(vblock["skeletons"], bool):
+                    P(Problem("video: skeletons must be true or false"))
+
+        if "generated" in self.doc:
+            for msg in generated_problems(self.doc["generated"]):
+                P(Problem(f"generated: {msg}"))
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:
@@ -917,6 +964,9 @@ class Show:
         for k in self.doc:
             if k not in TOP_KEYS:
                 notices.append(f"top-level key {k!r} is not part of format v1 and is ignored")
+        for old in self.requires_old:
+            notices.append(f"requires: {old}: is the old name for {REQUIRES_OLD_NAMES[old]}: — it still works; "
+                           f"write {REQUIRES_OLD_NAMES[old]}: true")
         declared = set(self.doc.get("slots") or [])
         for s in sorted(declared, key=str):
             if s not in SLOTS:
@@ -1186,9 +1236,9 @@ class Show:
                         P(Problem(f"device: {k} {v!r} must be 0..1"))
                     elif k == "brightness" and v < DEVICE_BRIGHT_LOW:
                         warnings.append(Problem(_bright_low("device:", v)))
-                if (dev.keys() & {"volume", "brightness"}) and self.requires.get("tab5") is not True:
+                if (dev.keys() & {"volume", "brightness"}) and self.requires.get("head") is not True:
                     P(Problem("requires: this show sets the head's volume or brightness (device:) — "
-                              "add tab5: true, so the preflight checks the head is up"))
+                              "add head: true, so the preflight checks the head is up"))
         undeclared = used - declared
         if declared and undeclared:
             P(Problem("cues use slots the show did not declare: " + ", ".join(sorted(undeclared))
@@ -1882,7 +1932,7 @@ class Show:
         if not isinstance(name, str) or not name:
             p.append(f"{where}: play needs a sound name")
         elif name not in TAB5_EARCONS and not self._is_file_sound(name):
-            p.append(f"{where}: unknown sound {name!r} — not a Tab5 earcon "
+            p.append(f"{where}: unknown sound {name!r} — not one of the head's built-in earcons "
                      f"({', '.join(TAB5_EARCONS)}), no file {SOUND_DIR}/{name}.* beside the show, "
                      "and not listed in the show's sounds:")
         else:
@@ -1892,7 +1942,7 @@ class Show:
             else:
                 has = (("earcon",) if name in TAB5_EARCONS else ()) + (("file",) if self._is_file_sound(name) else ())
                 if not set(has) & set(CAN_PLAY[route]):
-                    what = "a Tab5 earcon" if name in TAB5_EARCONS else "a sound file"
+                    what = "one of the head's built-in earcons" if name in TAB5_EARCONS else "a sound file"
                     p.append(f"{where}: the {route} cannot play {name!r} — it is {what}, and the "
                              f"{route} plays {', '.join(CAN_PLAY[route])}s"
                              + (f"; add {SOUND_DIR}/{name}.wav for the {route}" if "file" in CAN_PLAY[route] else ""))
@@ -1939,7 +1989,7 @@ class Show:
         cosmetic: `rc_authority: AUOT` would otherwise pass here and refuse (or worse) later."""
         req = self.requires
         if not isinstance(req, dict):
-            return ["requires: must be a mapping of arms / tab5 / rc_authority"]
+            return ["requires: must be a mapping of arms / head / rc_authority"]
         p = [f"requires: unknown key {k!r} (known: {', '.join(REQUIRES_KEYS)})"
              for k in req if k not in REQUIRES_KEYS]
         auth = req.get("rc_authority")
@@ -1958,12 +2008,12 @@ class Show:
         if used & {"ARM_L", "ARM_R", "GRIP_L", "GRIP_R"} and arms != "active":
             p.append("requires: this show uses the arms — add arms: active, so the preflight checks "
                      "they are powered and their controllers running")
-        tab5 = req.get("tab5")
-        if tab5 is not None and not isinstance(tab5, bool):
-            p.append(f"requires: tab5 {tab5!r} must be true or false")
-        if used & set(TAB5_SLOTS) and tab5 is not True:
+        head = req.get("head")
+        if head is not None and not isinstance(head, bool):
+            p.append(f"requires: head {head!r} must be true or false")
+        if used & set(TAB5_SLOTS) and head is not True:
             p.append(f"requires: this show uses {', '.join(sorted(used & set(TAB5_SLOTS)))}, which "
-                     "the Tab5 drives — add tab5: true")
+                     "the head drives — add head: true")
         return p
 
     def _check_drive(self, where, c):
@@ -2058,7 +2108,7 @@ class Show:
                 if e["t"] < lead - 1e-9:
                     out.append(f"face move {c['name']} at t={e['t']:.2f}s cannot be sent {lead:.3f}s early: "
                                "it is sent at the start and peaks late")
-                if c["name"] == "sparkle" and skin not in CODE_SKINS:
+                if c["name"] == "sparkle" and skin not in code_skins():
                     out.append(f"face move sparkle at t={e['t']:.2f}s falls on the picture skin {skin!r}, "
                                "which cannot draw it: nothing shows")
         return out
@@ -2071,7 +2121,8 @@ class Show:
             if name.lower() == IDLE_NAME:
                 return [f"{where}: `idle` is reserved — every show end sends SKIN IDLE itself, the robot's "
                         "idle skin back; name the skin the show wants"]
-            if name in CODE_SKINS:
+            known = code_skins()
+            if name in known:
                 return []
             idx = self._library()
             if idx is None:
@@ -2079,8 +2130,9 @@ class Show:
                 return []
             e = idx.get(name)
             if e is None or e.get("kind") != "skin":
-                return [f"{where}: face skin {name!r} is neither drawn by the face "
-                        f"({', '.join(CODE_SKINS)}) nor a skin in the library at {library.root()}"]
+                return [f"{where}: face skin {name!r} is neither drawn by the face in code "
+                        f"({', '.join(sorted(known))}: the engine's, or the content folder's face/skins) "
+                        f"nor a skin in the library at {library.root()}"]
             self._skin_assets[name] = e.get("sha256")
             return []
         if do == "theme":
@@ -2355,10 +2407,10 @@ def describe(limits: dict) -> str:
     w(f"HEAD: pan, tilt in {HEAD_RANGE_DEG} deg (90 = centre); an axis left out keeps its target; "
       f"turns at {HEAD_SLEW_DPS:g} deg/s per axis (warns if a move cannot finish)")
     w(f"LIFT: do up|down|stop, secs <= {LIFT_MAX_S:g}; never ack_pinch")
-    w(f"SOUND: do play, sound: a Tab5 earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
+    w(f"SOUND: do play, sound: a head earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
-    w(f"FACE: do skin, name {CODE_SKINS} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {face_themes()} or an authored theme listed "
+    w(f"FACE: do skin, name {tuple(sorted(code_skins()))} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {face_themes()} or an authored theme listed "
       "under themes: (installed on the head by CFG). A skin and a theme last until the show ends: every end sends SKIN IDLE, THEME IDLE and EMOTE AUTO; `idle` is reserved")
     w(f"FACE: do move, name {tuple(FACE_MOVES)} — a one-shot gesture over the held emote; the cue's time is "
       "its PEAK (sent early by the face's measured offset); sparkle may not show on a picture skin")
@@ -2373,8 +2425,9 @@ def describe(limits: dict) -> str:
     w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, {DANCE_PEAK_OF_CAP:g}] "
       f"(1 = the show cap, {SHOW_BASE_CAP:.0%} of full command; default {DANCE_DEFAULT_AMP:g}); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
       f"dance: {{ floor_radius_m: {FLOOR_RADIUS_SANITY_M} }}")
-    w(f"requires: arms: active | tab5: true|false | rc_authority: {CH5_MODES}; a show that moves "
-      f"{MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; HEAD/FACE need tab5: true")
+    w(f"requires: arms: active | head: true|false (tab5: is its old name) | rc_authority: {CH5_MODES}; a "
+      f"show that moves {MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; "
+      f"HEAD/FACE need head: true")
     w(f"music: file, bpm {BPM_SANITY}, offset_s >= 0, beats_per_bar {BEATS_PER_BAR_SANITY}, output")
     w(f"start_countdown_s: 0..{START_COUNTDOWN_MAX_S:g} (default {START_COUNTDOWN_DEFAULT_S:g}) — the "
       "countdown between a run's GO and its first move")

@@ -18,6 +18,10 @@ permissions:
 
 jobs:
   test:
+    # A draft PR's skipped run must not carry the real check's name: with both a skipped draft-time
+    # "test" and the real one from `gh pr ready` on one commit, `gh pr checks` and the PR page show
+    # only one of them, which has hidden real failures (#521, #540).
+    name: "${{ github.event.pull_request.draft && 'test (draft, skipped)' || 'test' }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:

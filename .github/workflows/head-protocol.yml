@@ -13,6 +13,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "software/head-protocol/**"
+      - "firmware/neck_dial/src/main.cpp"
       - "firmware/tab5_idf/app_face/net_cmd.cpp"
       - "firmware/tab5_idf/app_face/app_face.cpp"
       - "software/face-web/engine/vocab.js"
@@ -27,6 +28,7 @@ permissions:
 
 jobs:
   test:
+    name: "${{ github.event.pull_request.draft && 'test (draft, skipped)' || 'test' }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:

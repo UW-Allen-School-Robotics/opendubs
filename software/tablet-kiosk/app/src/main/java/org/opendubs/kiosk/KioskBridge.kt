@@ -132,6 +132,34 @@ class KioskBridge(private val activity: Activity) {
         """{"id": "$id", "facing": "$facing", "open": ${id in openCameras}}"""
     }
 
+    /** Each camera's optics, as Android's Camera2 reports them, for the robot to work out its focal
+     *  length in a frame's pixels (backend/tag_test.py): JSON `[{"id", "facing", "focal_mm": [..],
+     *  "sensor_mm": [w, h], "pixel_array": [w, h], "active": [l, t, r, b], "pre_active": [l, t, r, b],
+     *  "intrinsic": [fx, fy, cx, cy, s] | null, "distortion": [k1, k2, k3, p1, p2] | null}]`.
+     *  `intrinsic` (LENS_INTRINSIC_CALIBRATION, in pre-correction active-array pixels) and `distortion`
+     *  (LENS_DISTORTION) are the device's own calibration where it provides one; null where it does not,
+     *  and the robot falls back to the focal length and the sensor's physical size. Read-only. */
+    @JavascriptInterface
+    fun cameraIntrinsics(): String = cameraManager.cameraIdList.joinToString(",", "[", "]") { id ->
+        val c = cameraManager.getCameraCharacteristics(id)
+        val facing = when (c.get(CameraCharacteristics.LENS_FACING)) {
+            CameraCharacteristics.LENS_FACING_FRONT -> "screen"
+            CameraCharacteristics.LENS_FACING_BACK -> "back"
+            else -> "external"
+        }
+        fun floats(a: FloatArray?) = a?.joinToString(",", "[", "]") ?: "null"
+        fun rect(r: android.graphics.Rect?) = r?.let { "[${it.left},${it.top},${it.right},${it.bottom}]" } ?: "null"
+        val size = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        val px = c.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+        """{"id": "$id", "facing": "$facing", "focal_mm": ${floats(c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS))}, """ +
+            """"sensor_mm": ${size?.let { "[${it.width},${it.height}]" } ?: "null"}, """ +
+            """"pixel_array": ${px?.let { "[${it.width},${it.height}]" } ?: "null"}, """ +
+            """"active": ${rect(c.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE))}, """ +
+            """"pre_active": ${rect(c.get(CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE))}, """ +
+            """"intrinsic": ${floats(c.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION))}, """ +
+            """"distortion": ${floats(c.get(CameraCharacteristics.LENS_DISTORTION))}}"""
+    }
+
     /** The tablet's thermal state: JSON `{"status": "none"|"light"|"moderate"|"severe"|"critical"|
      *  "emergency"|"shutdown"|null, "battery_c": n|null}`. `status` is Android's own throttling level
      *  (null before Android 10); `battery_c` is the battery's temperature, the one the tablet reports. */

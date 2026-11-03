@@ -8,7 +8,8 @@ export const ENGINE_VERSION = "0.1.0";
 // Head protocol v4's gestures, by their wire names (software/head-protocol/head_protocol.py MOVES).
 export const MOVES = ["wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle", "side_eye_l", "side_eye_r", "to_camera", "double_take", "startle"];
 
-// ARMED WAIT is leased (v5): a runner that dies cannot leave the face saying "armed".
+// READY WAIT (v10; ARMED WAIT before, still accepted) is leased: a runner that dies cannot leave the face
+// saying a show is about to start.
 export const ARMED_LEASE_MS = 3000;
 let armedLease = null;
 // Head protocol v8: the robot's state in plain words, for people who don't know the colours. The
@@ -115,20 +116,23 @@ export function handle(face, audio, line, now, skins, levels, opts = {}) {
     case "BRIGHT":
       if (!levels) break;                     // a face with no device levels: ERR unknown
       return levelLine(levels, verb.toLowerCase(), rest);
+    case "READY":
     case "ARMED": {
-      // "A live show is armed" (v5), drawn by the face over any skin. Answered `ERR unknown` until the
-      // face can draw it (face.setArmed), so conformance says PENDING rather than a false OK.
+      // "A live show is ready to start" (v10 READY; v5's ARMED, its alias for a release), drawn by the face
+      // over any skin. Answered `ERR unknown` until the face can draw it (face.setArmed), so conformance
+      // says PENDING rather than a false OK. The reply names the verb it was sent.
       if (typeof face.setArmed !== "function") break;
+      const w = verb.toLowerCase();
       const a = arg.trim().toUpperCase();
       clearTimeout(armedLease); armedLease = null;
       if (a === "WAIT") {
         face.setArmed("wait", now);
         if (opts.timers !== false) armedLease = setTimeout(() => { armedLease = null; face.setArmed(null, performance.now()); }, ARMED_LEASE_MS);
-        return "OK armed wait";
+        return `OK ${w} wait`;
       }
-      if (a === "OFF") { face.setArmed(null, now); return "OK armed off"; }
-      if (/^\d+$/.test(a) && +a >= 1 && +a <= 60) { face.setArmed(+a, now); return `OK armed ${+a}`; }
-      return "ERR armed WAIT | <1..60 seconds> | OFF";
+      if (a === "OFF") { face.setArmed(null, now); return `OK ${w} off`; }
+      if (/^\d+$/.test(a) && +a >= 1 && +a <= 60) { face.setArmed(+a, now); return `OK ${w} ${+a}`; }
+      return `ERR ${w} WAIT | <1..60 seconds> | OFF`;
     }
     case "BATT": {
       // Head protocol v6: the pack's charge, for the gauge (Face & HRI's face.setBatt). The STATE says

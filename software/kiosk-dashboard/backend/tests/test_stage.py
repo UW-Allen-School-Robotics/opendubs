@@ -80,6 +80,7 @@ def test_a_page_reports_its_screen_sound_and_power_and_only_those():
         page.send_text(json.dumps({"page": {"device": "stage-pi", "audio_output": "usb", "under_voltage_since_boot": True,
                                             "screen_connected": True, "screen_mode": "3840x1080@60",
                                             "viewport": [3840, 1080], "dpr": 1, "clock_err_ms": 0.4, "sound": "on",
+                                            "sound_refused": True,
                                             "secret": "x", "under_voltage_now": "yes", "dpr_": True}}))
         page.send_text(json.dumps({"ping": 1.0}))       # a round trip, so the report has been handled
         page.receive_text()
@@ -87,6 +88,8 @@ def test_a_page_reports_its_screen_sound_and_power_and_only_those():
     assert len(info) == 1 and info[0]["audio_output"] == "usb" and info[0]["under_voltage_since_boot"] is True
     assert info[0]["viewport"] == [3840, 1080] and info[0]["screen_mode"] == "3840x1080@60"
     assert "secret" not in info[0] and "under_voltage_now" not in info[0]      # unknown, or the wrong type: dropped
+    assert info[0]["role"] == "both"                                            # none said: as every page before roles
+    assert info[0]["sound_refused"] is True
     assert c.get("/api/stage").json()["pages_info"] == []                        # the page has gone
 
 
@@ -103,8 +106,9 @@ def test_each_pages_head_start_and_stall_are_kept_for_the_runner():
         b.receive_text()
         v = c.get("/api/stage").json()
     assert sorted(v["preload"], key=lambda p: p is None) == [
-        {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4, "need_s": 25.0}, None]   # b: not reported
-    assert v["stalls"] == [{"id": "s1", "at_s": 31.5}]
+        {"id": "s1", "ready": False, "local": False, "buffered_s": 12.4, "need_s": 25.0, "role": "both"},
+        None]                                                                     # b: not reported
+    assert v["stalls"] == [{"id": "s1", "at_s": 31.5, "role": "both"}]
 
 
 def test_mute_silences_the_pages_of_the_loaded_show_only():
@@ -116,3 +120,30 @@ def test_mute_silences_the_pages_of_the_loaded_show_only():
     with c.websocket_connect("/ws/skeleton") as page:            # a page joining now is told it is muted
         assert json.loads(page.receive_text())["muted"] is True
 
+
+
+def test_the_load_carries_the_per_output_audio_leads_and_whether_skeletons_are_drawn():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as page:
+        c.post("/api/stage/show", json={"op": "load", "id": "s2", "videos": [], "beat": None,
+                                        "audio_leads_s": {"bt": 0.2}, "skeletons": True})
+        m = json.loads(page.receive_text())
+        assert m["audio_leads_s"] == {"bt": 0.2} and m["skeletons"] is True
+        c.post("/api/stage/show", json={"op": "load", "id": "s3", "videos": [], "beat": None})
+        m = json.loads(page.receive_text())
+        assert m["audio_leads_s"] == {} and m["skeletons"] is False      # an older runner: clean video, no table
+
+
+def test_a_page_reports_its_chosen_output_its_delay_and_the_lead_it_used():
+    stage.hub = stage.Hub()
+    c = TestClient(app)
+    with c.websocket_connect("/ws/skeleton") as page:
+        page.send_text(json.dumps({"page": {"device": "stage-pi", "audio_output": "bt", "audio_setting": "bt",
+                                            "audio_latency_ms": 200, "audio_lead_ms": 225,
+                                            "audio_lead_from": "set for bt"}}))
+        page.send_text(json.dumps({"ping": 1.0}))
+        page.receive_text()
+        info = c.get("/api/stage").json()["pages_info"][0]
+    assert info["audio_output"] == "bt" and info["audio_setting"] == "bt" and info["audio_latency_ms"] == 200
+    assert info["audio_lead_ms"] == 225 and info["audio_lead_from"] == "set for bt"

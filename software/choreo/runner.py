@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import threading
@@ -59,6 +60,34 @@ VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
     "VALIDATING", "PREFLIGHT", "PREPPING", "WAITING_FOR_START", "RUNNING")
 ARMED, COUNTDOWN = "ARMED_WAITING", "COUNTDOWN"
 COMPLETED, ABORTED, ESTOPPED, REFUSED = "COMPLETED", "ABORTED", "ESTOPPED", "REFUSED"
+# THE WORDS A PERSON SEES for each state: one vocabulary for the Shows page, the face, the composer and
+# any other front end (the status's `phase`). The ids above are wire names, renamed on their own schedule;
+# these words are what an operator or a bystander reads. READY, never "armed": nothing moves until the
+# deadman is pressed and held, and the words say so.
+PHASE_WORDS = {
+    VALIDATING: ("CHECKING", "checking the show; nothing moves"),
+    PREFLIGHT: ("CHECKING", "checking the robot; nothing moves"),
+    ARMED: ("READY", "nothing moves until you press and hold the deadman"),
+    COUNTDOWN: ("STARTING", "the robot will move; keep the deadman held"),
+    PREPPING: ("STARTING", "the robot is moving to its first pose; keep the deadman held"),
+    WAITING: ("STARTING", "about to begin; keep the deadman held"),
+    RUNNING: ("SHOW RUNNING", "letting go of the deadman stops it"),
+    COMPLETED: ("SHOW FINISHED", ""),
+    ABORTED: ("SHOW STOPPED", ""),
+    ESTOPPED: ("SHOW STOPPED", "the e-stop stopped it"),
+    REFUSED: ("DIDN'T START", "nothing moved"),
+}
+
+
+def phase(status, left_s=None) -> dict | None:
+    """{word, say} for a run state, as a person reads it; a countdown's word carries its seconds
+    ("STARTING in 5")."""
+    if status not in PHASE_WORDS:
+        return None
+    word, say = PHASE_WORDS[status]
+    if status == COUNTDOWN and left_s is not None:
+        word = f"STARTING in {math.ceil(left_s)}"
+    return {"word": word, "say": say}
 # An arm show runs only with a current self-collision stamp (sweep.py; cue.py _check_sweep). Tests
 # of other things turn it off for their throwaway shows; nothing on the robot does.
 REQUIRE_SWEEP = True
@@ -137,7 +166,7 @@ class FakeRobotState:
     def __init__(self, **kw):
         self.lock = threading.Lock()
         self.s = {"ch5": "AUTO", "deadman": True, "estop": False, "arms": "active",
-                  "tab5": True, "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}},
+                  "head": True, "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}},
                   "mast_operator_seq": 0}
         self.s.update(kw)
 
@@ -156,7 +185,7 @@ class DashboardRobotState:
     field goes UNKNOWN and a running show ends (unknown never defaults, 5.2)."""
 
     POLL_S, STALE_S = 0.1, 0.5
-    UNKNOWN = {"ch5": None, "deadman": None, "estop": None, "arms": None, "tab5": None,
+    UNKNOWN = {"ch5": None, "deadman": None, "estop": None, "arms": None, "head": None,
                "fault": None, "arm_pose": {"ARM_L": {}, "ARM_R": {}}}
 
     def __init__(self, url="http://127.0.0.1:8080/api/choreo/robot"):
@@ -194,16 +223,21 @@ class DashboardRobotState:
 
 # ---- show audio (plan 4.2) -----------------------------------------------------------------------
 class NullAudio:
-    """No audio device: records what it was told, for tests and for a laptop with no dashboard."""
+    """No audio device: records what it was told, for tests and for a laptop with no dashboard.
+    `hub=False` is that laptop: no show-audio hub at all, so no run waits for or refuses on a device.
+    `outputs` is {output: label} for the devices registered on the hub; `holder` alone is the tablet."""
 
-    def __init__(self, holder=None, ready=True):
-        self.calls, self.holder, self.is_ready = [], holder, ready
+    def __init__(self, holder=None, ready=True, hub=True, outputs=None):
+        self.calls, self.holder, self.is_ready, self.hub = [], holder, ready, hub
+        self.outputs = outputs
 
     def send(self, msg):
         self.calls.append(msg)
 
     def state(self):
-        return {"holder": self.holder, "ready": bool(self.holder) and self.is_ready}
+        outs = self.outputs if self.outputs is not None else ({"tablet": self.holder} if self.holder else {})
+        return {"holder": self.holder, "ready": bool(outs) and self.is_ready, "hub": self.hub,
+                "outputs": [{"name": n, "label": lb, "connected": True} for n, lb in outs.items()]}
 
 
 class DashboardAudio:
@@ -225,15 +259,16 @@ class DashboardAudio:
             return json.loads(r.read())
 
 
-def audio_items(show, tl) -> tuple:
-    """What the show-audio device must play: (items, skipped). Each item is {url, at, kind}, `at`
-    in show seconds; show time 0 is audio position 0 (format §3). Only audio routed to the tablet
-    (DEC-5) — earcons go to the head, and nothing plays on the Thor yet. Paths are relative to the
+def audio_items(show, tl, device=None) -> tuple:
+    """What the show's sound devices must play: (items, skipped). Each item is {url, at, kind}, `at`
+    in show seconds; show time 0 is audio position 0 (format §3). The music, when it plays on a device
+    (`device`: this run's choice, cue.MUSIC_DEVICES), and the sound files routed to the dashboard's
+    outputs — earcons go to the head, and nothing plays on the Thor yet. Paths are relative to the
     shows directory, which the dashboard serves under /api/choreo/media/."""
     base = os.path.dirname(os.path.abspath(show.path)) if show.path else ""
     items, skipped = [], []
     m = tl.get("music") or {}
-    to_tablet = (show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"
+    to_tablet = (device or show.audio_override or m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) in cue.MUSIC_DEVICES
     if m.get("file") and to_tablet:
         if base and os.path.isfile(os.path.join(base, m["file"])):
             items.append({"url": "/api/choreo/media/" + m["file"], "at": 0.0, "kind": "music",
@@ -257,7 +292,9 @@ def audio_items(show, tl) -> tuple:
         else:
             skipped.append(f"song {m['song']} is not in this robot's library ({library.root()})")
     for e in tl.get("tracks", {}).get("SOUND", []):
-        if e.get("output") != "tablet":
+        if e.get("output") == "stage":
+            skipped.append(f"sound {e['cue'].get('sound')}: the stage box plays only a show's music, so far")
+        if e.get("output") not in HUB_OUTPUTS:
             continue
         f = show._sound_file(e["cue"].get("sound"))
         if f:
@@ -303,14 +340,6 @@ def video_items(show, tl) -> tuple:
     return out, skipped
 
 
-def head_up_waived() -> bool:
-    """TEMPORARY (the user's request, 2026-10-23): shows may play while the head tablet is in a video
-    call, with the face in the background. OPENDUBS_WAIVE_HEAD_UP=1 in the robot's robot.env waives ONLY
-    the "head and face must be up" precondition; every run logs that it is waived. It is not a motion
-    gate (the e-stop, the deadman, CH5 and the parts' checks all stay). Remove the line, and this, after."""
-    return os.environ.get("OPENDUBS_WAIVE_HEAD_UP") == "1"
-
-
 def preflight(requires: dict, st: dict, deadman: bool = True) -> list:
     """Refusals, as (code, sentence). Built from the show's `requires:` (validated by cue.py), plus
     what every show needs: no e-stop, the deadman held, no fault — and nothing UNKNOWN. `deadman`
@@ -335,8 +364,12 @@ def preflight(requires: dict, st: dict, deadman: bool = True) -> list:
         # an older dashboard: one all-or-nothing arms field. With `effectors`, each part the show
         # needs is checked instead (effector_check), so a part it does not use cannot refuse it
         need("arms", lambda v: v == requires["arms"], f"the arms must be {requires['arms']}")
-    if requires.get("tab5") and not head_up_waived():
-        need("tab5", lambda v: v is True, "the Tab5 (head and face) must be up")
+    if requires.get("head"):
+        head = st.get("head", st.get("tab5"))     # an older dashboard names the field tab5
+        if head is not True:                      # @fault SHOW_HEAD_NOT_UP   (unknown refuses too)
+            out.append(("SHOW_HEAD_NOT_UP", "the head is not ready for a show: the head tablet must be "
+                        "showing its face page, with no video call holding it"
+                        + (" (its state is unknown)" if head is None else "")))
     return out
 
 
@@ -372,7 +405,7 @@ def armed_monitor(requires: dict, st: dict):
 
 
 # The robot-state fields the dashboard fills only when asked (choreo_proxy._probe_now), not by its poll
-PROBED_FIELDS = ("arms", "tab5", "effectors")
+PROBED_FIELDS = ("arms", "head", "effectors")
 
 
 # ---- effectors: what a show needs vs what the robot has (cue.EFFECTORS) --------------------------
@@ -504,6 +537,80 @@ def _grip_target(c: dict, current=None):
     return current
 
 
+# The show-audio outputs on the dashboard's hub (backend/show_audio.py OUTPUTS); the stage box is reached
+# through the stage page instead (notes/design/choreo-audio-output.md).
+HUB_OUTPUTS = ("tablet", "speakerphone")
+
+
+def music_device_status(name, audio, video_outputs) -> dict:
+    """Whether a music device can play now: {name, ready, label, why}. The hub's outputs from its own
+    list; the stage box from the stage output, which must have a page that can make sound."""
+    if name == "stage":
+        be = (video_outputs or {}).get("stage")
+        if be is None:
+            return {"name": name, "ready": False, "label": None,
+                    "why": "this robot has no stage output (the runner's --video)"}
+        st = be.status() or {}
+        page = st.get("page") or {}          # the page that answers for the stage's sound (video_out.StageOutput)
+        if not st.get("ready"):
+            return {"name": name, "ready": False, "label": page.get("name"),
+                    "why": st.get("why") or "the stage box isn't ready"}
+        if st.get("sound_pages") == 0:
+            return {"name": name, "ready": False, "label": None,
+                    "why": "every stage page is picture-only (role=video): none plays the sound"}
+        if page.get("audio_output") in (None, "", "none"):
+            return {"name": name, "ready": False, "label": page.get("name"),
+                    "why": page.get("audio_why") or "the stage box has no sound output"}
+        return {"name": name, "ready": True, "label": page.get("audio_name") or page.get("audio_output"),
+                "why": None}
+    try:
+        st = audio.state()
+    except Exception as e:  # noqa: BLE001
+        return {"name": name, "ready": False, "label": None, "why": f"the dashboard's show audio: {type(e).__name__}"}
+    outs = {o.get("name"): o for o in st.get("outputs") or [] if isinstance(o, dict)}
+    if "outputs" not in st and name == "tablet" and st.get("holder"):   # a hub from before the outputs
+        outs = {"tablet": {"label": st["holder"], "connected": True}}
+    o = outs.get(name) or {}
+    if o.get("connected"):
+        return {"name": name, "ready": True, "label": o.get("label"), "why": None}
+    return {"name": name, "ready": False, "label": None,
+            "why": f"no device is registered as the {name} show-audio output"}
+
+
+def plays_on(show, tl, video_override=None, audio_override=None, has_stage=False) -> dict:
+    """Where a routine's video and sound would go if started now, and why: the Shows page shows it on
+    each show, so no choice overrides another unseen (notes/design/choreo-shows-page.md). The same
+    precedence as a run: the operator's choice, else the show's own, else the robot's default (the
+    stage box for sound when the video plays on the stage). None where the show has no video / sound."""
+    vdoc = show.doc.get("video") if isinstance(show.doc.get("video"), dict) else {}
+    plays = [e for e in (tl.get("tracks") or {}).get("VIDEO", []) if (e.get("cue") or {}).get("do") == "play"]
+    v_own = vdoc.get("output")
+    if not plays:
+        video, v_from = None, None
+    elif video_override:
+        video, v_from = video_override, "your choice"
+    elif v_own:
+        video, v_from = v_own, "the show's own"
+    else:
+        video, v_from = plays[0].get("output") or cue.DEFAULT_VIDEO_OUTPUT, "the robot's default"
+    m = show.doc.get("music") if isinstance(show.doc.get("music"), dict) else {}
+    s_own = m.get("output") if m.get("output") in cue.MUSIC_DEVICES else None
+    has_sound = bool(m.get("song") or m.get("file")) or any(
+        e.get("output") in HUB_OUTPUTS for e in (tl.get("tracks") or {}).get("SOUND", []))
+    if not has_sound:
+        sound, s_from = None, None
+    elif audio_override in cue.MUSIC_DEVICES:
+        sound, s_from = audio_override, "your choice"
+    elif s_own:
+        sound, s_from = s_own, "the show's own"
+    elif has_stage and video == "stage":
+        sound, s_from = "stage", "the robot's default: its video plays on the stage"
+    else:
+        sound, s_from = "tablet", "the robot's default"
+    return {"video": video, "video_from": v_from, "video_own": v_own,
+            "sound": sound, "sound_from": s_from, "sound_own": s_own}
+
+
 def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: bool = False,
                  earcons: bool = True, grips_live: bool = False, lift_live: bool = False,
                  light_live: bool = False) -> list:
@@ -521,7 +628,7 @@ def routine_uses(show, tl, arms_live: bool, face_live: bool = False, gaze_live: 
     out, seen = [], set()
     m = tl.get("music") or (show.doc.get("music") if isinstance(show.doc.get("music"), dict) else None)
     if m and (m.get("file") or m.get("song")):
-        out.append({"part": "music", "live": (m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) == "tablet"})
+        out.append({"part": "music", "live": (m.get("output") or cue.DEFAULT_AUDIO_OUTPUT) in cue.MUSIC_DEVICES})
         seen.add("music")
     for slot, part in USE_PARTS:
         if slot not in used or part in seen:
@@ -598,6 +705,9 @@ class Runner:
         # ("projector" | "tablet" | None) and why it is not on the projector
         self.music, self.music_on, self.music_why, self._load_id = [], None, None, None
         self._carrier = None                      # the output whose video carries the show's song
+        self._stage_video = None                  # this run's video on the stage page, if any
+        self._video_names = set()                 # the outputs this run's videos are meant for
+        self._music_named = False                 # the operator or the show chose the music device
         self.projector_settings = video_out.load_settings()
         self.skip = frozenset(skip or ())         # parts this run plays without (the operator approved)
         self.hand_out = hand if live else None     # hand_output.FloorHand: the crawling hand on the floor
@@ -616,10 +726,13 @@ class Runner:
         # LIVE: the real arms follow this run. Only with an arm output AND the operator's LIVE mark.
         self.arms = arms
         self.live = bool(live and arms is not None)
-        self.audio = audio or NullAudio()
+        self.audio = audio or NullAudio(hub=False)
         self.audio_live = False                   # a load was sent and the device took it
         self.audio_note = None                    # why the show is running silently, if it is
-        self.audio_output = audio_output          # the operator's override (DEC-5), re-validated
+        self.audio_output = audio_output          # the operator's choice: a music device, or tab5/thor (DEC-5)
+        self.audio_device = None                  # this run's music device (cue.MUSIC_DEVICES), once chosen
+        self._hub_out = "tablet"                  # the hub output this run's load plays on
+        self._held = False                        # a hub device holds the music, silent, as the video's fallback
         self.feed = feed or TwinFeed()
         self.log_fh, self.clock, self.sleep, self.start_lead = log, clock, sleep, start_lead
         self.status, self.ended = None, None      # ended: (status, code, cause, show time)
@@ -782,10 +895,56 @@ class Runner:
         return [self.hand_run] if self.hand_run is not None else []
 
     def _audio_holder(self):
+        """The label of the device holding this run's hub output, or None."""
+        st = music_device_status(self._hub_out, self.audio, {})
+        return st["label"] or ("a device" if st["ready"] else None)
+
+    def _audio_wired(self) -> bool:
+        """A show-audio hub is there to ask (the dashboard's, or a test's): a laptop's runner has none."""
         try:
-            return self.audio.state().get("holder")
+            return self.audio.state().get("hub", True) is not False
         except Exception:  # noqa: BLE001
-            return None
+            return True
+
+    def _music_device(self, show) -> tuple:
+        """(device, how) for this run's music: the operator's choice, else the show's music output, else
+        the stage box when this run's video plays there, else the tablet (choreo-audio-output.md)."""
+        if self.audio_output in cue.MUSIC_DEVICES:
+            return self.audio_output, "the operator's choice"
+        m = show.doc.get("music") if isinstance(show.doc.get("music"), dict) else {}
+        if m.get("output") in cue.MUSIC_DEVICES:
+            return m["output"], "the show's music output"
+        if self._stage_video is not None or ("stage" in self._video_names and "stage" in self.video_outputs):
+            return "stage", "the robot's default: the show's video plays on the stage"
+        return "tablet", "the robot's default"
+
+    def _audio_preflight(self, show, tl, wait=True) -> list:
+        """Choose this run's music device and refuse the run if it can't play: never a quiet move to
+        another device (choreo-audio-output.md). A hub output gets AUDIO_HOLDER_GRACE_S to appear (a
+        tablet changing page as the run starts drops it for a moment)."""
+        self.audio_device, how = self._music_device(show)
+        self._music_named = not how.startswith("the robot's default")
+        self._hub_out = self.audio_device if self.audio_device in HUB_OUTPUTS else "tablet"
+        items, _ = audio_items(show, tl, self.audio_device)
+        music = [it for it in items if it.get("kind") == "music"]
+        if not items or not self._audio_wired():
+            return []
+        need = self.audio_device if music else self._hub_out     # no music: only the sounds' device
+        st = music_device_status(need, self.audio, self.video_outputs)
+        until = self.clock() + (AUDIO_HOLDER_GRACE_S if wait and need in HUB_OUTPUTS else 0.0)
+        while not st["ready"] and self.clock() < until and not self.stop_requested:
+            self.sleep(0.1)
+            st = music_device_status(need, self.audio, self.video_outputs)
+        if not st["ready"]:
+            # @fault SHOW_AUDIO_OUTPUT_MISSING
+            ready = [o for o in (*HUB_OUTPUTS, "stage")
+                     if music_device_status(o, self.audio, self.video_outputs)["ready"]]
+            return [("SHOW_AUDIO_OUTPUT_MISSING",
+                     f"the show's sound plays on {need} ({how}), which can't play: {st['why']} — ready now: "
+                     f"{', '.join(ready) or 'none'}. Bring it up, or choose another \"Sound plays on\" on the Shows page")]
+        self._log("audio", note=f"music on {self.audio_device} ({how})" if music else
+                  f"sounds on {self._hub_out}", device=self.audio_device, label=st["label"])
+        return []
 
     def _audio_ready(self, load_id):
         try:
@@ -797,7 +956,7 @@ class Runner:
     def _media_late(self, load_id, media) -> list:
         """What an armed run is still waiting for: the tablet's show audio, and each projector or stage
         output that has not loaded yet."""
-        late = [] if not self.audio_live or self._audio_ready(load_id) else ["the tablet's show audio"]
+        late = [] if not self.audio_live or self._audio_ready(load_id) else [f"the {self._hub_out}'s show audio"]
         return late + [(sv.waiting_for() if hasattr(sv, "waiting_for") else f"the {sv.state().get('output')} output")
                        for sv in media if not sv.ready()]
 
@@ -830,6 +989,7 @@ class Runner:
         runs without that video (as audio, DEC-7) — or a refusal, VIDEO_NOT_READY, for a show that says
         video: {required: true}."""
         items, skipped = video_items(show, tl)
+        self._video_names = {n for n in items if n != "off"}
         for why in skipped:
             self._log("video_warning", note=why)
         required = (show.doc.get("video") or {}).get("required") is True if isinstance(show.doc.get("video"), dict) else False
@@ -860,9 +1020,18 @@ class Runner:
                 self._carrier = name
                 lead = self.projector_settings.get("stage_audio_lead_s" if name == "stage" else "audio_lead_s")
             if hasattr(be, "make_show"):          # the stage page: it keeps itself on the show's clock
-                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0) for it in its], tl.get("music"),
+                # a video carrying the song is HEARD: each page starts it by the audio lead for its own box's
+                # sound output (stage_audio_leads_s), else by this one; `video: {skeletons: true}` draws
+                # the stage page's skeletons over it (Them Bones), else it plays clean
+                vdoc = show.doc.get("video") if isinstance(show.doc.get("video"), dict) else {}
+                kind = "audio" if carries else "video"
+                self.videos.append(be.make_show([dict(it, lead_s=lead or 0.0, lead_kind=kind) for it in its],
+                                                tl.get("music"),
                                                 buffer_s=self.projector_settings.get("stage_buffer_s"), log=self._log,
-                                                on_lost=self._music_lost if carries else None))
+                                                on_lost=self._music_lost if carries else None,
+                                                audio_leads_s=self.projector_settings.get("stage_audio_leads_s"),
+                                                skeletons=vdoc.get("skeletons") is True))
+                self._stage_video = self.videos[-1]
                 continue
             self.videos.append(video_out.ShowVideo(
                 be, [dict(it, lead_s=lead) if lead is not None else it for it in its], log=self._log,
@@ -882,10 +1051,52 @@ class Runner:
         st = be.status()
         return (name, be) if st.get("ready") else (None, st.get("why") or "the projector isn't ready")
 
-    def _route_music(self, tl, items):
-        """MUSIC to the projector when one is ready, DIALOGUE always to the tablet (choreo-audio.md). A
-        music item for the projector stays in the tablet's set HELD — loaded, silent — so the tablet can
-        take it over in step if the projector drops out (`unhold`)."""
+    def _route_music(self, tl, items) -> list:
+        """The hub's items, after the music is placed. On the stage box when that is this run's device
+        (the stage page plays it, on the show's clock, and no other device holds a copy). Otherwise MUSIC
+        to the projector when one is ready and the device was not named, DIALOGUE always to the hub's
+        device (choreo-audio.md). A music item the projector plays stays in the hub's set HELD — loaded,
+        silent — so the device can take it over in step if the projector drops out (`unhold`)."""
+        if self.audio_device == "stage":
+            return self._music_to_stage(tl, items)
+        self._route_music_hub(tl, items)
+        return items
+
+    def _music_to_stage(self, tl, items) -> list:
+        song = [it for it in items if it.get("kind") == "music"]
+        rest = [it for it in items if it.get("kind") != "music"]
+        if not song:
+            return rest
+        if self._carrier == "stage":
+            self.music_on, self.music_why = "stage", None
+            self._log("audio", note="music in the stage video, from the stage box's speaker")
+            return rest
+        if self._carrier:
+            self._log("audio_warning", note=f"the {self._carrier} video carries the song too: it may be heard twice")
+        be, settings = self.video_outputs.get("stage"), self.projector_settings
+        if be is None:                            # a runner with no stage output (a laptop's twin): nothing to play it
+            self._log("audio_warning", note="the music is chosen for the stage box, and this runner has no stage output")
+            return rest
+        lead = settings.get("stage_audio_lead_s") or 0.0
+        tracks = [{"t": it["at"], "end_t": max(it["at"], tl.get("duration_s") or 0.0) + 0.5, "path": it.get("path"),
+                   "url": it.get("url"), "lib": it.get("lib"), "sha256": it.get("sha256"),
+                   "from_s": 0.0, "end": "black", "id": f"music:{os.path.basename(it.get('path') or '')}",
+                   "lead_s": lead, "lead_kind": "audio", "audio": True} for it in song]
+        if self._stage_video is not None:
+            # a page plays one show at a time: the music joins the stage video's show, before it loads
+            sv = self._stage_video
+            sv.items = sorted(list(sv.items) + tracks, key=lambda x: x["t"])
+            if getattr(sv, "on_lost", None) is None:
+                sv.on_lost = self._music_lost
+        else:
+            self.music = [be.make_show(tracks, tl.get("music"), buffer_s=settings.get("stage_buffer_s"),
+                                       log=self._log, on_lost=self._music_lost,
+                                       audio_leads_s=settings.get("stage_audio_leads_s"))]
+        self.music_on, self.music_why = "stage", None
+        self._log("audio", note=f"music on the stage box's speaker ({lead:g} s early)")
+        return rest
+
+    def _route_music_hub(self, tl, items):
         if self._carrier:
             # the projector's video carries the show's song: the tablet holds its copy, silent, as the
             # fallback (whatever its role — the video plays it anyway, so playing it here would double it)
@@ -893,10 +1104,14 @@ class Runner:
                 if it.get("kind") == "music":
                     it["held"] = True
             self.music_on, self.music_why = "projector", None
-            self._log("audio", note=f"music in the projector's video ({self._carrier}); the tablet holds it")
+            self._log("audio", note=f"music in the projector's video ({self._carrier}); the {self._hub_out} holds it")
             return
         music = [it for it in items if it.get("role") == "music"]
         if not music:
+            return
+        if self._music_named:
+            self.music_on, self.music_why = self._hub_out, "chosen"
+            self._log("audio", note=f"music on the {self._hub_out}: chosen for this run")
             return
         name, be = self._projector()
         why = None if name else be
@@ -919,8 +1134,9 @@ class Runner:
                  "url": it.get("url"),                # the same address the tablet fetches it by
                  "lib": it.get("lib"), "sha256": it.get("sha256"),   # a stage box's own copy, if it has one
                  "from_s": 0.0, "end": "black", "id": f"music:{os.path.basename(it.get('path') or '')}",
-                 "lead_s": lead, "audio": True} for it in music], tl.get("music"),
-                buffer_s=settings.get("stage_buffer_s"), log=self._log, on_lost=self._music_lost)]
+                 "lead_s": lead, "lead_kind": "audio", "audio": True} for it in music], tl.get("music"),
+                buffer_s=settings.get("stage_buffer_s"), log=self._log, on_lost=self._music_lost,
+                audio_leads_s=settings.get("stage_audio_leads_s"))]
             self.music_on, self.music_why = "projector", None
             self._log("audio", note=f"music on the stage page ({lead:g} s early); dialogue on the tablet")
             return
@@ -947,11 +1163,16 @@ class Runner:
         self._log("audio", note=f"music on the projector ({name}, {lead:g} s early); dialogue on the tablet")
 
     def _music_lost(self, why):
-        """The projector dropped out mid-show: the tablet plays its held music from here, in step."""
-        self.music_on, self.music_why = "tablet", f"{why} — the tablet took the music over"
-        if self.audio_live:
-            self._audio({"op": "unhold", "id": self._load_id})
-        self._log("audio", note=f"music handed to the tablet: {why}")
+        """The projector dropped out mid-show: the hub's device plays its held music from here, in step.
+        Music on the stage box has no copy elsewhere: it stops, and the log says so."""
+        if not (self.audio_live and self._held):
+            # 2026-10-28: muting here silenced the Boom for a whole show after a stall 0.2 s before the start
+            self.music_on, self.music_why = self.music_on, f"{why} — the stage keeps the music, catching up"
+            self._log("audio_warning", note=f"{why} — the stage pages keep the music (no other device holds it)")
+            return
+        self.music_on, self.music_why = self._hub_out, f"{why} — the {self._hub_out} took the music over"
+        self._audio({"op": "unhold", "id": self._load_id})
+        self._log("audio", note=f"music handed to the {self._hub_out}: {why}")
 
     def video_state(self):
         return [sv.state() for sv in self.videos]
@@ -965,7 +1186,8 @@ class Runner:
         self._set(VALIDATING, show=self.path)
         try:
             show = cue.load_show(self.path)
-            show.audio_override = self.audio_output
+            # tab5 / thor re-route every sound and are re-checked (DEC-5); a music device is chosen below
+            show.audio_override = self.audio_output if self.audio_output in ("tab5", "thor") else None
             show.require_sweep = REQUIRE_SWEEP   # an arm show needs a current self-collision stamp (sweep.py)
             show.video_override = self.video_override
             show.skip = self.skip                # a variant: validated (and its own stamp checked) as played
@@ -1006,9 +1228,6 @@ class Runner:
             return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator")
         st = self.robot.read()
         refusals = preflight(show.requires or {}, st, deadman=self.start != "deadman")
-        if (show.requires or {}).get("tab5") and head_up_waived():
-            self._log("warning", note="the head-up check is WAIVED (OPENDUBS_WAIVE_HEAD_UP=1, temporary): "
-                                      f"this show runs with the head {'up' if st.get('tab5') is True else 'NOT up'}")
         if self.live and tl.get("crawler") and hand_output.PART in (tl.get("needs") or ()):
             # the floor hand answers for itself (the dashboard does not know it): fitted, a driver, and the
             # hand answering on its port. Moves it has never run play too; the log names them.
@@ -1024,6 +1243,7 @@ class Runner:
         show.requires = dict(show.requires or {}, _needs=tl.get("needs") or [])   # armed_monitor re-checks them
         refusals += self._video_preflight(show, tl)
         refusals += self._base_preflight(tl)
+        refusals += self._audio_preflight(show, tl, wait=not refusals)
         if refusals:
             return self._end(REFUSED, refusals[0][0], "; ".join(r[1] for r in refusals))
         if self.hand_out is not None and tl.get("crawler") and hand_output.PART not in self.skip:
@@ -1046,18 +1266,22 @@ class Runner:
 
         # The show-audio device downloads the show's files now (4.2: whole files, started on cue),
         # so an armed run's music is ready by the time the operator gives the GO.
-        items, skipped = audio_items(show, tl)
+        items, skipped = audio_items(show, tl, self.audio_device)
         load_id = self._load_id = f"{show.id}@{round(time.time(), 3)}"
         for why in skipped:
             self._log("audio_warning", note=why)
-        self._route_music(tl, items)
-        items = [{k: v for k, v in it.items() if k not in ("path", "lib", "sha256")}   # the tablet fetches by URL
+        items = self._route_music(tl, items)
+        self._held = any(it.get("held") for it in items)
+        for sv in self.videos + self.music:      # no copy elsewhere: a stalled stage page keeps its sound
+            if hasattr(sv, "mute_on_stall"):
+                sv.mute_on_stall = self._held
+        items = [{k: v for k, v in it.items() if k not in ("path", "lib", "sha256")}   # the device fetches by URL
                  for it in items]
         if items:
             if not self._audio_holder():
-                self._log("audio_note", note="no device holds show audio yet — the music goes to the first "
-                                             "that claims it (a tablet changing page as the run starts)")
-            if self._audio({"op": "load", "id": load_id, "items": items}):
+                self._log("audio_note", note=f"no device holds the {self._hub_out} show audio yet — the music "
+                                             "goes to the next that claims it (a tablet changing page as the run starts)")
+            if self._audio({"op": "load", "id": load_id, "items": items, "output": self._hub_out}):
                 self.audio_live = True
         # The projector's videos and music, and the stage pages, load now too (paused, on their own
         # threads), so an armed run's GO waits for them as well as for the tablet
@@ -1288,14 +1512,14 @@ class Runner:
         while True:
             self.feed.heartbeat()
             if self.stop_requested:
-                return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator while armed")
+                return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator before it started (nothing had moved)")
             self._state = st = self.robot.read()
             for k, v in probed.items():
                 if st.get(k) is None:
                     st[k] = v
             end = armed_monitor(requires, st)
             if end:
-                return self._end(end[0], end[1], f"disarmed while waiting for the deadman: {end[2]}")
+                return self._end(end[0], end[1], f"stopped before it started, nothing had moved: {end[2]}")
             if self.audio_waiting and not self._media_ready(load_id, media):
                 late = self._media_late(load_id, media)          # what the Shows page says while it waits
                 note = "getting the show's audio and video ready: " + ", ".join(late) + " — then press the deadman"
@@ -1311,6 +1535,9 @@ class Runner:
                           "catches up on the show's clock")
                 for sv in [sv for sv in media if hasattr(sv, "drop") and not sv.ready()]:
                     why = f"{sv.waiting_for()} after {wait_s:g} s"
+                    if hasattr(sv, "start_with_ready") and sv.start_with_ready(why):
+                        self.video_note = f"video on stage: {sv.late}"   # the ready pages play; the late join
+                        continue
                     if isinstance(show.doc.get("video"), dict) and show.doc["video"].get("required") is True:
                         # @fault SHOW_VIDEO_NOT_READY
                         return self._end(REFUSED, "SHOW_VIDEO_NOT_READY", f"video on stage: {why}")
@@ -1334,7 +1561,7 @@ class Runner:
                 prev = dm
             if self.clock() >= self.deadline[1]:
                 return self._end(REFUSED, "START_TIMEOUT",
-                                 f"armed for {ARM_TIMEOUT_S:g} s and the deadman was never pressed")
+                                 f"ready for {ARM_TIMEOUT_S:g} s and the deadman was never pressed")
             if self.clock() >= resend:
                 self._armed("WAIT")
                 waits += 1
@@ -1358,7 +1585,8 @@ class Runner:
 # The robot's OWN shows: a folder outside the deploy (which rsyncs /opt/opendubs/choreo/shows from the
 # repository with --delete), filled by show_sync.py. For shows that are not, or may not be, in the
 # repository — a show built from someone's photo, say. The palette lists both; an id in both is refused.
-LOCAL_SHOWS = os.environ.get("OPENDUBS_LOCAL_SHOWS") or "/var/lib/opendubs/shows"
+LOCAL_SHOWS = (os.environ.get("OPENDUBS_SHOWS_DIR") or os.environ.get("OPENDUBS_LOCAL_SHOWS")
+               or "/var/lib/opendubs/shows")      # the robot's content folder (content.py)
 
 
 class Palette:
@@ -1378,7 +1606,7 @@ class Palette:
         self.dashboard = dashboard
         self.lift_live = bool(lift_live and dashboard is not None)
         self.light_live = bool(light_live and dashboard is not None)
-        self.audio = audio or NullAudio()
+        self.audio = audio or NullAudio(hub=False)
         self.arms = arms                     # None: live output is not available on this runner
         self.face = face                     # face_bridge.LiveFace: live runs drive the real face
         self.gaze = gaze                     # face_bridge.LiveGaze: ... and the head's pan/tilt
@@ -1388,7 +1616,10 @@ class Palette:
         # each show's own), and when the cast output was last checked (the tile's freshness)
         self.video = video or {}
         self.base = base                     # base_output.BaseOutput, or None: DANCE stays in the twin
-        self.video_override = None
+        # The operator's choices for the next runs (None: each show's own). On a robot with a stage box both
+        # start on the stage (the user's decision, 2026-10-28); they last until changed.
+        self.video_override = "stage" if "stage" in self.video else None
+        self.audio_override = "stage" if "stage" in self.video else None
         self.video_checked_at = None
         self.hand = hand                     # hand_output.FloorHand, or None: this robot has no floor hand
         if "cast" in self.video:
@@ -1435,6 +1666,7 @@ class Palette:
                         "needs": tl.get("needs") or [], "can_skip": tl.get("can_skip") or [],
                         "problems": [q["msg"] for q in tl["problems"][:3]],
                         "warnings": len(tl.get("warnings", [])),
+                        "plays_on": plays_on(show, tl, self.video_override, self.audio_override, "stage" in self.video),
                         "uses": routine_uses(show, tl, arms_live=self.arms is not None,
                                              face_live=self.face is not None and self.arms is not None,
                                              gaze_live=(self.gaze is not None and self.arms is not None
@@ -1449,9 +1681,13 @@ class Palette:
         with self.lock:
             cur = self.current
             running = bool(cur and cur[2].is_alive())
+            info = cur[1].start_info() if running else {}
             return {"running": cur[0] if running else None,
                     "status": cur[1].status if cur else None, "last": self.last,
-                    **({"start_info": cur[1].start_info()} if running else {}),
+                    # the words for the state, now and for the last run (PHASE_WORDS)
+                    "phase": phase(cur[1].status, info.get("left_s")) if running else None,
+                    "last_phase": phase(self.last["status"]) if self.last else None,
+                    **({"start_info": info} if running else {}),
                     "default_start": self.default_start(),
                     "skipped": sorted(cur[1].skip) if running else [],
                     "audio_note": cur[1].audio_note if cur else None,
@@ -1529,6 +1765,28 @@ class Palette:
             self.video_override = output
         return self.video_status()
 
+    def audio_status(self) -> dict:
+        """The projector card's "show sound on" row (notes/design/choreo-audio-output.md)."""
+        with self.lock:
+            cur = self.current
+        live = cur if cur and cur[2].is_alive() else None
+        return {"outputs": [music_device_status(o, self.audio, self.video) for o in cue.MUSIC_DEVICES],
+                "selected": self.audio_override, "override": self.audio_override,
+                "default": "each show's music output, else the stage box when its video plays there, else the tablet",
+                "playing": ({"show": live[0], "output": live[1].audio_device} if live else None)}
+
+    def set_audio_output(self, output):
+        """The operator's play-time choice of music device, or None to follow each show. It lasts until
+        changed, as the video's does. Not while a routine runs: its sound is already placed."""
+        if output not in (None, *cue.MUSIC_DEVICES):
+            raise ValueError(f"output must be one of {', '.join(cue.MUSIC_DEVICES)}, or null for each show's own")
+        with self.lock:
+            if self.current and self.current[2].is_alive():
+                # @fault SHOW_AUDIO_BUSY
+                raise RuntimeError("a show is playing — choose where its sound plays before it starts, or stop it")
+            self.audio_override = output
+        return self.audio_status()
+
     def default_start(self) -> str:
         """The robot's runs wait for the deadman; a twin's count down (agreed 2026-10-13)."""
         return "deadman" if self.arms is not None else "countdown"
@@ -1579,7 +1837,7 @@ class Palette:
                             clock=self.clock, sleep=self.sleep, start_lead=self.start_lead,
                             audio=self.audio, arms=self.arms, live=live, grips=grips, lift=lift, light=light,
                             start=start, countdown_s=countdown_s, face=self.face if live else None,
-                            video=self.video, video_override=self.video_override,
+                            video=self.video, video_override=self.video_override, audio_output=self.audio_override,
                             video_default=self.video_default(), skip=skip, hand=self.hand if live else None,
                             base=self.base if live else None)
             runner.no_neck = live and self.no_neck
@@ -1649,6 +1907,8 @@ def serve(feed: TwinFeed, robot, runner_ref: dict, host: str, port: int, palette
                 return self._json(palette.status())
             if palette and self.path == "/api/video":
                 return self._json(palette.video_status())
+            if palette and self.path == "/api/audio/output":
+                return self._json(palette.audio_status())
             self._json({"error": "not found"}, 404)
 
         def do_POST(self):
@@ -1695,6 +1955,17 @@ def serve(feed: TwinFeed, robot, runner_ref: dict, host: str, port: int, palette
                     return self._json(palette.set_video_output(body["output"]))
                 except RuntimeError as e:
                     return self._json({"error": str(e), "code": "SHOW_VIDEO_BUSY"}, 409)
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 422)
+            if p == "/api/audio/output" and palette:
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                    if not isinstance(body, dict) or "output" not in body:
+                        raise ValueError("the body must be {output: tablet|speakerphone|stage|null}")
+                    return self._json(palette.set_audio_output(body["output"]))
+                except RuntimeError as e:
+                    return self._json({"error": str(e), "code": "SHOW_AUDIO_BUSY"}, 409)
                 except ValueError as e:
                     return self._json({"error": str(e)}, 422)
             if p == "/api/stop" and palette:
@@ -1745,7 +2016,8 @@ def main() -> int:
     pp.add_argument("--base", choices=("none", "ros"), default="none",
                     help="ros: a live run sends its DANCE moves to the Thor's base tracker (/dance/*, base_output.py)")
     pp.add_argument("--local-shows", default=LOCAL_SHOWS,
-                    help="the robot's own shows, outside the deploy (show_sync.py fills it; default "
+                    help="the robot's content folder, outside the deploy: its shows and tool packs "
+                         "(show_sync.py fills it; default $OPENDUBS_SHOWS_DIR, else the old "
                          "$OPENDUBS_LOCAL_SHOWS, else /var/lib/opendubs/shows; listed when it exists)")
     pp.add_argument("--limits", default=r.get_default("limits"))
     pp.add_argument("--port", type=int, default=8092)
@@ -1756,21 +2028,23 @@ def main() -> int:
     pp.add_argument("--arms", choices=("none", "ros"), default="none",
                     help="ros: the real arms can follow a run marked LIVE (plan 5.6); needs ROS sourced")
     pp.add_argument("--gaze", default="none",
-                    help="auto (OPENDUBS_HEAD_NECK_HOST / OPENDUBS_TAB5_HOST / opendubs-tab5.local; a "
+                    help="auto (OPENDUBS_HEAD_NECK_HOST, else the face's host, else 127.0.0.1; a "
                          "neck host of none or off means no neck is fitted) or a host: live runs turn "
                          "the real head (its GAZE command, Tab5 PR #56)")
     pp.add_argument("--earcons", choices=("on", "off"), default="on",
                     help="off: live runs do not send the head its earcons (CUE) — held back while the "
                          "head's audio task damps its face tracking (2026-10-08)")
     pp.add_argument("--face", default="none",
-                    help="auto (the head's address from OPENDUBS_HEAD_FACE_HOST / OPENDUBS_TAB5_HOST / "
-                         "opendubs-tab5.local) or a host: live runs drive the real face and earcons")
+                    help="auto (the face's address from OPENDUBS_HEAD_FACE_HOST / OPENDUBS_TAB5_HOST / "
+                         "127.0.0.1, the dashboard's face door) or a host: live runs drive the real face")
     for x in (r, pp):
         x.add_argument("--audio", choices=("none", "dashboard"), default="none",
                        help="play show audio on the dashboard's show-audio device (plan 4.2)")
         x.add_argument("--audio-url", default="http://127.0.0.1:8080/api/choreo/audio")
     a = ap.parse_args()
-    audio = DashboardAudio(a.audio_url) if a.audio == "dashboard" else NullAudio()
+    if getattr(a, "local_shows", None):          # one content folder for this runner and all it loads
+        os.environ.setdefault("OPENDUBS_SHOWS_DIR", a.local_shows)
+    audio = DashboardAudio(a.audio_url) if a.audio == "dashboard" else NullAudio(hub=False)
 
     if a.cmd == "palette":
         robot = DashboardRobotState(a.dashboard) if a.robot == "dashboard" else FakeRobotState()

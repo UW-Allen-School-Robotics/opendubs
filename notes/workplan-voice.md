@@ -62,7 +62,8 @@ robot from `voice.env`).
 0 of 3, even at speech peaks around −11 dBFS. On 2026-10-22 the face's tracker stalled while the
 spotter's worker kept failing to load beside it, so wake was switched off on opendubs2
 (`OPENDUBS_VOICE_WAKE=0`) and is now off unless a robot sets it to 1. Talk and status by voice
-carry on. The design below stays as the record of what was built and learned.
+carry on. The design below stays as the record of what was built; what was tried and measured, for
+whoever picks up voice input next, is in [`design/voice-wake-findings.md`](design/voice-wake-findings.md).
 
 **The open question for later: voice input in a crowd.** Demos will often be in crowds, not a quiet
 room, so voice-in may need rethinking altogether rather than more tuning. Options to weigh, none
@@ -220,35 +221,75 @@ Kept, not scheduled.
 
 ---
 
-## Later: a microphone array on the Thor (sketch, not decided)
+## Later: a microphone array on the Thor — PARKED until it arrives
 
-The project team may order a ReSpeaker XVF3800, a USB microphone array with its own voice
-processing (echo cancellation, beamforming, noise suppression, direction of arrival, per its
-vendor), for the Thor. The tablet's microphone is a single mic behind call-mode processing, at arm's
-length from the neck. If the array comes, the wake phrase and Talk would use it like this:
+**Voice input in a crowd is a real problem** (the project team, 2026-10-24), parked until a
+ReSpeaker XVF3800 USB microphone array is ordered and arrives. No work before then; wake stays off.
+This is the plan for when it lands. Details marked *(check)* are from the vendor's description and
+are confirmed on the bench before anything depends on them.
 
-- **Capture moves to the Thor.** The array appears as a USB audio device; `opendubs-voice` reads it
-  (ALSA, the device passed into the container) at 16 kHz. The tablet keeps the face, the speaker and
-  the Talk button, and sends no audio at all.
-- **Wake on the Thor.** The same sherpa-onnx KWS runs natively in the service on the array's audio,
-  with a larger English model if one fits, then the same Parakeet check and Silero endpointing. The
-  `wake` message becomes the service's own event; the page only shows it.
-- **Talk** stays a button on the face: `press` and `release` as now, with the audio taken from the
-  array instead of the page. A wire change in `wire.py` (the page declares it sends no audio).
-- **The privacy rule changes wording, not substance.** "No audio leaves the tablet before the
-  phrase" becomes "no audio leaves the array's buffer before the phrase, and none leaves the robot".
-  It is the user's decision to make.
-- **The indicators** can no longer come from the page's own mic track. The REC dot and the ring are
-  driven by the service's state, and the page shows them; agreed with the Tablet and Face & HRI
-  lanes.
-- **Echo**: the robot's voice still plays from the tablet, so the array's echo canceller has no
-  reference unless playback moves to a speaker on the array's output. Half-duplex covers it until
-  then. Where the speaker lives is a separate decision.
-- **Placement** matters more than any setting: away from the neck servos and the drive, facing
-  where visitors stand. Its direction of arrival could later turn the eyes toward the speaker
-  (3.6).
-- **Steps**, when it arrives: the device read on the bench Thor; KWS in the service on its audio;
-  the wire change with the Tablet lane; the indicators; V-7 again on the robot.
+**A first result with a USB speakerphone, pending details** (2026-10-26). A team member's demo
+branch runs a Jabra Speak 510 speakerphone (microphones, speaker and its own echo canceller in one
+USB device) on the Thor, as the array would be. The same sherpa-onnx spotter and model run on the
+Thor with gain ×4, Parakeet confirms every hit, and the robot's voice plays out of the speakerphone,
+so its echo canceller has the playback to subtract. On two takes with one speaker: it **works at
+1 m, catches nothing at 2 m**, and a new spoken instruction needs any music turned down. One lesson
+for any spotter on the Thor: feed it every frame, since its decoder does not survive a gap. It may
+be a cheaper first step than the array. Pending from the team member: where the speakerphone sat,
+the gain and threshold tried at 2 m, and whether Talk does better on it than on the tablet.
+
+**What it is.** A four-microphone circular array on an XMOS XVF3800 voice processor, appearing as a
+USB audio device. On the board: echo cancellation, beamforming, noise suppression, automatic gain
+and direction of arrival, configured over USB with the vendor's host tool *(check)*. The tablet's
+mic today is one microphone behind Android's call-mode processing, and it moves with the neck.
+
+**Where it mounts and how it connects**
+- **On the body, not the head**: fixed to the front of the chassis at about chest height, facing
+  where visitors stand. Kept still and away from the neck servos (which move the head) and from the
+  drive, so neither motion nor servo noise reaches it. Its exact place is the user's call at the
+  robot (head and clearance geometry always is).
+- **USB to the Thor**, powered from the port. The Thor is on the logic bus, so the array stays on
+  through an e-stop, as the voice service does. A by-id udev name (`/dev/snd/by-id/…`) for it, like
+  the arms' CAN adapters, so a re-plug never changes which device is the mic.
+
+**How capture reaches the voice service**
+- **The Thor captures, not the tablet.** `run.sh` passes that one sound device into
+  `opendubs-voice` (`--device`, the audio group; nothing else changes in the hardening), and a new
+  `mic.py` reads 16 kHz mono, the array's processed beam channel, in the same 20 ms frames the page
+  sends today. From there the pipeline is unchanged: Silero endpointing, Parakeet, the brain, TTS.
+- **The page sends no audio.** Its `hello` declares the mic is the robot's; `press` and `release`
+  still bracket a Talk turn, and the service reads the array between them. A short ring buffer on
+  the Thor gives Talk its pre-roll, and it never leaves the Thor. That is a wire change in
+  `wire.py`, agreed with the Tablet lane, which also drives the REC dot from the service's state
+  rather than the page's own track.
+- **The privacy rule's wording changes**: "no audio leaves the robot, and none is kept". The user
+  decides it.
+- **Wake, if reopened**: the same sherpa-onnx spotter runs natively on the Thor on the array's
+  audio, with a larger model if one fits, then the same Parakeet check. The face only shows it.
+
+**On-board settings** (set at service start from a file in the repo, never by hand on the device,
+since config that changes behaviour is tracked)
+- **Beamforming**: start with a fixed beam to the front, so a crowd at the sides is attenuated,
+  rather than auto-steering, which follows the loudest talker. The direction of arrival is logged
+  as a number per turn, never audio, and could later turn the eyes toward the speaker (3.6).
+- **Echo cancellation** needs the robot's own voice as its reference, which it gets only if the
+  voice plays out of the array (its USB playback or audio jack, to a speaker on the robot) *(check)*.
+  While the voice plays from the tablet, echo cancellation has no reference and half-duplex
+  covers it: no capture while the robot speaks. Moving the speaker is a separate decision for the
+  user, and is what would make barge-in by voice possible later.
+- **Noise suppression on, automatic gain on**, with a target level the turn log can check
+  (`audio.peak_db` and `floor_db` per turn).
+
+**The retest at distance** (the robot, a person present, no script to read)
+- The user asks a few ordinary questions with Talk from a normal visitor distance, first in a quiet
+  room and then with a crowd or show music around, and judges by ear whether the robot understood.
+- The turn log gives the numbers behind it, with no words: level and floor, where speech started
+  and ended, and whether a turn came back `unintelligible`. Compared with today's tablet mic in the
+  same spot, that is the decision: keep the array, move it, or look at a lapel microphone instead.
+
+**Steps when it arrives**: read it on the bench Thor and confirm the *(check)* items; `mic.py` and
+the `run.sh` device; the wire change and the REC dot with the Tablet lane; mount it with the user;
+the retest.
 
 ## Requests to other lanes
 

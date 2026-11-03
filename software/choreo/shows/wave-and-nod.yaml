@@ -12,7 +12,7 @@ palette: { label: Wave and nod, order: 4 }
 slots: [ARM_L, ARM_R, HEAD, FACE]
 requires:
   arms: active
-  tab5: true
+  head: true
   rc_authority: AUTO
 music:
   file: audio/wave-and-nod-120.wav

@@ -310,7 +310,7 @@ entries:
     do:
       - Do not move the lift until it reports again; the pinch guard's state is unknown.
       - >
-        The fault stays shown after the report returns. Restarting the robot clears it.
+        It clears by itself once the lift reports again.
     see: [build/scissor-lift.md]
 
   - code: LIFT_RELAY_RESERVED

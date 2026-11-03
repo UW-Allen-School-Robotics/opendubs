@@ -173,15 +173,17 @@ requestAnimationFrame(frame);
 // ---- the door ---------------------------------------------------------------------------------
 const doorUrl = q.get("door");
 let door = null;                                   // the open door, for the tracker's target below
-// THE CONTENT FOLDER'S THEMES (head-protocol.md "Discovering the looks"): the robot's discovered looks,
-// read from the dashboard BEFORE the door opens, so a THEME naming a content theme finds it loaded; and
-// again at every reconnect, so a redeployed content folder is picked up. Face & HRI's loader reads and
-// checks each theme (face.loadContentThemes); what it refused is kept for the settings page. A twin with
-// no dashboard, or an older robot, has none: the built-in themes only. Never holds the door for long.
+// THE CONTENT FOLDER'S LOOKS (head-protocol.md "Discovering the looks"): the robot's discovered themes and
+// code skins, read from the dashboard BEFORE the door opens, so a THEME or SKIN naming a content look finds
+// it loaded; and again at every reconnect, so a redeployed content folder is picked up. Face & HRI's loaders
+// read and check each one (face.loadContentThemes, skins.loadLooks); a refused theme is kept for the
+// settings page. A twin with no dashboard, or an older robot, has the built-ins only. Never holds the door
+// for more than 3 s.
 const LOOKS_URL = new URL("/api/head/looks", location.href).href;
 const CONTENT_THEMES = new URL("/face/content/themes/", location.href).href;
+const CONTENT_SKINS = new URL("/face/content/skins/", location.href).href;
 window.faceLooks = null; window.faceThemeProblems = [];        // read by a harness through devtools
-async function loadLooks() {
+async function loadThemes() {
   try {
     const r = await fetch(LOOKS_URL, { cache: "no-store" });
     if (!r.ok) return;
@@ -190,8 +192,15 @@ async function loadLooks() {
     window.faceThemeProblems = await face.loadContentThemes(doc, CONTENT_THEMES);
   } catch (e) { /* no dashboard here: the built-ins only */ }
 }
+function loadSkins() {
+  if (typeof skins.loadLooks !== "function") return Promise.resolve();   // a face from before content skins
+  return skins.loadLooks(LOOKS_URL, CONTENT_SKINS);
+}
+function loadLooks() {
+  return Promise.race([Promise.allSettled([loadThemes(), loadSkins()]), new Promise((r) => setTimeout(r, 3000))]);
+}
 function connect() {
-  Promise.race([loadLooks(), new Promise((r) => setTimeout(r, 3000))]).finally(openDoor);
+  loadLooks().finally(openDoor);
 }
 function openDoor() {
   const ws = new WebSocket(doorUrl);
@@ -355,14 +364,39 @@ setInterval(pollPower, 2000); pollPower();
 // bridge), never from a laptop that has this page open.
 (function touchHoldsHead() {
   if (!window.OpenDubsKiosk) return;
-  let last = 0, down = 0, downAt = 0, timer = null;
-  const say = () => { last = performance.now(); try { navigator.sendBeacon("/api/head/touch"); } catch (e) {} };
-  addEventListener("pointerdown", () => {
-    down++; downAt = performance.now(); if (downAt - last > 250) say();
-    // A lost pointerup must not hold the head for good: renewals stop 30 s after the last touch.
-    if (!timer) timer = setInterval(() => { if (down > 0 && performance.now() - downAt < 30000) say(); else up(true); }, 1000);
+  // A TOUCH THAT NEVER LIFTS IS NOT A PERSON (the user's decision, 2026-10-24): on the robot's USB power
+  // the tablet registers phantom touches (charger noise), and each paused the head. A touch still pauses
+  // at once, as before; but a pointer with no up or cancel within PHANTOM_MS is a phantom: its renewals
+  // stop, and the robot is told so, with what was seen, to end the pause (unless a real touch is still
+  // holding) and log it. Real taps, and the face's one-second hold, lift well inside the window.
+  const PHANTOM_MS = 2000, PAGE = "face";
+  const downs = new Map();                         // pointerId -> {at, info, timer}
+  let last = -1e9, lastLift = -1e9, renew = null;
+  const beacon = (q) => { try { navigator.sendBeacon("/api/head/touch" + q); } catch (e) {} };
+  const say = () => { last = performance.now(); beacon(""); };
+  const stopRenew = () => { if (!downs.size) { clearInterval(renew); renew = null; } };
+  const phantom = (id) => {
+    const d = downs.get(id); if (!d) return;
+    downs.delete(id);
+    const holding = downs.size > 0 || performance.now() - lastLift < 4000;   // a real touch still counts
+    const q = new URLSearchParams({ phantom: "1", release: holding ? "0" : "1", page: PAGE,
+                                    ms: String(Math.round(performance.now() - d.at)), ...d.info });
+    beacon("?" + q.toString());
+    stopRenew();
+  };
+  addEventListener("pointerdown", (e) => {
+    const now = performance.now();
+    if (now - last > 250) say();
+    downs.set(e.pointerId, { at: now, timer: setTimeout(() => phantom(e.pointerId), PHANTOM_MS),
+      info: { x: String(Math.round(e.clientX)), y: String(Math.round(e.clientY)), type: String(e.pointerType),
+              pressure: String(e.pressure), w: String(Math.round(e.width)), h: String(Math.round(e.height)) } });
+    if (!renew) renew = setInterval(() => { if (downs.size) say(); else stopRenew(); }, 1000);
   }, { capture: true, passive: true });
-  function up(all) { down = all === true ? 0 : Math.max(0, down - 1); if (!down) { clearInterval(timer); timer = null; } }
+  const up = (e) => {
+    const d = downs.get(e.pointerId); if (!d) return;
+    clearTimeout(d.timer); downs.delete(e.pointerId); lastLift = performance.now();
+    stopRenew();
+  };
   addEventListener("pointerup", up, { capture: true, passive: true });
   addEventListener("pointercancel", up, { capture: true, passive: true });
 })();

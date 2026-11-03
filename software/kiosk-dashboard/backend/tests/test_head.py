@@ -9,15 +9,22 @@ import head
 import state_out
 
 
-def test_with_no_settings_both_halves_are_the_tab5():
-    assert head.face_host({}) == "opendubs-tab5.local"
-    assert head.neck_host({}) == "opendubs-tab5.local"
+def test_with_no_settings_the_face_is_the_door_here_and_the_neck_stays_local():
+    assert head.face_host({}) == "127.0.0.1"
+    assert head.neck_host({}) == "127.0.0.1"          # never the real neck from a run that forgot robot.env
 
 
-def test_the_old_name_still_works_for_both_halves():
-    env = {"OPENDUBS_TAB5_HOST": "127.0.0.1"}     # how a local dashboard run is kept off the robot
-    assert head.face_host(env) == "127.0.0.1"
-    assert head.neck_host(env) == "127.0.0.1"
+
+def test_a_local_run_set_to_loopback_keeps_the_neck_off_the_robot():
+    """isolate-local-dashboard-runs: the face at 127.0.0.1 keeps the neck there too, never the real one."""
+    for env in ({"OPENDUBS_TAB5_HOST": "127.0.0.1"}, {"OPENDUBS_HEAD_FACE_HOST": "127.0.0.1"}):
+        assert head.neck_host(env) == "127.0.0.1"
+
+
+def test_the_old_name_still_works_for_both_halves_of_a_one_box_head():
+    env = {"OPENDUBS_TAB5_HOST": "opendubs-tab5.local"}
+    assert head.face_host(env) == "opendubs-tab5.local"
+    assert head.neck_host(env) == "opendubs-tab5.local"
 
 
 def test_the_new_name_wins_over_the_old():
@@ -32,7 +39,7 @@ def test_a_separate_neck():
 
 
 def test_an_empty_setting_is_no_setting():
-    assert head.neck_host({"OPENDUBS_HEAD_NECK_HOST": "  "}) == "opendubs-tab5.local"
+    assert head.neck_host({"OPENDUBS_HEAD_NECK_HOST": "  "}) == "127.0.0.1"
 
 
 def test_one_box_means_one_peer():

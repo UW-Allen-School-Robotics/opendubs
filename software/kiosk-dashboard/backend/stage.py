@@ -65,8 +65,11 @@ class Hub:
     def show_command(self, m: dict) -> dict:
         op = m.get("op")
         if op == "load":
+            # audio_leads_s: the stage's audio lead per sound output (each page picks its box's own);
+            # skeletons: the show draws the skeleton layer over its video (else the video plays clean)
             self.show = {"id": m.get("id"), "videos": m.get("videos") or [], "beat": m.get("beat"),
-                         "buffer_s": m.get("buffer_s"), "state": "loaded", "t0_mono": None}
+                         "buffer_s": m.get("buffer_s"), "audio_leads_s": m.get("audio_leads_s") or {},
+                         "skeletons": m.get("skeletons") is True, "state": "loaded", "t0_mono": None}
         elif op == "start" and self.show and self.show.get("id") == m.get("id"):
             self.show.update(state="playing", t0_mono=m.get("t0_mono"))
         elif op == "stop" and self.show and self.show.get("id") == m.get("id"):
@@ -95,15 +98,32 @@ hub = Hub()
 PAGE_FIELDS = {"device": str, "name": str, "model": str, "audio_output": str, "audio_name": str, "under_voltage_now": bool,
                "under_voltage_since_boot": bool, "throttled_now": bool, "screen_connected": bool, "screen_mode": str,
                "viewport": list, "dpr": (int, float), "clock_err_ms": (int, float), "sound": str,
-               "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool}
+               "media_items": int, "media_bytes": (int, float), "media_free": (int, float), "media_syncing": bool,
+               # the box's own estimate of its sound output's delay, and the audio lead the page is using
+               "audio_latency_ms": (int, float), "audio_lead_ms": (int, float), "audio_lead_from": str,
+               "audio_setting": str,   # the output CHOSEN on the box (auto, hdmi, jack, usb, bt); audio_output is the one playing
+               "audio_why": str,       # with audio_output "none": why the box has no sound (#591)
+               "role": str,            # what the page plays: ROLES, from its ?role= (default "both")
+               "sound_refused": bool}  # the browser refused to play its sound (autoplay): it plays muted
+# A page's role: "video" (the picture, always muted), "sound" (the heard items, no picture) or "both" (as
+# every page did before roles: a stage Pi's). Kept on its report, its head start and its stall, so the
+# runner can count readiness and sound per role.
+ROLES = ("video", "sound", "both")
+
+
+def role_of(v) -> str:
+    return v if v in ROLES else "both"
 
 
 def page_info(raw: dict) -> dict:
     out = {k: raw[k] for k, t in PAGE_FIELDS.items()
            if k in raw and isinstance(raw[k], t) and not (t is not bool and isinstance(raw[k], bool))}
-    for k in ("device", "name", "model", "audio_output", "audio_name", "screen_mode", "sound"):
+    for k in ("device", "name", "model", "audio_output", "audio_name", "screen_mode", "sound", "audio_lead_from", "audio_setting"):
         if k in out:
             out[k] = out[k][:80]
+    if "audio_why" in out:
+        out["audio_why"] = out["audio_why"][:160]
+    out["role"] = role_of(out.get("role"))
     if "viewport" in out:
         vp = out["viewport"][:2]
         out["viewport"] = [int(x) for x in vp if isinstance(x, (int, float)) and not isinstance(x, bool)]
@@ -179,11 +199,12 @@ async def skeleton_page(ws: WebSocket):
                 num = lambda v: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0  # noqa: E731
                 me["preload"] = {"id": str(pl.get("id"))[:80], "ready": pl.get("ready") is True,
                                  "local": pl.get("local") is True, "buffered_s": num(pl.get("buffered_s")),
-                                 "need_s": num(pl.get("need_s")),
+                                 "need_s": num(pl.get("need_s")), "role": role_of(pl.get("role")),
                                  **({"error": str(pl["error"])[:160]} if pl.get("error") else {})}
             elif isinstance(m.get("stall"), dict):    # it ran out of video mid-show (the tablet takes the music)
                 me["stall"] = {"id": str(m["stall"].get("id"))[:80], "at_s": m["stall"].get("at_s")
-                               if isinstance(m["stall"].get("at_s"), (int, float)) else None}
+                               if isinstance(m["stall"].get("at_s"), (int, float)) else None,
+                               "role": role_of(m["stall"].get("role"))}
     except (WebSocketDisconnect, RuntimeError, ValueError):
         pass
     finally:

@@ -92,16 +92,38 @@ async def video_output(request: Request):
     return await _forward("POST", "video/output", {"output": raw["output"]})
 
 
+@router.get("/api/choreo/audio/output")
+async def audio_output_state():
+    """Where a show's sound plays (notes/design/choreo-audio-output.md): each music device (tablet,
+    speakerphone, stage) ready or why not, the operator's choice, and the device of the show playing."""
+    return await _forward("GET", "audio/output")
+
+
+@router.post("/api/choreo/audio/output")
+async def audio_output(request: Request):
+    """The operator's play-time choice of music device: {output: tablet|speakerphone|stage|null}. Lasts
+    until changed; returns the whole GET body; refused while a show plays (SHOW_AUDIO_BUSY)."""
+    try:
+        raw = await request.json() if await request.body() else {}
+    except ValueError:
+        return JSONResponse({"error": "the body must be JSON: {output}"}, status_code=400)
+    if not isinstance(raw, dict) or "output" not in raw:
+        return JSONResponse({"error": "the body must be {output: tablet|speakerphone|stage|null}"}, status_code=400)
+    return await _forward("POST", "audio/output", {"output": raw["output"]})
+
+
 @router.post("/api/choreo/video/settings")
 async def video_settings(request: Request):
     """The projector's offsets and how it takes music ({audio_lead_s, video_lead_s, music_as}, and the
-    stage page's own stage_audio_lead_s, stage_video_lead_s; any of them), set at the robot by ear and
+    stage page's own stage_audio_lead_s, stage_video_lead_s, and stage_audio_leads_s, its audio lead per sound
+    output, merged by output; any of them), set at the robot by ear and
     stored there (notes/design/choreo-audio.md). Returns the whole GET body."""
     try:
         raw = await request.json() if await request.body() else {}
     except ValueError:
         return JSONResponse({"error": "the body must be JSON"}, status_code=400)
-    keys = ("audio_lead_s", "video_lead_s", "music_as", "stage_audio_lead_s", "stage_video_lead_s", "stage_buffer_s")
+    keys = ("audio_lead_s", "video_lead_s", "music_as", "stage_audio_lead_s", "stage_video_lead_s", "stage_buffer_s",
+            "stage_audio_leads_s")
     if not isinstance(raw, dict) or not any(k in raw for k in keys):
         return JSONResponse({"error": f"the body must set one of {', '.join(keys)}"}, status_code=400)
     return await _forward("POST", "video/settings", {k: raw[k] for k in keys if k in raw})
@@ -128,7 +150,9 @@ async def run(rid: str, request: Request):
     except ValueError:
         return JSONResponse({"error": "the body must be JSON: {start, countdown_s}"}, status_code=400)
     body = {k: raw[k] for k in RUN_KEYS if isinstance(raw, dict) and raw.get(k) is not None}
-    return await _forward("POST", f"run/{rid}", body or None)
+    # a start validates the show list too (Palette.run reads routines()): the list's timeout, or a busy
+    # robot's start is reported as "the runner is not running" while the run goes ahead (2026-10-28)
+    return await _forward("POST", f"run/{rid}", body or None, timeout=LIST_TIMEOUT_S)
 
 
 @router.post("/api/choreo/stop")
@@ -161,7 +185,7 @@ def operator_mast_seq() -> int:
         return _mast_operator["seq"]
 
 
-def robot_view(rs: dict, saf: dict, rc: dict, arms=None, tab5=None, effectors=None) -> dict:
+def robot_view(rs: dict, saf: dict, rc: dict, arms=None, head=None, effectors=None) -> dict:
     """The runner's fields from the dashboard's robot-state rollup (`rs`), safety (`saf`) and RC
     link (`rc`). Pure, so the mapping is tested without a robot. None means UNKNOWN."""
     inp = rs.get("inputs") or {}
@@ -180,7 +204,7 @@ def robot_view(rs: dict, saf: dict, rc: dict, arms=None, tab5=None, effectors=No
         "fault": "; ".join(faults) or None,
         "motion_power": saf.get("motion_enabled") if saf.get("fresh") else None,
         "arms": arms,
-        "tab5": tab5,
+        "head": head,         # the head tablet showing its face page, and no call holding it (_probe_now)
         # Per part (cue.EFFECTORS names): the Arms lane's openarm.effector_status(), when this
         # dashboard has it. With it the runner checks each part a show needs and offers a can_skip
         # variant; without it, the all-or-nothing `arms` above decides, as before.
@@ -214,7 +238,7 @@ def arms_from_effectors(eff: dict) -> str:
     return "active" if ok else "inactive"
 
 
-_probe = {"arms": (None, 0.0), "tab5": (None, 0.0), "effectors": (None, 0.0)}
+_probe = {"arms": (None, 0.0), "head": (None, 0.0), "effectors": (None, 0.0)}
 _probe_lock = threading.Lock()
 
 
@@ -235,27 +259,37 @@ def _probe_now():
     else:                                           # None: the motors could not be read that way
         m = openarm._motor_summary()
         arms = arms_from_summary(m.get("text") or "", m.get("error"))
-    tab5 = False
-    addr = state_out._tab5_resolve()
-    if addr:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.5)
-        try:
-            for _ in range(2):                   # UDP: one retry before calling the head down
-                s.sendto(b"PING\n", (addr, state_out._TAB5_UDP_PORT))
-                try:
-                    if s.recvfrom(512)[0].startswith(b"PONG"):
-                        tab5 = True
-                        break
-                except socket.timeout:
-                    pass
-        except OSError:
-            pass
-        finally:
-            s.close()
+    head = head_up(state_out.face_addr(), state_out._TAB5_UDP_PORT)
     now = time.monotonic()
     with _probe_lock:
-        _probe["arms"], _probe["tab5"], _probe["effectors"] = (arms, now), (tab5, now), (effectors, now)
+        _probe["arms"], _probe["head"], _probe["effectors"] = (arms, now), (head, now), (effectors, now)
+
+
+def head_up(addr, port) -> bool:
+    """Is the head ready for a show: the head tablet showing its face page, with no video call
+    holding the tablet? The face door (face_door.py) answers PING even with no page connected, as
+    `face=absent`, so a PONG alone says only that the door is there. A call holds the tablet, and the
+    show's face and music could not play on it."""
+    import tablet_relay
+    if tablet_relay.call_busy():
+        return False
+    if not addr:
+        return False
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(0.5)
+    try:
+        for _ in range(2):                       # UDP: one retry before calling the head down
+            s.sendto(b"PING\n", (addr, port))
+            try:
+                reply = s.recvfrom(512)[0]
+            except socket.timeout:
+                continue
+            return reply.startswith(b"PONG") and b"face=absent" not in reply
+    except OSError:
+        pass
+    finally:
+        s.close()
+    return False
 
 
 def _probed(key):
@@ -267,7 +301,7 @@ def _probed(key):
 def _robot_now() -> dict:
     import status
     return robot_view(status._robot_state(), status._safety(), status._rc_link(),
-                      _probed("arms"), _probed("tab5"), _probed("effectors"))
+                      _probed("arms"), _probed("head"), _probed("effectors"))
 
 
 @router.get("/api/choreo/robot")

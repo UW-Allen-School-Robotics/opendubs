@@ -234,8 +234,8 @@ def _cycles(tool) -> dict:
     import effectors
     key = tool.doc.get("_mirror_of") or tool.id
     if key not in _CYCLES:
-        p = os.path.join(effectors.REG_DIR, f"{key}.gaits.json")
-        _CYCLES[key] = json.load(open(p)).get("cycles", {}) if os.path.isfile(p) else {}
+        p = effectors.tool_file(tool, f"{key}.gaits.json")
+        _CYCLES[key] = json.load(open(p)).get("cycles", {}) if p else {}
     return _CYCLES[key]
 
 

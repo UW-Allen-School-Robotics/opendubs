@@ -184,7 +184,7 @@
  "LIFT_NOT_RESPONDING": {
   "do": [
    "Do not move the lift until it reports again; the pinch guard's state is unknown.",
-   "The fault stays shown after the report returns. Restarting the robot clears it."
+   "It clears by itself once the lift reports again."
   ],
   "means": "The StamPLC link is healthy, but its report of the lift — height, motion and the pinch guard's state — has stopped, so the dashboard marks the robot [DEGRADED](glossary.md#degraded).",
   "title": "The lift is not reporting"
@@ -234,7 +234,7 @@
   "do": [
    "Stop and let the robot cool.",
    "Check that the cooling fan runs and that its airflow is not blocked. The dashboard's thermal view shows which zone is hot.",
-   "The fault stays shown after the temperature falls. Restarting the robot clears it."
+   "The fault stays shown after the temperature falls. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the temperature is still high."
   ],
   "means": "One of the robot's internal temperature sensors reads 70 °C or more, so the dashboard marks the robot [DEGRADED](glossary.md#degraded).",
   "title": "Part of the robot is over temperature"
@@ -243,7 +243,7 @@
   "do": [
    "Check the pack's charge on the dashboard.",
    "Check that the hub's input connections are tight.",
-   "The fault stays shown after the voltage recovers. Restarting the robot clears it."
+   "The fault stays shown after the voltage recovers. Once it has, tap **CLEAR FAULT** on the dashboard's Operate page; it refuses while the brownout is still reported."
   ],
   "means": "Only on a robot built with the REV Power Distribution Hub ([PDH](glossary.md#pdh)); a robot built with a fuse block never shows it. The hub saw its input voltage dip too low, and the dashboard marks the robot DEGRADED.",
   "title": "The power distribution hub reported a brownout"

@@ -140,3 +140,13 @@ def test_the_face_page_reads_the_library_by_file_name(tmp_path, monkeypatch):
     assert c.get("/api/library/files/index.yaml").status_code == 404          # only indexed files
     (tmp_path / "skins" / "gear.png").write_bytes(GEAR + b" edited")
     assert c.get("/api/library/files/skins/gear.png").status_code == 409      # hash no longer matches
+
+
+def test_no_dashboard_module_takes_a_show_runner_modules_name():
+    """The dashboard imports the show runner's library.py into its own process, and library.py imports its
+    neighbours by bare name. A dashboard module of the same name is found first: the dashboard's face_looks.py
+    hid the runner's (2026-10-25), library.py failed to import, and /api/library/index answered 503."""
+    here = os.path.join(os.path.dirname(__file__), "..")
+    ours = {f for f in os.listdir(here) if f.endswith(".py")}
+    theirs = {f for f in os.listdir(library_serve.CHOREO_DIR) if f.endswith(".py")}
+    assert not ours & theirs, f"same name as a show runner module: {sorted(ours & theirs)}"

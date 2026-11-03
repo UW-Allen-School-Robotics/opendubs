@@ -71,7 +71,7 @@ try:
     print("\nthe palette: a run that crashes is reported, never left looking alive")
     shows = os.path.join(tmp, "shows")
     os.makedirs(shows)
-    shutil.copy(os.path.join(HERE, "..", "shows", "shrug.yaml"), shows)
+    shutil.copy(os.path.join(HERE, "fixtures", "shows", "shrug.yaml"), shows)
     pal = R.Palette(shows, LIMITS, R.FakeRobotState(), R.TwinFeed(), log=io.StringIO())
     real_run = R.Runner.run
 

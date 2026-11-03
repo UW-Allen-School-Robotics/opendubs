@@ -13,9 +13,10 @@ entries:
     means: >
       Someone asked the robot to play a sound file (the dashboard's "Play to robot" page) while a show
       was loaded, waiting to start, or running. A show has the robot's speaker to itself, so the
-      request was refused rather than queued; nothing is played later.
+      request was refused rather than queued; nothing is played later. The same code refuses a change
+      to where a show's sound plays (the projector card's "Show sound on" row) while a show is running.
     do:
-      - Wait for the show to finish or be stopped, then send the sound again.
+      - Wait for the show to finish or be stopped, then send the sound again, or change the output.
   - code: SHOW_AUDIO_NO_DEVICE
     title: A sound sent to the robot was refused because no speaker is connected
     symptom: [no-sound]
@@ -25,10 +26,29 @@ entries:
     means: >
       The robot plays shows, ambient music and sounds sent from a phone through one device: the
       tablet on its head, running the dashboard. No device was connected to play it, so the request
-      was refused. A show started now would run without music for the same reason.
+      was refused. A show started now whose sound plays on the tablet would be refused for the same
+      reason (SHOW_AUDIO_OUTPUT_MISSING).
     do:
       - Check that the head's tablet is on and showing the dashboard or the face.
       - On the dashboard's Shows page, use "Play show audio here" on the device that should play.
+  - code: SHOW_AUDIO_OUTPUT_MISSING
+    title: A show was refused because the device its sound plays on isn't ready
+    symptom: [show-wont-start, no-sound]
+    rank: 71
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      Each show's music plays on one device: the head's tablet, the speakerphone, or the stage box's
+      speaker. The operator chooses it on the projector card ("Show sound on"); otherwise the show's
+      own choice is used, else the stage box when the show's video plays there, else the tablet. That
+      device wasn't connected or couldn't make sound, so the show was refused before anything moved,
+      rather than playing silently or on a different speaker. The sentence after the code names the
+      device, why it can't play, and which devices are ready now.
+    do:
+      - Look at the "Show sound on" row of the projector card; it shows each device and what is missing.
+      - For the stage box, check its Bluetooth speaker is on, in range and paired (the Stage Box Sound card).
+      - For the tablet, check the head's tablet is showing the face or the dashboard.
+      - Or choose a device that is ready on the projector card, then start the show again.
   - code: SHOW_VIDEO_NOT_READY
     title: A show with projector video was refused because the projector isn't ready
     symptom: [show-wont-start]
@@ -62,6 +82,20 @@ entries:
       - Check the floor around the robot is clear and is not glass-railed or glass-walled nearby; the
         LIDARs see through glass.
       - Start the show again once the tracker reports ready.
+  - code: SHOW_HEAD_NOT_UP
+    title: A show won't start because the head tablet isn't showing its face
+    symptom: [show-wont-start]
+    rank: 72
+    kind: refusal
+    seen_on: [dashboard]
+    means: >
+      The show uses the head (its face, its neck or its volume and brightness), and the head tablet is
+      not ready for it: the face page is not showing on the tablet, or a video call is holding the
+      tablet. The face and the show's sound could not play there, so the show was refused rather than
+      run without them.
+    do:
+      - If a video call is up on the tablet, end it.
+      - Make sure the head tablet is on and showing the face page, then start the show again.
   - code: SHOW_VIDEO_BUSY
     title: The projector output couldn't be changed because a show is playing
     symptom: [show-wont-start]

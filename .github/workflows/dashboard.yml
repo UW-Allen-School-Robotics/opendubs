@@ -18,12 +18,17 @@ permissions:
 
 jobs:
   test:
+    name: "${{ github.event.pull_request.draft && 'test (draft, skipped)' || 'test' }}"
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    # A test that waits forever (a socket that never answers) fails in seconds under --timeout, and the
+    # job can never run for hours: one did on 2026-10-26, when show_audio's tests waited on a library
+    # that would not import.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"     # the Thor's
-      - run: pip install pytest fastapi httpx pyserial psutil pyyaml uvicorn
-      - run: python3 -m pytest -q software/kiosk-dashboard/backend/tests
+      - run: pip install pytest pytest-timeout fastapi httpx pyserial psutil pyyaml uvicorn
+      - run: python3 -m pytest -q --timeout=60 software/kiosk-dashboard/backend/tests
