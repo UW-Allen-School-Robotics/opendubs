@@ -147,22 +147,26 @@
 
   /* ---- step 3: GO, STOP and what happened ---- */
   const labelOf = (id) => (routines.find((r) => r.id === id) || {}).label || id;
+  /* READY (the runner's ARMED_WAITING) and STARTING in words: what the operator must do next, and how long
+     is left. The words are the runner's (status.phase, PHASE_WORDS), so every screen says the same. */
   function startHTML(s) {
     const si = s.start_info || {}, left = si.left_s != null ? ` · ${Math.ceil(si.left_s)} s left` : "";
+    const ph = s.phase || {};
     if (s.status === "ARMED_WAITING" && si.audio_waiting)
-      return `<b class="shows-armed">ARMED</b> — getting the show's audio and video ready (a few seconds); then press the deadman`;
+      return `<b class="shows-armed">READY</b> — getting the show's audio and video ready (a few seconds); nothing moves until you press and hold the deadman`;
     if (s.status === "ARMED_WAITING")
-      return `<b class="shows-armed">ARMED</b> — ${si.deadman === true ? "let go of the deadman, then press it to start"
-        : si.deadman === false ? "press the deadman to start" : "the deadman is unknown"}<span class="dim">${esc(left)}</span>`;
-    if (s.status === "COUNTDOWN") return `<b class="shows-armed">STARTING in ${Math.ceil(si.left_s || 0)} s</b> — keep the deadman held`;
-    return `<span class="dim">${esc(s.status || "")}</span>`;
+      return `<b class="shows-armed">READY</b> — nothing moves until you ${si.deadman === true ? "let go of the deadman, then press and hold it"
+        : si.deadman === false ? "press and hold the deadman" : "press and hold the deadman (its state is unknown)"}<span class="dim">${esc(left)}</span>`;
+    if (s.status === "COUNTDOWN")
+      return `<b class="shows-armed">STARTING in ${Math.ceil(si.left_s || 0)} s</b> — the robot will move; keep the deadman held`;
+    return `<span class="dim">${esc(ph.word || s.status || "")}${ph.say ? " — " + esc(ph.say) : ""}</span>`;
   }
   function renderGo(running) {
     const last = status && status.last;
     const sel = routines.find((r) => r.id === selected);
     const go = el("showsGo");
     go.disabled = !!running || !sel || !sel.valid;
-    go.innerHTML = `GO · ARM<small>${esc(sel ? sel.label : "pick a show")}</small>`;
+    go.innerHTML = `GO<small>${esc(sel ? sel.label : "pick a show")}</small>`;
     el("showsStop").disabled = !running;
     el("showsPark").disabled = !!running;            // the runner owns the arms while a routine runs
     const without = (parts) => (parts && parts.length ? ` <span class="bad">without ${esc(parts.join(", ").replace(/_/g, " "))}</span>` : "");
@@ -177,9 +181,9 @@
       bad = last.status !== "COMPLETED";
       const offer = last.status === "REFUSED" && (last.offer || []).length
         ? `<br><button class="sysbtn shows-skip" data-id="${esc(last.id)}" data-skip="${esc(JSON.stringify(last.offer))}">RUN WITHOUT ${esc(last.offer.join(", ").replace(/_/g, " ").toUpperCase())}</button>` : "";
-      html = `<b>${esc(labelOf(last.id))}${without(last.skipped)} — ${esc(last.status)}</b>`
+      html = `<b>${esc(labelOf(last.id))}${without(last.skipped)} — ${esc((status.last_phase || {}).word || last.status)}</b>`
         + (last.cause ? `<br>${esc(last.cause)}` : "") + (bad && last.code ? ` ${help(last.code)}` : "") + offer;
-    } else html = sel ? `Ready to arm <b>${esc(sel.label)}</b>.` : "Pick a show above.";
+    } else html = sel ? `<b>${esc(sel.label)}</b> selected: GO makes it READY, and nothing moves until the deadman.` : "Pick a show above.";
     const box = el("showsStatus");
     box.className = "shows-status" + (bad ? " refused" : "");
     box.innerHTML = html;
@@ -189,8 +193,12 @@
     const badge = el("showsTwin");
     const armsFollow = !!(status && status.live_available), liveRun = !!(status && status.live);
     if (badge) {
-      const waiting = liveRun && ["VALIDATING", "PREFLIGHT", "ARMED_WAITING", "COUNTDOWN"].includes(status.status);
-      badge.textContent = waiting ? "LIVE · ARMED, NOTHING MOVES YET" : liveRun ? "LIVE · THE ARMS ARE MOVING" : armsFollow ? "LIVE · THE ARMS FOLLOW EVERY RUN" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
+      // the runner's words for the state (its PHASE_WORDS): READY, never "armed"
+      const st = status && status.status;
+      badge.textContent = liveRun && (st === "VALIDATING" || st === "PREFLIGHT") ? "LIVE · CHECKING, NOTHING MOVES YET"
+        : liveRun && st === "ARMED_WAITING" ? "LIVE · READY, NOTHING MOVES UNTIL YOU HOLD THE DEADMAN"
+        : liveRun && st === "COUNTDOWN" ? "LIVE · STARTING, THE ROBOT WILL MOVE"
+        : liveRun ? "LIVE · THE ROBOT IS MOVING" : armsFollow ? "LIVE · THE ROBOT MOVES ON EVERY RUN" : "TWIN ONLY · THE ROBOT DOES NOT MOVE";
       badge.classList.toggle("livebadge", armsFollow);
     }
     renderAudioLine();

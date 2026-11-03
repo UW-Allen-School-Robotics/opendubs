@@ -24,8 +24,8 @@ a day of trying was the stage box's TEST SOUND.
    and why: *your choice*, *the show's own* or *the robot's default*. In amber, when your choice
    replaces the show's own. The runner works this out (`plays_on` on each routine), so the page never
    guesses.
-3. **GO.** GO arms the selected show; nothing moves until the deadman. STOP sits beside it. What
-   happened shows beside GO: ARMED and the countdown, or the refusal with its code and help link, and
+3. **GO.** GO makes the selected show READY; nothing moves until the deadman. STOP sits beside it. What
+   happened shows beside GO: READY and the countdown, or the refusal with its code and help link, and
    RUN WITHOUT … when a part can be left out.
 4. **Advanced, folded.** The start mode and countdown, this browser as the head tablet's speaker, and
    the Tablet lane's timing leads and buffer, stage box setup (speaker, volumes, pairing, software)
