@@ -325,7 +325,7 @@ check("no stage page open: not ready, saying where to open one",
       so.status()["ready"] is False and "/stage/" in so.status()["why"], so.status())
 so.n = 2
 check("... a page open: ready, with how many", so.status() == {"present": True, "ready": True, "pages": 2, "why": None,
-                                                                 "page": None},
+                                                                 "page": None, "sound_pages": 2},
       so.status())
 check("a library video is served to the page by the dashboard, same origin",
       so.url(f) == "/api/choreo/media/library/clip.mp4", so.url(f))
@@ -452,6 +452,73 @@ so = SoundStage(audio_output="none", why="the Bluetooth speaker Boom 2 is not co
 r, end, items = run_chosen(so, "stage")
 check("... a stage box that can't make sound refuses the run with the box's own reason",
       end[:2] == ("REFUSED", "SHOW_AUDIO_OUTPUT_MISSING") and "Boom 2 is not connected" in end[2] and not so.sent, end)
+print("\nvideo: several stage pages — the sound answered for by the pages that carry it (?role=)")
+
+
+class RoleStage(V.StageOutput):
+    def __init__(self, infos):
+        super().__init__("http://dash.invalid", library_root=LIB)
+        self.infos = infos
+
+    def _get(self):
+        return {"pages": len(self.infos), "pages_info": self.infos}
+
+
+pi = {"name": "stage-pi", "audio_output": "jack", "audio_name": "Headphones"}
+mac_video = {"role": "video", "viewport": [1920, 1080]}          # a laptop showing the picture, no device
+got = R.music_device_status("stage", None, {"stage": RoleStage([mac_video, pi])})
+check("a picture-only page (role=video) never answers for the sound, even when it connected first",
+      got["ready"] is True and got["label"] == "Headphones", got)
+got = R.music_device_status("stage", None, {"stage": RoleStage([pi, {"role": "sound", "audio_output": "none",
+                                                                   "audio_why": "nothing plugged in"}])})
+check("... every page that carries sound must have it: one that can't refuses, with its own reason",
+      got["ready"] is False and got["why"] == "nothing plugged in", got)
+got = R.music_device_status("stage", None, {"stage": RoleStage([mac_video, dict(mac_video)])})
+check("... only picture-only pages: nothing plays the sound, so the stage isn't ready for it",
+      got["ready"] is False and "picture-only" in got["why"], got)
+got = R.music_device_status("stage", None, {"stage": RoleStage([pi])})
+check("... one page with no role (both): as before", got["ready"] is True and got["label"] == "Headphones", got)
+
+
+class StallStage(Captured):
+    """Pages, each with its role, and the stalls they report (stage.js sends its role with a stall)."""
+    def __init__(self, infos):
+        super().__init__(len(infos))
+        self.infos, self.stalls = infos, []
+
+    def _get(self):
+        sid = self.made.id if getattr(self, "made", None) else None
+        return {"pages": self.n, "pages_info": self.infos, "stalls": [dict(x, id=sid) for x in self.stalls]}
+
+
+so = StallStage([{"role": "both"}, {"role": "both"}])
+lost = []
+sh = so.make_show([{"t": 0.0, "end_t": 40.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,
+                  on_lost=lost.append)
+sh.begin()
+so.wait_for("load")
+sh.go(lambda: 0.0)
+so.stalls = [{"at_s": 20.0}]
+time.sleep(2.4)
+check("two pages carrying sound, one runs dry: the other keeps the sound — nothing muted, nothing handed over",
+      not lost and not any(m["op"] == "mute" for m in so.sent), (lost, [m["op"] for m in so.sent]))
+so.stalls = [{"at_s": 20.0}, {"at_s": 22.0}]
+time.sleep(2.4)
+check("... both run dry: the pages muted and the music handed over, as with one page",
+      lost and any(m["op"] == "mute" for m in so.sent), (lost, [m["op"] for m in so.sent]))
+sh.end("COMPLETED")
+so = StallStage([{"role": "video"}, {"role": "sound", "audio_output": "jack"}])
+lost = []
+sh = so.make_show([{"t": 0.0, "end_t": 40.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip"}], None,
+                  on_lost=lost.append)
+sh.begin()
+so.wait_for("load")
+sh.go(lambda: 0.0)
+so.stalls = [{"at_s": 20.0, "role": "video"}]
+time.sleep(2.4)
+check("... a picture-only page running dry never touches the sound",
+      not lost and not any(m["op"] == "mute" for m in so.sent), (lost, [m["op"] for m in so.sent]))
+sh.end("COMPLETED")
 print("\nvideo: the stage's audio lead PER SOUND OUTPUT, and the skeleton layer only where a show asks (choreo-stage.md)")
 got = V.save_settings({"stage_audio_leads_s": {"bt": 0.2, "usb": 0.02}})
 check("each sound output the box can select keeps its own audio lead, set by ear",
@@ -596,6 +663,45 @@ check("... past the preload wait the stage is dropped, and the show runs without
 r, end, _ = armed(PreStage(buffered=12.0), required=True, press_at=95.0)
 check("... unless the show requires its video: refused, SHOW_VIDEO_NOT_READY, with how far it got",
       end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY") and "12 of 25 s" in end[2], end)
+
+
+class MixedStage(PreStage):
+    """Several pages, each with its own head start and role (stage.js ?role=)."""
+    def __init__(self, pres):
+        super().__init__(pages=len(pres))
+        self.pres = pres
+
+    def _get(self):
+        sid = self.made.id if getattr(self, "made", None) else None
+        return {"pages": self.n, "preload": [dict(p, id=sid, need_s=25.0) for p in self.pres],
+                "stalls": [dict(x, id=sid) for x in self.stalls]}
+
+
+def pre(ready, role="both", buffered=None):
+    return {"ready": ready, "role": role, "buffered_s": 25.0 if ready else (buffered or 12.0), "local": False}
+
+
+r, end, lines = armed(MixedStage([pre(True), pre(False)]), required=True, press_at=95.0)
+check("two pages, one still buffering past the wait: the show starts with the ready one, the late one named, "
+      "the stage video kept (every page an equal peer) — even for a show that requires its video",
+      end[0] == "COMPLETED" and not r.videos[0].dropped and "1 of 2 stage pages ready" in (r.video_note or "")
+      and "a both page (12 of 25 s)" in (r.video_note or "") and not any(m["op"] == "stop" and m.get("cut")
+                                                                            for m in r.videos[0].out.sent[:-1]),
+      (end, r.video_note))
+r, end, _ = armed(MixedStage([pre(True, "video"), pre(False, "sound")]), press_at=95.0)
+check("... a picture-only page ready, the sound page late, a show with no sound on the stage: it starts",
+      end[0] == "COMPLETED" and not r.videos[0].dropped, (end, r.video_note))
+r, end, _ = armed(MixedStage([pre(False, "video"), pre(True, "sound")]), required=True, press_at=95.0)
+check("... no ready page carries the picture: refused as before (SHOW_VIDEO_NOT_READY)",
+      end[:2] == ("REFUSED", "SHOW_VIDEO_NOT_READY"), end)
+so = MixedStage([pre(True, "video"), pre(False, "sound")])
+sh = so.make_show([{"t": 0.0, "end_t": 40.0, "path": f, "from_s": 0.0, "end": "black", "id": "clip",
+                    "lead_kind": "audio"}], None)
+sh.begin()
+so.wait_for("load")
+check("... the video carries the sound and no ready page plays sound: not started with the ready pages",
+      sh.start_with_ready("late") is False and not sh.ready(), sh.late)
+sh.end("COMPLETED")
 
 print()
 if FAILS:

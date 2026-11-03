@@ -551,10 +551,13 @@ def music_device_status(name, audio, video_outputs) -> dict:
             return {"name": name, "ready": False, "label": None,
                     "why": "this robot has no stage output (the runner's --video)"}
         st = be.status() or {}
-        page = st.get("page") or {}
+        page = st.get("page") or {}          # the page that answers for the stage's sound (video_out.StageOutput)
         if not st.get("ready"):
             return {"name": name, "ready": False, "label": page.get("name"),
                     "why": st.get("why") or "the stage box isn't ready"}
+        if st.get("sound_pages") == 0:
+            return {"name": name, "ready": False, "label": None,
+                    "why": "every stage page is picture-only (role=video): none plays the sound"}
         if page.get("audio_output") in (None, "", "none"):
             return {"name": name, "ready": False, "label": page.get("name"),
                     "why": page.get("audio_why") or "the stage box has no sound output"}
@@ -1532,6 +1535,9 @@ class Runner:
                           "catches up on the show's clock")
                 for sv in [sv for sv in media if hasattr(sv, "drop") and not sv.ready()]:
                     why = f"{sv.waiting_for()} after {wait_s:g} s"
+                    if hasattr(sv, "start_with_ready") and sv.start_with_ready(why):
+                        self.video_note = f"video on stage: {sv.late}"   # the ready pages play; the late join
+                        continue
                     if isinstance(show.doc.get("video"), dict) and show.doc["video"].get("required") is True:
                         # @fault SHOW_VIDEO_NOT_READY
                         return self._end(REFUSED, "SHOW_VIDEO_NOT_READY", f"video on stage: {why}")
