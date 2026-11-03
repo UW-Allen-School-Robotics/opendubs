@@ -371,6 +371,11 @@ function width() {
 function render() {
   const d = S.data;
   $("save").classList.toggle("dirty", S.text !== S.savedText);
+  /* a generated sheet is made again from its source at every push: saving over it is refused (api.py) */
+  const gen = d && d.generated;
+  $("genBar").hidden = !gen;
+  $("save").disabled = !!gen;
+  if (gen) $("genMsg").textContent = `Made by ${gen.by} from ${gen.source}: read-only here. Edit it there, or Save As a new show.`;
   $("undo").disabled = !S.undo.length;
   $("fixture").hidden = !(d && d.info && d.info.limits_are_test_fixture);
   $("limitsName").textContent = d && d.info ? "· limits: " + d.info.limits : "";
@@ -959,7 +964,7 @@ function renderInspector() {
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
           <span style="font-weight:600; font-size:11px;">Joint Angles (${esc(c.slot)})</span>
           <div style="display:flex; gap:4px;">
-            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Reset joints to natural rest pose (J4=15°)">Rest</button>
+            <button id="btnZeroJoints" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Set cue to pose: rest (safe hardware rest pose)">Rest</button>
             <button id="btnToggle3DFromInsp" class="btn-xs" style="font-size:10px; padding:2px 6px;" title="Toggle 3D robot preview">🤖 3D Robot</button>
           </div>
         </div>
@@ -1069,13 +1074,13 @@ function renderInspector() {
 
     let problemsHtml = "";
     if (problems.length > 0) {
-      problemsHtml = `<ul class="problems-list">${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul>`;
+      problemsHtml = `<ul class="problems-list">${problems.map(p => `<li>${esc(typeof p === "string" ? p : (p.msg || JSON.stringify(p)))}</li>`).join("")}</ul>`;
     }
 
     container.innerHTML = `
       <div class="plan-preview-box ${isFail ? 'fail' : 'pass'}">
         <div class="verdict-banner ${isFail ? 'fail' : 'pass'}">
-          ${isFail ? '⚠️ Validation FAIL (Speed cap or limit exceeded)' : `✅ Validation PASS (Planner clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
+          ${isFail ? '⚠️ Validation FAIL (Show contains validation problems)' : `✅ Validation PASS (Planner clearance: ${resp.min_clearance_mm ? resp.min_clearance_mm + ' mm' : 'N/A'})`}
         </div>
         ${problemsHtml}
         <div class="plan-msg">${esc(resp.message || "")}</div>
@@ -1171,36 +1176,35 @@ function renderInspector() {
   if ($("btnZeroJoints")) {
     $("btnZeroJoints").onclick = () => {
       const cue = { ...c };
-      delete cue.pose; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
-      const jointsObj = {};
+      delete cue.joints; delete cue.reach; delete cue.point_at; delete cue.solved; delete cue.solved_for;
+      cue.pose = "rest";
+
+      const restVisual = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
       for (const d of JOINT_DEFS) {
-        const val = (d.j === 4 ? 15 : 0);
-        jointsObj[d.j] = val;
-        currentJoints[d.j] = val;
+        currentJoints[d.j] = restVisual[d.j];
         const valEl = $(`jval_${d.j}`);
-        if (valEl) valEl.textContent = `${val}°`;
+        if (valEl) valEl.textContent = `${restVisual[d.j]}°`;
       }
       el.querySelectorAll(".joint-slider").forEach((sl) => {
         const j = +sl.dataset.j;
-        sl.value = j === 4 ? 15 : 0;
+        sl.value = restVisual[j];
       });
       try {
         const fields = JSON.parse($("iFields").value);
-        delete fields.pose; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
-        fields.joints = jointsObj;
+        delete fields.joints; delete fields.reach; delete fields.point_at; delete fields.solved; delete fields.solved_for;
+        fields.pose = "rest";
         $("iFields").value = JSON.stringify(fields);
       } catch (e) {}
 
       if (R3D.view && R3D.view.ready) {
         const side = c.slot === "ARM_L" ? "left" : "right";
         const dual = {};
-        dual[side] = jointsObj;
+        dual[side] = restVisual;
         R3D.view.setDualArmChoreoPose(dual);
-        R3D.view.setGhostCuePose(c.slot, jointsObj);
+        R3D.view.setGhostCuePose(c.slot, restVisual);
       }
 
-      cue.joints = jointsObj;
-      edit([{ op: "set", index: i, cue }], `reset ${c.slot} to rest pose`);
+      edit([{ op: "set", index: i, cue }], `set ${c.slot} to pose: rest`);
     };
   }
 

@@ -7,6 +7,9 @@ StartLimitIntervalSec=0
 Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
+# The robot's DDS settings (ros-dds.env, installed by provision-ros.sh): UDP over loopback only, so
+# no shared memory (a long-lived subscriber on it can go deaf, workplan L.10) and no multicast.
+EnvironmentFile=/etc/opendubs/ros-dds.env
 ExecStart=/opt/opendubs/ros/rosbridge.sh
 Restart=always
 RestartSec=3

@@ -177,6 +177,9 @@ def _delete_cue(text, seq, index):
             kls = text.rfind("\n", 0, prev_text.rfind("cues:")) + 1
             indent = text[kls:prev_text.rfind("cues:")]
             return text[:kls] + f"{indent}cues: []\n" + text[le:]
+        if prev_text.endswith(f"{NOTES}:"):
+            kls = text.rfind("\n", 0, prev_text.rfind(f"{NOTES}:")) + 1
+            return text[:kls] + text[le:]
     return text[:ls] + text[le:]
 
 
@@ -367,6 +370,15 @@ def _set_top(text, key, value):
     return text[:v.start_mark.index] + fmt(value) + text[_end(v):]
 
 
+def drop_top(text, key):
+    """The text without the top-level `key:` and its value (a no-op when there is none)."""
+    k, v = _key(_root(text), key)
+    if k is None:
+        return text
+    ls, le = _line_bounds(text, k.start_mark.index, _end(v))
+    return text[:ls] + text[le:]
+
+
 def _require(text, key, value):
     """Set one entry of the show's `requires:` mapping (added above `cues:` if there is none)."""
     if not isinstance(key, str) or not key:
@@ -442,8 +454,11 @@ NOTES = "timeline_notes"
 
 def _notes_seq(text):
     _, seq = _key(_root(text), NOTES)
-    if seq is not None and not isinstance(seq, yaml.SequenceNode):
-        raise EditError(f"{NOTES}: must be a list")
+    if seq is not None:
+        if isinstance(seq, yaml.ScalarNode) and (not seq.value or seq.value in ("null", "~")):
+            return None
+        if not isinstance(seq, yaml.SequenceNode):
+            raise EditError(f"{NOTES}: must be a list")
     return seq
 
 
@@ -458,14 +473,18 @@ def _note_add(text, note):
     """Append a note. A show with no notes yet gets a `timeline_notes:` block above `cues:`."""
     if not isinstance(note, dict) or not note.get("id"):
         raise EditError("a timeline note needs an id")
-    seq = _notes_seq(text)
     line = "- " + fmt({str(k): v for k, v in note.items()})
-    if seq is None or not seq.value:
-        root = _root(text)
-        if seq is not None:                            # `timeline_notes: []` — replace it with a block
-            k, _ = _key(root, NOTES)
-            ls, le = _line_bounds(text, k.start_mark.index, _end(seq))
+    root = _root(text)
+    k, raw_seq = _key(root, NOTES)
+    if raw_seq is not None:
+        if isinstance(raw_seq, yaml.ScalarNode) and (not raw_seq.value or raw_seq.value in ("null", "~")):
+            ls, le = _line_bounds(text, k.start_mark.index, _end(raw_seq))
             return text[:ls] + f"{NOTES}:\n  {line}\n" + text[le:]
+        if isinstance(raw_seq, yaml.SequenceNode) and not raw_seq.value:
+            ls, le = _line_bounds(text, k.start_mark.index, _end(raw_seq))
+            return text[:ls] + f"{NOTES}:\n  {line}\n" + text[le:]
+    seq = _notes_seq(text)
+    if seq is None or not seq.value:
         kc, _ = _key(root, "cues")
         if kc is None:
             raise EditError("the show has no cues: list")

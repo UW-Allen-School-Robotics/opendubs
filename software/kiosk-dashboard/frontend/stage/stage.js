@@ -29,10 +29,18 @@
 
    Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
    &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
-   ?card=0 hides the ready card. The device this page runs on reloads a page that stops checking in:
-   alive() (the kiosk app's, else a POST to the stage Pi's /alive) every 5 s from the draw loop, or from
-   the sync timer when the device says it has no screen. A deploy that changes the dashboard's pages
-   reloads this one too, between shows (it polls /api/frontend-version every 15 s). */
+   ?card=0 hides the ready card.
+
+   A ROLE, for a show split across pages (?role=, default both): `video` plays the picture, always muted,
+   and leaves out a song alone; `sound` plays only the heard items (lead_kind "audio") with no picture;
+   `both` plays everything, as a stage Pi's page does. The page reports its role with its device report,
+   its head start and any stall, so the runner counts readiness and sound per role. A sound page with no
+   stage device behind it (a desktop browser) reports its output as "browser".
+
+   The device this page runs on reloads a page that stops checking in: alive() (the kiosk app's, else a
+   POST to the stage Pi's /alive) every 5 s from the draw loop, or from the sync timer when the device
+   says it has no screen. A deploy that changes the dashboard's pages reloads this one too, between shows
+   (it polls /api/frontend-version every 15 s). */
 "use strict";
 (() => {
   const q = new URLSearchParams(location.search);
@@ -50,8 +58,12 @@
   const MAX_PIXELS = 3840 * 2160;                    // a canvas no larger than 4K, whatever the wall
   const BOX_MAX_PIXELS = 1920 * 1080;                // on a stage box, 1080p: a Pi drawing a 4K canvas every
                                                      // frame would starve the video; the screen scales it up
-  const SOUND_NAMES = { usb: "USB", hdmi: "HDMI", jack: "3.5 mm jack", bt: "Bluetooth", none: "none" };
-  let device = null, lastWsMsg = 0;
+  const SOUND_NAMES = { usb: "USB", hdmi: "HDMI", jack: "3.5 mm jack", bt: "Bluetooth", none: "none", browser: "this browser" };
+  const ROLE = ["video", "sound"].includes(q.get("role")) ? q.get("role") : "both";
+  // the items this page plays: a video page leaves out a song alone; a sound page plays only what is heard
+  const plays = (v) => ROLE === "both" || (ROLE === "video" ? !v.audio : v.lead_kind === "audio");
+  const silent = ROLE === "video";                  // a video page never makes sound
+  let device = null, lastWsMsg = 0, soundRefused = false;
   if (q.get("hud")) hud.style.display = "block";
   if (q.get("video")) {
     video.src = q.get("video"); video.hidden = false; video.muted = !q.get("sound");
@@ -64,7 +76,13 @@
   const send = (m) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); };
   function connect() {
     ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/skeleton`);
-    ws.onopen = () => { backoff = 500; burst(); if (pre.report) pre.report(); };   // a new socket: say it again
+    ws.onopen = () => {                              // a new socket: say it again
+      backoff = 500; burst(); if (pre.report) pre.report();
+      // a stall told while the network was down went into the dead socket, and the dashboard dropped this
+      // page's old entry with it: told again, while that show plays (a 50 s outage on the desk, 2026-10-29)
+      const st = keepVideo.stall;
+      if (st && show && show.state === "playing" && st.id === show.id) send({ stall: st });
+    };
     ws.onmessage = (e) => {
       lastWsMsg = performance.now();
       const m = JSON.parse(e.data);
@@ -117,11 +135,11 @@
   async function prepare(m) {
     if (pre.id === m.id) return;
     const me = pre = { id: m.id, local: false, buffered: 0, need: 0, ready: false, error: null };
-    me.report = () => send({ preload: { id: me.id, ready: me.ready, local: me.local, need_s: me.need,
+    me.report = () => send({ preload: { id: me.id, role: ROLE, ready: me.ready, local: me.local, need_s: me.need,
                                         buffered_s: Math.round(me.buffered * 10) / 10, error: me.error || undefined } });
-    const first = (m.videos || [])[0];
+    const first = (m.videos || []).filter(plays)[0];
     if (!first) { me.ready = true; return me.report(); }
-    for (const v of m.videos || []) {
+    for (const v of (m.videos || []).filter(plays)) {
       delete localUrl[v.url];
       if (!v.sha256 || !(device && device.device === "stage-pi")) continue;
       const u = `${DEVICE_URL}/media/${v.sha256}?id=${encodeURIComponent(v.lib || "")}`;
@@ -142,10 +160,15 @@
       // loading because it can already play through, whatever it holds — at least MIN_START_S.
       const satisfied = video.readyState === 4 && video.networkState === 1 && me.buffered >= MIN_START_S;
       me.ready = me.local || me.buffered >= Math.min(me.need, rest) - 0.25 || satisfied;
+      // a HEARD item on a box that has no sound now (the speaker off, #591): not ready, and why
+      const mute = !silent && heardHere(m) && device && device.audio_output === "none";
+      if (mute) { me.ready = false; me.error = `no sound: ${device.audio_why || "the stage box has no sound output"}`; }
+      else if (me.error && me.error.startsWith("no sound: ")) me.error = null;
       me.report();
       setTimeout(tick, 500);
     })();
   }
+  const heardHere = (m) => (m.videos || []).some((v) => plays(v) && v.lead_kind === "audio");
   function showTime(now) {                          // seconds into the show, on the Thor's clock
     return show && show.state === "playing" && clock && show.t0_mono != null ? (now + clock.offset) / 1000 - show.t0_mono : null;
   }
@@ -165,6 +188,7 @@
   }
   function leadOf(v) {
     if (v.lead_kind !== "audio") return v.lead_s || 0;
+    if (silent) return 0;                            // a video page's heard item: muted, so no sound output's delay
     if (leadFor.id !== show.id) leadFor = { id: show.id, ...audioLead(v.lead_s) };
     return leadFor.s;
   }
@@ -172,19 +196,30 @@
   function keepVideo(now) {
     const st = showTime(now);
     if (st == null || manual) return null;
-    const it = (show.videos || []).find((v) => v.t <= at(v, st) && at(v, st) < v.end_t);
+    const mine = (show.videos || []).filter(plays);
+    const it = mine.find((v) => v.t <= at(v, st) && at(v, st) < v.end_t);
     if (!it) {                                       // between videos, or after: black (or the last frame held)
-      const last = (show.videos || []).filter((v) => v.end_t <= at(v, st)).pop();
+      const last = mine.filter((v) => v.end_t <= at(v, st)).pop();
       if (!(last && last.end === "hold")) { video.pause(); video.hidden = true; }
+      keepVideo.dry = 0;                             // not playing: not running dry either
       return st;
     }
     if (video.dataset.url !== it.url) { video.dataset.url = it.url; video.src = src(it.url); }   // the box's copy, if it has one
     const want = it.from_s + (at(it, st) - it.t);
-    video.hidden = !!it.audio;                       // a song alone: heard, under the page's own scene
-    if (show.muted && !video.muted) video.muted = true;     // the tablet took the music after a stall
+    video.hidden = !!it.audio || ROLE === "sound";   // a song alone, or a sound page: heard, under the page's own scene
+    if ((show.muted || silent) && !video.muted) video.muted = true;   // the tablet took the music, or a video page
     if (video.paused) {
-      video.currentTime = want; video.muted = !!show.muted;
-      video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });   // a browser may refuse sound
+      // a (re)start clears the dry clock: one left from an earlier show reported every show's first frame,
+      // still loading, as a stall (opendubs2 2026-10-28: "ran out of video at -0.2 s", the Boom muted)
+      keepVideo.dry = 0;
+      video.currentTime = want; video.muted = !!show.muted || silent;
+      const withSound = !video.muted;
+      // a browser may refuse sound (autoplay, no click on the page yet): it plays muted, and the page says so
+      // at once, or a desktop page is a silent show that nobody is told about
+      video.play().then(() => { if (withSound && soundRefused) { soundRefused = false; readDevice(); } }, (e) => {
+        if (withSound && e && e.name === "NotAllowedError" && !soundRefused) { soundRefused = true; readDevice(); }
+        video.muted = true; video.play().catch(() => {});
+      });
       keepVideo.synced = now;
       return st;
     }
@@ -192,7 +227,8 @@
       keepVideo.dry = keepVideo.dry || now;
       if (now - keepVideo.dry > 1500 && keepVideo.stallFor !== show.id) {
         keepVideo.stallFor = show.id;
-        send({ stall: { id: show.id, at_s: Math.round(st * 10) / 10 } });
+        keepVideo.stall = { id: show.id, role: ROLE, at_s: Math.round(st * 10) / 10 };
+        send({ stall: keepVideo.stall });
       }
       return st;                                     // when the data returns, the seek below catches up
     }
@@ -403,16 +439,19 @@
       device: d.device, name: d.name, model: d.model, audio_output: d.audio_output, audio_name: d.audio_name,
       audio_latency_ms: typeof d.audio_latency_ms === "number" ? d.audio_latency_ms : undefined,
       audio_setting: typeof d.audio_setting === "string" ? d.audio_setting : undefined,
+      audio_why: typeof d.audio_why === "string" ? d.audio_why : undefined,   // why "none" (#591)
       under_voltage_now: d.under_voltage_now, under_voltage_since_boot: d.under_voltage_since_boot,
       throttled_now: d.throttled_now, screen_connected: d.screen?.connected, screen_mode: d.screen?.mode,
       media_items: d.media?.items, media_bytes: d.media?.bytes, media_free: d.media?.free,
       media_syncing: d.media?.syncing } : null;
-    send({ page: { ...(device || {}), viewport: [innerWidth, innerHeight], dpr: devicePixelRatio,
+    // a sound page with no stage device behind it: a desktop browser, which plays through its own output
+    const own = !device && ROLE === "sound" ? { audio_output: "browser", audio_name: "this browser" } : {};
+    send({ page: { ...(device || own), role: ROLE, viewport: [innerWidth, innerHeight], dpr: devicePixelRatio,
                    clock_err_ms: clock ? Math.round(clock.err * 10) / 10 : undefined,
                    // the audio lead this page used for the last show it played, and where it came from
                    audio_lead_ms: leadFor.id ? Math.round(leadFor.s * 1000) : undefined,
                    audio_lead_from: leadFor.id ? leadFor.from : undefined,
-                   sound: video.muted && !video.paused ? "muted" : "on" } });
+                   sound: video.muted && !video.paused ? "muted" : "on", sound_refused: soundRefused } });
   }
   // every 5 s on a device that answers; elsewhere, after 3 misses, once a minute (a refused connection
   // to 127.0.0.1 is logged by the browser each time)
@@ -430,7 +469,8 @@
     if (!on || now - (showCard.at || 0) < 1000) return;
     showCard.at = now;
     const up = ws && ws.readyState === 1 && now - lastWsMsg < 15000;
-    const sound = !device ? "unknown (not a stage device)"
+    const sound = silent ? "none: this page plays the picture only (role video)"
+      : !device ? (ROLE === "sound" ? "this browser's output" : "unknown (not a stage device)")
       : SOUND_NAMES[device.audio_output] || device.audio_output || "unknown";
     const res = `${Math.round(screen.width * devicePixelRatio)}×${Math.round(screen.height * devicePixelRatio)}`
       + (device && device.screen_mode ? ` (${device.screen_mode})` : "")
@@ -438,7 +478,8 @@
     const rows = [["Robot", up ? "connected" : "NOT connected", !up],
                   ["Screen", res, false],
                   ["Sound", sound + (device && device.audio_name ? ` · ${device.audio_name}` : "")
-                    + (device && device.audio_latency_ms != null ? ` · ~${Math.round(device.audio_latency_ms)} ms delay` : ""),
+                    + (device && device.audio_latency_ms != null ? ` · ~${Math.round(device.audio_latency_ms)} ms delay` : "")
+                    + (device && device.audio_output === "none" && device.audio_why ? ` — ${device.audio_why}` : ""),
                    device && device.audio_output === "none"],
                   ["Clock to the Thor", clock ? `in step, ±${clock.err.toFixed(1)} ms` : "measuring…", !clock]];
     if (device && device.media_items != null)        // the box's own copies (its media stick)

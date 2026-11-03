@@ -1,0 +1,52 @@
+[Unit]
+# The arm service on gafro for one arm (the instance: `right` or `left`): what ros2_control and `openarm-up` were to the arms.
+# See software/openarm/gafro/arm_service.py and the README beside this file.
+Description=OpenDubs arm service (%i arm, gafro)
+# This arm's CAN link, raised by openarm-can@.service when udev sees the channel (arm_left / arm_right).
+Requires=openarm-can@arm_%i.service
+After=openarm-can@arm_%i.service network.target
+
+# NOT enabled at boot, on purpose: there is no [Install] section. Starting the service enables the arm's motors and holds it where it is, and
+# `openarm-up` kept the arms inactive until someone asked ("the arms never power up by themselves"). A start at boot would also meet an arm
+# that fell when the power dropped, away from stow and ready. A person (or the dashboard's button) starts it: `systemctl start opendubs-arm@right`.
+#
+# A start that fails is tried again a few times and then given up on, so a refusal (another sender on the bus, the old stack running) cannot loop.
+StartLimitIntervalSec=120
+StartLimitBurst=4
+
+[Service]
+Type=simple
+User=kiosk
+# What is per robot, and not overwritten by a deploy: the checkout the service runs from, the driver's config, the stow file. A template is
+# opendubs-arm.env.example.
+EnvironmentFile=-/etc/opendubs/arm-service.env
+ExecStart=/usr/local/lib/opendubs/opendubs-arm %i
+
+# One directory for both arms' command sockets (the service default is <dir>/opendubs-arm-service-<side>.sock). It is kept when one arm's
+# service stops, because the other's socket is in it; each service removes its own socket.
+RuntimeDirectory=opendubs-arm
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+Environment=OPENDUBS_ARM_SOCKET_DIR=/run/opendubs-arm
+
+# The service ends cleanly on SIGINT only: it holds the arm, removes its socket and shuts the robot interface down in a `finally`. systemd's SIGTERM
+# would end it without any of that.
+KillSignal=SIGINT
+TimeoutStopSec=15
+
+# A crash leaves the motors ENABLED and holding the last command (the driver has no disable and the Damiao timeout register is 0), and nothing
+# drives them. Starting again reads the arm's position (two agreeing replies) and holds it where it is, so a restart is seamless; it is bounded by
+# StartLimitBurst above. 2 is the wrapper's refusal for the old stack running (it is not retried: someone has to stop that first).
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=2
+
+# Stopping this unit does NOT release the arm: the motors stay enabled and stiff until the e-stop power cycle. And after a power cycle they are
+# off: this service does not enable them again by itself (the driver's auto_reengage is off), so restart it.
+
+NoNewPrivileges=yes
+
+# The driver's loop runs at 250 Hz. Measured without any of this: mean period 4.00 ms, 1 cycle in 5007 over 8 ms. Uncomment to ask for a real-time
+# priority (the driver's `realtime_priority` option) if that is not enough under the dashboard's and the runner's load.
+#LimitRTPRIO=60
+#LimitMEMLOCK=infinity

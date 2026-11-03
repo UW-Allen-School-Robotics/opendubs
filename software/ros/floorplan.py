@@ -17,6 +17,13 @@ plans and maps are site data: they stay on the robot and off the repo.
   uv run --with pymupdf --with numpy --with scipy python3 floorplan.py fit PLAN.pdf MAP.yaml \\
       --frame bldg_f2 --seed-room 204 --start X Y YAW -o OUT_DIR
 
+`plan` writes the same floor as an open plan file for other tools (ENCORE's encore.plan/1, its repo's
+docs/venue-format.md): the walls as two-point polylines (the strokes fit reads, clipped to the same
+drawing area), the rooms, the scale, and where it came from. It is NOT the robot's <frame>.plan.yaml,
+and it refuses to overwrite a file that is not already an encore.plan/1 file:
+
+  uv run --with pymupdf --with pyyaml python3 floorplan.py plan PLAN.pdf --frame bldg_f2 -o OUT.plan.yaml
+
 --start is where the mapping drive began, in the map frame (the drive starts in --seed-room): it
 seeds the search and becomes SLAM's start pose when localizing. The search covers every heading
 and +/-3 m around the seed room's label, then refines.
@@ -28,9 +35,13 @@ Assumes the plan's scale bar is a horizontal stroke just under a "Feet" label an
 (the layout of UW MAPS "Basic Architectural Floorplans"); --bar-feet and --drawing-bottom change that.
 """
 import argparse
+import hashlib
+import json
 import math
 import os
 import re
+import subprocess
+import sys
 
 ROOM = re.compile(r"^[0-9G][0-9A-Z]{2,4}(-\d+)?$")    # 269, 200K, 2ST1, 250-1, G00A
 
@@ -45,8 +56,29 @@ def is_room(label):
     return bool(ROOM.match(label)) and any(ch.isdigit() for ch in label)
 
 
-def read_plan(pdf, bar_feet, bottom):
-    import numpy as np
+def strokes(items):
+    """The page's strokes as segments ((x, y), (x, y)) in page points: lines, curves as their chord
+    (p1 to p4), rectangles as their four sides. Both `fit` (sampled) and `plan` (clipped) use these."""
+    out = []
+    for it in items:
+        if it[0] == "l":
+            out.append(((it[1].x, it[1].y), (it[2].x, it[2].y)))
+        elif it[0] == "c":
+            out.append(((it[1].x, it[1].y), (it[4].x, it[4].y)))
+        elif it[0] == "re":
+            r = it[1]; c = [r.tl, r.tr, r.br, r.bl]
+            out += [((c[k].x, c[k].y), (c[(k + 1) % 4].x, c[(k + 1) % 4].y)) for k in range(4)]
+    return out
+
+
+def drawing_area(width, bottom):
+    """The part of the page that is the drawing, in page points (x0, x1, y0, y1), y down: inside the
+    margins, below the header, above the scale bar and title block."""
+    return 10, width - 10, 40, bottom - 10
+
+
+def read_page(pdf, bar_feet, bottom):
+    """(m_per_pt, page width, strokes, rooms) from a plan PDF's first page."""
     import pymupdf
     page = pymupdf.open(pdf)[0]
     lines = [it for d in page.get_drawings() for it in d["items"]]
@@ -62,28 +94,108 @@ def read_plan(pdf, bar_feet, bottom):
         raise SystemExit("no scale-bar stroke under the 'Feet' label")
     a, b = max(bars, key=lambda ab: abs(ab[1].x - ab[0].x))
     m_per_pt = bar_feet * 0.3048 / abs(b.x - a.x)
-    pts = []
-
-    def seg(p, q):
-        n = max(2, int(math.hypot(q.x - p.x, q.y - p.y) * m_per_pt / 0.025))
-        for t in np.linspace(0, 1, n):
-            pts.append((p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t))
-    for it in lines:
-        if it[0] == "l":
-            seg(it[1], it[2])
-        elif it[0] == "c":
-            seg(it[1], it[4])
-        elif it[0] == "re":
-            r = it[1]; c = [r.tl, r.tr, r.br, r.bl]
-            for k in range(4):
-                seg(c[k], c[(k + 1) % 4])
-    w, h = page.rect.width, page.rect.height
-    P = np.array([(x, y) for x, y in pts if 40 < y < bottom - 10 and 10 < x < w - 10])
+    x0, x1, y0, y1 = drawing_area(page.rect.width, bottom)
     rooms = {}
-    for x0, y0, x1, y1, word, *_ in page.get_text("words"):
-        if 40 < y0 < bottom - 10 and is_room(word):
-            rooms.setdefault(word, [round((x0 + x1) / 2 * m_per_pt, 3), round(-(y0 + y1) / 2 * m_per_pt, 3)])
+    for wx0, wy0, wx1, wy1, word, *_ in page.get_text("words"):
+        if y0 < wy0 < y1 and is_room(word):
+            rooms.setdefault(word, [round((wx0 + wx1) / 2 * m_per_pt, 3), round(-(wy0 + wy1) / 2 * m_per_pt, 3)])
+    return m_per_pt, page.rect.width, strokes(lines), rooms
+
+
+def read_plan(pdf, bar_feet, bottom):
+    """For `fit`: the plan's walls as points every 2.5 cm along its strokes, inside the drawing, in metres."""
+    import numpy as np
+    m_per_pt, width, segs, rooms = read_page(pdf, bar_feet, bottom)
+    x0, x1, y0, y1 = drawing_area(width, bottom)
+    pts = []
+    for (px, py), (qx, qy) in segs:
+        n = max(2, int(math.hypot(qx - px, qy - py) * m_per_pt / 0.025))
+        for t in np.linspace(0, 1, n):
+            pts.append((px + (qx - px) * t, py + (qy - py) * t))
+    P = np.array([(x, y) for x, y in pts if y0 < y < y1 and x0 < x < x1])
     return m_per_pt, P[:, 0] * m_per_pt, -P[:, 1] * m_per_pt, rooms
+
+
+def clip(p, q, box):
+    """The part of segment p-q inside box (x0, x1, y0, y1), or None (Liang-Barsky)."""
+    (px, py), (qx, qy) = p, q
+    x0, x1, y0, y1 = box
+    dx, dy = qx - px, qy - py
+    t0, t1 = 0.0, 1.0
+    for pp, qq in ((-dx, px - x0), (dx, x1 - px), (-dy, py - y0), (dy, y1 - py)):
+        if pp == 0:
+            if qq < 0:
+                return None
+            continue
+        r = qq / pp
+        if pp < 0:
+            t0 = max(t0, r)
+        else:
+            t1 = min(t1, r)
+        if t0 > t1:
+            return None
+    return (px + t0 * dx, py + t0 * dy), (px + t1 * dx, py + t1 * dy)
+
+
+PLAN_FORMAT = "encore.plan/1"
+
+
+def plan_doc(segs, m_per_pt, rooms, box, frame, source, converter, bar_feet):
+    """An encore.plan/1 document: each stroke clipped to the drawing area, as a two-point polyline in
+    metres in the floor frame (x right, y up: page y is negated). Pure: no PDF library needed."""
+    walls = []
+    for p, q in segs:
+        got = clip(p, q, box)
+        if got and got[0] != got[1]:
+            (ax, ay), (bx, by) = got
+            walls.append([[round(ax * m_per_pt, 4), round(-ay * m_per_pt, 4)],
+                          [round(bx * m_per_pt, 4), round(-by * m_per_pt, 4)]])
+    return {"format": PLAN_FORMAT, "frame": frame, "units": "m",
+            "axes": "x right, y up; origin the source page's top-left corner, so rooms have negative y",
+            "source": source, "converter": converter,
+            "scale": {"m_per_unit": round(float(m_per_pt), 6), "from": f"the {bar_feet:g}-foot scale bar under 'Feet'"},
+            "walls": walls, "rooms": rooms}
+
+
+def revision():
+    """This file's git short hash, '+dirty' if it has uncommitted changes; 'unknown' outside a checkout."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        rev = subprocess.run(["git", "-C", here, "log", "-1", "--format=%h", "--", "floorplan.py"],
+                             capture_output=True, text=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", here, "diff", "--quiet", "HEAD", "--", "floorplan.py"]).returncode
+    except OSError:
+        return "unknown"
+    return (rev + ("+dirty" if dirty else "")) if rev else "unknown"
+
+
+def plan(args):
+    if os.path.exists(args.out):
+        try:
+            with open(args.out) as f:
+                old = f.read()
+            ok = old.lstrip().startswith("{") and json.loads(old).get("format") == PLAN_FORMAT \
+                or re.search(r"^format:\s*['\"]?" + re.escape(PLAN_FORMAT), old, re.M)
+        except (OSError, ValueError):
+            ok = False
+        if not ok:
+            raise SystemExit(f"{args.out} exists and is not an {PLAN_FORMAT} file (the robot's own "
+                             f"<frame>.plan.yaml?); not overwritten")
+    m_per_pt, width, segs, rooms = read_page(args.plan, args.bar_feet, args.drawing_bottom)
+    raw = open(args.plan, "rb").read()
+    source = {"file": os.path.basename(args.plan), "sha256": hashlib.sha256(raw).hexdigest(), "kind": "pdf", "page": 0}
+    converter = {"name": "opendubs software/ros/floorplan.py plan", "revision": revision(),
+                 "command": " ".join(["python3 floorplan.py"] + [os.path.basename(a) if a in (args.plan, args.out) else a
+                                                                 for a in sys.argv[1:]])}   # file names, not local paths
+    doc = plan_doc(segs, m_per_pt, rooms, drawing_area(width, args.drawing_bottom), args.frame, source,
+                   converter, args.bar_feet)
+    with open(args.out, "w") as f:
+        if args.out.endswith(".json"):
+            json.dump(doc, f)
+        else:
+            import yaml
+            yaml.safe_dump(doc, f, sort_keys=False, default_flow_style=None, width=200)
+    print(f"wrote {args.out}: {len(doc['walls'])} walls, {len(rooms)} rooms, {m_per_pt:.6f} m per point")
 
 
 def read_map(yaml_path):
@@ -192,8 +304,13 @@ def main():
     f.add_argument("-o", "--out", default=".")
     f.add_argument("--bar-feet", type=float, default=100.0)
     f.add_argument("--drawing-bottom", type=float, default=650.0, help="page y (pt) below which the scale bar's label sits")
+    p = sp.add_parser("plan", help=f"write a floor-plan PDF as an open plan file ({PLAN_FORMAT})")
+    p.add_argument("plan"); p.add_argument("--frame", required=True, help="the floor frame's name, e.g. bldg_f2")
+    p.add_argument("-o", "--out", required=True, help="the plan file to write (.yaml or .json)")
+    p.add_argument("--bar-feet", type=float, default=100.0)
+    p.add_argument("--drawing-bottom", type=float, default=650.0, help="page y (pt) below which the scale bar's label sits")
     args = ap.parse_args()
-    fit(args)
+    (plan if args.cmd == "plan" else fit)(args)
 
 
 if __name__ == "__main__":

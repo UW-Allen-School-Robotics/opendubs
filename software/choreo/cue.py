@@ -289,7 +289,12 @@ SOUND_SECS_SANITY = (0.05, 600.0)
 # Where sound plays (workplan DEC-5 / DEC-11, item 1.5). A show may say, for its music and for each
 # sound; the operator may override at run time (Show.audio_override), and the show is re-checked
 # against the override — a sound an output cannot play is an ERROR, never silence.
-AUDIO_OUTPUTS = ("tablet", "tab5", "thor")
+AUDIO_OUTPUTS = ("tablet", "tab5", "thor", "speakerphone", "stage")
+# The devices a show's music can be CHOSEN to play on at play time (notes/design/choreo-audio-output.md):
+# the operator's choice, else the show's music output, else the stage box when the show's video plays
+# there, else the tablet. tablet and speakerphone are show-audio outputs on the dashboard's hub; stage is
+# the stage box's speaker, through the stage page. A chosen device that isn't ready refuses the run.
+MUSIC_DEVICES = ("tablet", "speakerphone", "stage")
 # What a sound IS (notes/design/choreo-audio.md, the user's decision 2026-10-20): MUSIC (the soundtrack,
 # background, effects) plays from the projector's speaker when a projector is ready; DIALOGUE (scripted
 # lines, the voice assistant) always from the tablet. Unmarked is dialogue, so speech never reaches the
@@ -299,7 +304,8 @@ DEFAULT_AUDIO_ROLE = "dialogue"
 DEFAULT_AUDIO_OUTPUT = "tablet"          # DEC-5: the tablet, unless the show or operator says otherwise
 # What each output can play TODAY. The Tab5 has its six built-in earcons and no path for files yet;
 # the tablet and a Thor speaker play files. No Thor speaker is fitted yet (a notice says so).
-CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",)}
+CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",), "speakerphone": ("file",),
+            "stage": ("file",)}
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's own
 # slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can override.
 # Used to WARN when a head cue arrives before the previous move can have finished; sim_preview.py
@@ -428,7 +434,40 @@ MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R":
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
             "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
-            "start_countdown_s", "device", "video", "can_skip", "tools", "crawler"}
+            "start_countdown_s", "device", "video", "can_skip", "tools", "crawler", "generated"}
+# GENERATED: a cue sheet another tool made from its own source (ENCORE: notes/design/choreo-content-split.md)
+# says so here. The source is the original and the sheet is made again from it at every push, so the
+# composer and studio open a marked sheet read-only. Only the marker's shape is checked; the tool that
+# made the sheet is the only writer of it.
+#   generated: { by: encore, source: encore/shows/<id>.yaml, sha256: "<the source file's bytes>",
+#                revision: "<the tool's commit>" }
+GENERATED_KEYS = ("by", "source", "sha256", "revision")
+
+
+def generated_marker(doc) -> dict | None:
+    """The sheet's `generated:` marker, or None for a sheet written by hand (or a malformed marker,
+    which the validator reports)."""
+    g = doc.get("generated") if isinstance(doc, dict) else None
+    return g if isinstance(g, dict) else None
+
+
+def generated_problems(g) -> list[str]:
+    """What is wrong with a `generated:` marker's shape (empty when nothing is)."""
+    if not isinstance(g, dict):
+        return ["must be a mapping { by, source, sha256, revision }"]
+    out = [f"unknown key {k!r} (known: {', '.join(GENERATED_KEYS)})" for k in g if k not in GENERATED_KEYS]
+    for k in ("by", "source", "sha256"):
+        if not isinstance(g.get(k), str) or not g[k].strip():
+            out.append(f"{k}: is required, as a string")
+    src = g.get("source")
+    if isinstance(src, str) and (src.startswith("/") or ".." in src.replace("\\", "/").split("/")):
+        out.append("source: is a path inside the content folder: not absolute, no ..")
+    sha = g.get("sha256")
+    if isinstance(sha, str) and not re.fullmatch(r"[0-9a-f]{64}", sha):
+        out.append("sha256: is 64 lowercase hex digits, the hash of the source file's bytes")
+    if "revision" in g and not (isinstance(g["revision"], str) and g["revision"].strip()):
+        out.append("revision: is a string (quote it: a commit id of digits reads as a number)")
+    return out
 # EFFECTORS: the robot's parts a show NEEDS — derived from the slots its cues use, never hand-listed —
 # and the names the robot reports their availability by (the runner's preflight). A show may list in
 # `can_skip:` the parts it can do without: the runner then offers that variant, the show without
@@ -906,6 +945,10 @@ class Show:
                     P(Problem("video: required must be true or false"))
                 if "skeletons" in vblock and not isinstance(vblock["skeletons"], bool):
                     P(Problem("video: skeletons must be true or false"))
+
+        if "generated" in self.doc:
+            for msg in generated_problems(self.doc["generated"]):
+                P(Problem(f"generated: {msg}"))
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:

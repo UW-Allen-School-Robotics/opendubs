@@ -33,6 +33,7 @@ charge, and this tool supplies the shape of the curve between the points nobody 
 from __future__ import annotations
 
 import argparse
+import sys
 
 import numpy as np
 
@@ -132,6 +133,8 @@ def set_pose(model, data, joints: str = "", lift_mm: float = 0.0,
         data.qpos[model.jnt_qposadr[j]] = val
     if joints:
         scene.set_joints(model, data, joints)
+    import props
+    props.follow_stage(model, data)                 # a bucket on the stage rides the lift
     mujoco.mj_forward(model, data)
 
 
@@ -168,11 +171,17 @@ def main():
     ap.add_argument("--contact", metavar="SIDE:JOINT",
                     help='sweep this joint to find where clearance hits zero, e.g. "right:2"')
     ap.add_argument("--hold", default="", help='joints to hold during --contact')
+    ap.add_argument("--candy-bucket", nargs="?", const=True, default=None, type=scene.candy_bucket_arg,
+                    metavar="X,Y,H", help="measure against the candy bucket and its stand too (props.py)")
+    ap.add_argument("--bucket-variant", choices=scene.BUCKET_VARIANTS, default=None,
+                    help="which candy bucket: handle_up (the default) or handle_down")
     a = ap.parse_args()
 
     import mujoco
 
-    model = scene.build(a.assets)
+    if a.bucket_variant and not a.candy_bucket:
+        sys.exit("--bucket-variant needs --candy-bucket")
+    model = scene.build(a.assets, candy_bucket=a.candy_bucket, bucket_variant=a.bucket_variant)
     data = mujoco.MjData(model)
 
     if a.contact:

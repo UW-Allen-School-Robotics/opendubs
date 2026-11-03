@@ -314,6 +314,8 @@
       if ("holder" in m) {
         st.holder = m.holder; st.youHold = !!m.you_hold;
         if (!st.youHold) { silence(0); pfDone(null, false); ambStop(); airplayGate("mute"); }
+        // the tablet output came free (its holder left, or moved to another output): the kiosk takes it back
+        if (K && !st.youHold && m.holder == null) send({ claim: true, label: "tablet", only_if_free: true });
         return;
       }
       if (m.op === "ambient") return onAmbient(m);
