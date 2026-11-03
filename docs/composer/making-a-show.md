@@ -143,11 +143,20 @@ the repository software, so an update of the robot's software never removes them
 
 ## Running it
 
-On the robot's dashboard, **Shows** lists every show the robot has. A run starts **armed**: the
-robot loads the music and video, then waits. With **CH5** on the radio controller in **AUTO**,
-pressing the **deadman** switch starts a short countdown, then the show. Letting go of the deadman,
-leaving AUTO, the e-stop, or any fault ends the run at once: the arms hold where they are, the base
-and the floor hand stop, the hand's fingers open, and the music stops.
+On the robot's dashboard, **Shows** lists every show the robot has. A run starts **READY**: the
+robot loads the music and video, then waits — nothing moves until you press and hold the
+**deadman**. With **CH5** on the radio controller in **AUTO**, pressing the deadman shows
+**STARTING in N**, a short countdown that warns the robot will move, then **SHOW RUNNING**.
+Once it has started, letting go of the deadman, leaving AUTO, the e-stop, a fault, or the
+operator's **STOP** ends the run at once, as **SHOW STOPPED**: the arms hold where they are, the
+base and the floor hand stop, the hand's fingers open, and the music stops. A show that plays to
+its end reads **SHOW FINISHED**.
+
+While a run is READY, letting go of the deadman does not end it; only a fresh press starts it.
+Leaving AUTO, the e-stop, a fault or STOP still ends it as SHOW STOPPED, with the reason that it
+stopped before it started and nothing had moved. A run reads **DIDN'T START** when its checks
+refuse it, because a part it needs is not ready (the head, the base or the video, for example),
+or when it sits READY for 5 minutes without a press of the deadman. Nothing moves in either case.
 
 ## The rules that keep it safe
 

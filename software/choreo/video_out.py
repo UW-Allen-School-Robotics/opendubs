@@ -557,14 +557,22 @@ class StageOutput:
             return 0
 
     def status(self) -> dict:
+        """Ready when a page is open. `page`: the page that answers for the stage's SOUND, `sound_pages`: every
+        page that carries sound. A page's `role` (stage.js ?role=video|sound|both, `both` when it says none)
+        decides: a `video` page plays the picture muted, so it never answers for sound. Of the sound pages,
+        the first that can't make sound answers (so the run is refused with its reason), else the first."""
         try:
             got = self._get()
             n = int(got.get("pages") or 0)
         except Exception:  # noqa: BLE001
             return {"present": False, "ready": False, "why": "the dashboard isn't answering"}
         self.why = None if n else "no stage page is open (the projector's app, or a browser at /stage/)"
-        info = (got.get("pages_info") or [None])[0]
-        return {"present": True, "ready": n > 0, "pages": n, "why": self.why, "page": info}
+        sound = sound_pages(got.get("pages_info"))
+        mute = [p for p in sound if not page_has_sound(p)]
+        info = (mute or sound or [None])[0]
+        video = sum(1 for p in got.get("pages_info") or [] if page_role(p) == "video")
+        return {"present": True, "ready": n > 0, "pages": n, "why": self.why, "page": info,
+                "sound_pages": max(0, n - video)}     # a page that hasn't said what it is counts as both
 
     def url(self, path: str) -> str:
         """A library file's address as the dashboard serves it to the page (same origin as the page)."""
@@ -574,6 +582,22 @@ class StageOutput:
 
     def make_show(self, items, music, log=None, on_lost=None, buffer_s=None, audio_leads_s=None, skeletons=False):
         return StageShow(self, items, music, log, on_lost, buffer_s, audio_leads_s, skeletons)
+
+
+def page_role(info) -> str:
+    """A stage page's role (stage.js ?role=): video (the picture, muted), sound (the sound, no picture) or
+    both, which a page that reports no role is."""
+    r = info.get("role") if isinstance(info, dict) else None
+    return r if r in ("video", "sound") else "both"
+
+
+def sound_pages(infos) -> list:
+    """The pages that carry the show's sound: every page but a `video` one."""
+    return [p for p in (infos or []) if isinstance(p, dict) and page_role(p) != "video"]
+
+
+def page_has_sound(info) -> bool:
+    return isinstance(info, dict) and info.get("audio_output") not in (None, "", "none")
 
 
 class StageShow:
@@ -592,7 +616,7 @@ class StageShow:
         self.id = f"stage@{time.time():.3f}"
         m = music or {}
         self.beat = ({"offset_s": float(m.get("offset_s") or 0.0), "bpm": float(m["bpm"])} if m.get("bpm") else None)
-        self.failed = self.lost = None
+        self.failed = self.lost = self.late = None
         self.done, self._clock, self._stop, self._thread, self.seeks = False, None, threading.Event(), None, 0
         self._end_status, self._loaded = None, False
         self.buffer_s = float(buffer_s or SETTINGS_DEFAULTS["stage_buffer_s"])
@@ -681,15 +705,29 @@ class StageShow:
     def _check_stall(self, got: dict):
         """A page that ran dry mid-show: handled like a dropout — logged, the pages muted, and the tablet
         takes the music from the same point (on_lost). The show never stops for it; the page catches up on
-        the show's clock when the data comes back."""
+        the show's clock when the data comes back.
+
+        Every page is an equal peer: the music is LOST only when every page that carries sound has stalled
+        (a `video` page's stall never counts for sound). One page stalling while another still plays the
+        sound is logged, and nothing is muted or handed over: the mute goes to every page."""
         st = [p for p in (got.get("stalls") or []) if isinstance(p, dict) and p.get("id") == self.id]
-        if st and self.stalled is None:
-            self.stalled = f"a stage page ran out of video at {float(st[0].get('at_s') or 0):.1f} s"
-            self.log("video_error", output="stage", error=self.stalled)
-            if self.on_lost:
-                if self.mute_on_stall:
-                    self._send({"op": "mute", "id": self.id})    # the tablet plays the music from here
-                self.on_lost(self.stalled)
+        heard = [p for p in st if page_role(p) != "video"]
+        if not st or self.stalled is not None:
+            return
+        video = sum(1 for p in got.get("pages_info") or [] if page_role(p) == "video")
+        n_sound = max(len(heard), int(got.get("pages") or 0) - video)
+        if len(st) > getattr(self, "_stalls_seen", 0):
+            self._stalls_seen = len(st)
+            self.log("video_warning", output="stage",
+                     note=f"{len(st)} stage page(s) ran out of video ({len(heard)} of {n_sound} carrying sound)")
+        if not heard or len(heard) < n_sound:
+            return                                  # another page still plays the sound: nothing to take over
+        self.stalled = f"a stage page ran out of video at {float(heard[0].get('at_s') or 0):.1f} s"
+        self.log("video_error", output="stage", error=self.stalled)
+        if self.on_lost:
+            if self.mute_on_stall:
+                self._send({"op": "mute", "id": self.id})    # the tablet plays the music from here
+            self.on_lost(self.stalled)
 
     def ready(self) -> bool:
         """Every stage page has the show's whole video (or telling them failed, or it was dropped)."""
@@ -697,6 +735,35 @@ class StageShow:
 
     def waiting_for(self) -> str:
         return f"the stage video (buffering, {self.buffered:.0f} of {self.need:.0f} s)"
+
+    def start_with_ready(self, why: str) -> bool:
+        """Not every page loaded in time: start with the ones that did, when they cover the show — some ready
+        page carries the picture (role video or both), if the show has one, and some ready page carries the
+        sound (sound or both), if its sound is on the stage. True: the show starts so, the late pages logged
+        (each still joins on the show's clock when it can). False: they don't cover it (always, with one page):
+        the caller drops the stage video, as before. Every page an equal peer: one slow page no longer costs
+        the others their show."""
+        try:
+            got = self.out._get()
+        except Exception:  # noqa: BLE001
+            return False
+        mine = [p for p in (got.get("preload") or []) if isinstance(p, dict) and p.get("id") == self.id]
+        n = int(got.get("pages") or 0)
+        ready = [p for p in mine if p.get("ready")]
+        if not ready or len(ready) >= n:
+            return False
+        picture = any(not it.get("audio") for it in self.items)
+        heard = any((it.get("lead_kind") or ("audio" if it.get("audio") else "video")) == "audio" for it in self.items)
+        if picture and not any(page_role(p) != "sound" for p in ready):
+            return False
+        if heard and not any(page_role(p) != "video" for p in ready):
+            return False
+        late = [f"a {page_role(p)} page ({float(p.get('buffered_s') or 0):.0f} of {float(p.get('need_s') or 0):.0f} s)"
+                for p in mine if not p.get("ready")] + ["a page that never reported"] * (n - len(mine))
+        self.late = f"{len(ready)} of {n} stage pages ready ({why}); started without " + ", ".join(late)
+        self.preloaded = True
+        self.log("video_warning", output="stage", note=self.late + ": each joins on the show's clock when it can")
+        return True
 
     def drop(self, why: str):
         """Not loaded in time: the pages are stopped and the show runs without its stage video (the tablet

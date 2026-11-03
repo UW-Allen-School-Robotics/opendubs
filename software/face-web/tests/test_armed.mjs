@@ -54,11 +54,23 @@ function rec() {
 {
   const c = rec(); drawArmed(c, "wait", 1.0);
   ok(c.log.some((l) => l.startsWith("strokeRect")), "a frame is drawn around the whole face");
-  ok(c.texts.some((t) => t.t === "ARMED"), "and the word ARMED", c.texts.map((t) => t.t).join(","));
+  ok(c.texts.some((t) => t.t === "READY"), "and the word READY", c.texts.map((t) => t.t).join(","));
+  ok(!c.texts.some((t) => t.t === "ARMED"), "and NOT the word ARMED: it is a word about the machine");
   // the frame spans the design area, not a corner badge
   const sr = c.log.find((l) => l.startsWith("strokeRect"));
   const [x, y, w, h] = sr.slice(11, -1).split(",").map(Number);
   ok(w > 1200 && h > 650, "the frame is full-width, not a badge", `${w.toFixed(0)}x${h.toFixed(0)} at ${x},${y}`);
+}
+
+// THE COUNTDOWN DRAWS THE NUMERAL ALONE. The word and the numeral occupy the same 163 px channel
+// between the eyes, so drawing both puts two things in one slot -- and the numeral already says
+// everything the word would. Checked because it is invisible in code review and obvious only on a
+// robot, which is the wrong place to find it.
+{
+  const c = rec(); drawArmed(c, 3, 1.0);
+  const words = c.texts.map((t) => t.t);
+  ok(words.includes("3"), "counting down draws the numeral", words.join(","));
+  ok(!words.includes("READY"), "and NOT the word beneath it", words.join(","));
 }
 
 // ---- 3. distinct from E_STOP and DEGRADED -------------------------------------------------------

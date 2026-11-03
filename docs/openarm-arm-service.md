@@ -12,7 +12,7 @@ How the arms run on gafro (`opendubs-arm@left|right.service`, `software/openarm/
 | `opendubs-arm@left` / `@right` | systemd, user `kiosk` | `static`: never enabled at boot, because starting one enables the arm's motors and holds the arm where it is. Restarts on failure every 5 s, at most 4 in 120 s (`StartLimitBurst`); after that `systemctl reset-failed` |
 | `openarm-can@arm_left` / `@arm_right` | systemd | the CAN links, 1 Mbit/s with 5 Mbit/s data. Nothing restarts one that has gone `ERROR-PASSIVE` or `BUS-OFF` |
 | `/usr/local/lib/opendubs/opendubs-arm` | the unit's wrapper | sources `/opt/gafro/setup.bash` and the interface workspace `/opt/opendubs/ws`, and takes the arm's hardware config from `/etc/opendubs/openarm-gafro-<side>.yaml` unless `OPENDUBS_ARM_CONFIG` names one |
-| `/etc/opendubs/arm-service.env` | the unit's settings | `OPENDUBS_REPO=/home/tobi/opendubs` (the checkout the service runs from), and the DDS profile (below) |
+| `/etc/opendubs/arm-service.env` | the unit's settings | `OPENDUBS_REPO=<checkout>` (the checkout of this repository the service runs from), and the DDS profile (below) |
 | `/etc/opendubs/openarm-gafro-left.yaml`, `-right.yaml` | per-arm hardware config | one file per arm, the other arm's group on `bus: fake`: a service starts every group's driver, so a file with both arms on `bus: can` would start both arms in each process |
 | `/opt/gafro/venv`, `/opt/gafro-deps` | the stack | built by `~/gafro-deploy` from the remotes' `main` (`stack.toml`) |
 | `~/gafro-ri-ros2-bridge` | the ROS 2 bridge | **not** in `stack.toml`: built by hand, see below |

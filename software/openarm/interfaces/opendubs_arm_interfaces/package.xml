@@ -4,7 +4,7 @@
   <name>opendubs_arm_interfaces</name>
   <version>0.1.0</version>
   <description>The arm service's one command action: reach a pose, open and close the gripper, go to ready, pick a candy.</description>
-  <maintainer email="tloew@cs.washington.edu">Tobias Löw</maintainer>
+  <maintainer email="maintainers@opendubs.invalid">OpenDubs maintainers</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

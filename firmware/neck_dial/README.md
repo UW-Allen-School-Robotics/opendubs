@@ -10,7 +10,7 @@ is no serial console to fall back on while it is installed.
 | | |
 |---|---|
 | board | M5Dial, ESP32-S3 |
-| on the robot | `opendubs-neck.local` · `10.42.2.12` · **UDP 4242** |
+| on the robot | `opendubs-neck.local` · **UDP 4242** (by name: its address is the router's to give) |
 | servos | 8Servo at `0x25`, channel 0 tilt, channel 1 pan |
 | per-robot values | NVS namespace `opendubs`: `tiltMin`, `tiltMax` · namespace `neck`: `ssid`, `pass` |
 
@@ -22,7 +22,7 @@ Any UDP line to port 4242 gets one line back. From the Thor:
 python3 - <<'PY'
 import socket
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(4)
-s.sendto(b"NECK", ("10.42.2.12", 4242))
+s.sendto(b"NECK", ("opendubs-neck.local", 4242))
 print(s.recv(512).decode().strip())
 PY
 ```
@@ -72,7 +72,7 @@ cd /tmp && python3 -m http.server 8781 --bind 10.42.2.10 &
 python3 - <<'PY'
 import socket
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(120)
-s.sendto(b"OTA http://10.42.2.10:8781/neck.bin", ("10.42.2.12", 4242))
+s.sendto(b"OTA http://10.42.2.10:8781/neck.bin", ("opendubs-neck.local", 4242))
 print(s.recv(512).decode().strip())      # OK ota <bytes> bytes, rebooting key=<id>
 PY
 kill %1

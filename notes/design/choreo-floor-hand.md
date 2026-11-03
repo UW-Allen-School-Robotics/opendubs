@@ -7,7 +7,7 @@ show. Owned by the Choreography lane; the arm tools stay with the Arms lane.
 
 ## What drives it
 
-- **The link:** the hand's own text commands over RS-485 at 115200 baud (`drivers/surge_at.py`, found on
+- **The link:** the hand's own text commands over RS-485 at 115200 baud (the Surge tool pack's `drivers/surge_at.py`, found on
   the real hand). The robot's computer has a USB-to-RS-485 adapter; a cable runs from the robot's front to
   the hand, alongside its power, as one floor tether (the leash the twin already models: `tether`, anchored
   at `base_front`). RS-485 is built for a cable of this length.
