@@ -137,7 +137,7 @@ head:
       # leave it at the face's top face (z 940.7). The interface is the centre of those mouths.
       femto_interface: [55.75, 0.0, 940.7]
       # The camera envelope's front face is at x = 89.7, facing +x, and carries two 1 mm-deep
-      # circular marks for its two cameras (assignment confirmed by the user, 2026-10-23, against
+      # circular marks for its two cameras (assignment confirmed by the project team, 2026-10-23, against
       # Orbbec's Femto Bolt coordinate-system documentation):
       femto_depth_mark: [89.7, -30.0, 968.21]   # diameter 16.6: the DEPTH camera, 30 mm to the robot's right
       femto_color_mark: [89.7, 2.0, 967.71]     # diameter 15.5: the COLOUR (RGB) camera
@@ -165,6 +165,22 @@ chassis:
   # floor, not at the box centroid) behaves sanely. Weigh the robot before believing dynamics.
 
 meshes:
+  # PROVENANCE AND LICENCE. Every file in meshes/ is the project's own CAD: exported from the
+  # project's Autodesk Fusion models (each file's STL header names Fusion's exporter, "ATF"), and
+  # licensed under the repository's hardware licence, CERN-OHL-W-2.0 (LICENSE-HARDWARE), copyright
+  # The OpenDubs Authors. None is a vendor's model. A bought part appears only as a plain stand-in
+  # drawn by the project:
+  #   FL/FR/RL/RR-wheel.stl   the mecanum wheels as plain 140 x 50 mm cylinders (no rollers)
+  #   z-axis-down.stl         the lift's top plate as a 400 x 320 mm box (12 triangles)
+  #   head_neck_pan.stl       the neck, without its servos (head.export.not_modelled)
+  #   head_face_tilt.stl      the tablet holder and its arms; the tablet as its spec-size body, not
+  #                           the maker's CAD
+  #   femto_mount.stl         the straight Femto Bolt mount
+  #   femto_bolt.stl          the Femto Bolt as its 115 x 65 x 40 mm envelope, not the maker's CAD
+  #   femto_mount_tilt30.stl  the 30-degree mount, with the same envelope
+  #   chest_cover.stl         the chest cover; the M5Dial on its back is a plain cylinder stand-in
+  # bucket_stage (below) is also the project's CAD; it is a plain box, so no mesh is kept for it.
+  #
   # What we still need. Simplified is not just acceptable, it is preferred: collision geometry
   # wants to be coarse and convex-ish, and the arms already carry the detail that matters.
   #
@@ -327,9 +343,9 @@ head_assembly:
         straight: { module: femto_bolt }           # the camera square to the face
   modules:
     femto_bolt:
-      # Orbbec Femto Bolt on the straight mount. The geometry is the user's (head.export: femto_mount
-      # and femto_bolt); the camera is its 115 x 65 x 40 mm envelope, as x 65.2 (deep) x y 115.2
-      # x z 40.2 here, front face at x = 89.7 in the export, facing +x.
+      # Orbbec Femto Bolt on the straight mount. The geometry is the project's CAD (head.export:
+      # femto_mount and femto_bolt); the camera is its 115 x 65 x 40 mm envelope, as x 65.2 (deep)
+      # x y 115.2 x z 40.2 here, front face at x = 89.7 in the export, facing +x.
       fitted: true
       # Frame positions: `at:` an export landmark, or robot CAD coordinates (pan = tilt = 0, lift
       # down), like the head's; the generator places them relative to femto_mount_link.
