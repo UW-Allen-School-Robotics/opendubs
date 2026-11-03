@@ -70,13 +70,22 @@
          which tilts. See the head bodies below for how they are placed. -->
     <mesh name="head_neck_pan"  file="head_neck_pan.stl"  scale="0.001 0.001 0.001"/>
     <mesh name="head_face_tilt" file="head_face_tilt.stl" scale="0.001 0.001 0.001"/>
-    <!-- The Femto Bolt module, in the same export frame: its mount, and the camera as its
-         115 x 65 x 40 mm envelope (not Orbbec's CAD). -->
+    <!-- The Femto Bolt module, the FITTED mount: it tilts the camera 30 deg down, and its one mesh
+         carries the mount and the camera's 115 x 65 x 40 mm envelope (not Orbbec's CAD). It was
+         exported 380 mm to the robot's right and 8 mm low (dimensions.yaml head.export.registered);
+         the geom's pos below seats it. -->
+    <mesh name="femto_mount_tilt30" file="femto_mount_tilt30.stl" scale="0.001 0.001 0.001"/>
+    <!-- The STRAIGHT mount (camera square to the face), in the head's export frame: its mount, and
+         the camera's envelope. Unused here; variants.py swaps it in (dimensions.yaml
+         femto_mount.variants). -->
     <mesh name="femto_mount"    file="femto_mount.stl"    scale="0.001 0.001 0.001"/>
     <mesh name="femto_bolt"     file="femto_bolt.stl"     scale="0.001 0.001 0.001"/>
+    <!-- The chest cover, with the neck's M5Dial on its back, in the head's export frame. -->
+    <mesh name="chest_cover"    file="chest_cover.stl"    scale="0.001 0.001 0.001"/>
     <material name="frame" rgba="0.25 0.26 0.28 1"/>
     <material name="rubber" rgba="0.12 0.12 0.13 1"/>
     <material name="plate" rgba="0.55 0.57 0.60 1"/>
+    <material name="stage" rgba="0.72 0.58 0.40 1"/>
   </asset>
 
   <worldbody>
@@ -197,6 +206,35 @@
                <include file="openarm_bimanual_decorated.xml"/> with its root at this site. -->
         <site name="arm_frame_mount" pos="0.423 0 0.3575" size="0.012" rgba="0.9 0.5 0.1 1"/>
 
+        <!-- THE BUCKET STAGE, in front of the robot over the front lidar (dimensions.yaml
+             bucket_stage, which says how it was registered on this plate). It is mounted to the lift
+             and rides it, where it sits in CAD (off-centre: y -190..234). A plain box in the CAD it
+             came from, so a box here: x 597..829, z 296.6..348.1 mm with the lift down, its top
+             flush with this plate's underside, its underside 55 mm above the front lidar's scan
+             plane and only further from it as the lift rises. -->
+        <geom class="visual"    type="box" pos="0.713 0.022 0.322305" size="0.116 0.212 0.02575"
+              material="stage" name="bucket_stage_visual"/>
+        <geom class="collision" type="box" pos="0.713 0.022 0.322305" size="0.116 0.212 0.02575"
+              name="bucket_stage_collision"/>
+        <!-- The centre of the stage's top face, axes as the lift's: where a bucket's base sits. -->
+        <site name="bucket_stage_top" pos="0.713 0.022 0.348055" size="0.008" rgba="0.95 0.75 0.2 1"/>
+
+        <!-- THE CHEST COVER, fixed to the top of the arm extrusion, with the neck's M5Dial on its
+             back (the -x side). It replaces the OpenArm frame's stock cover (sim/scene.py hides
+             that one) and sits where it did: x -82.2..65.6, y +/-47, z 613..785 mm in the head's
+             export frame, so it is placed by the head's translation (dimensions.yaml head.export).
+             Its top is 8 mm below the neck.
+
+             Collision is a BOX, not the mesh. MuJoCo collides a mesh as its convex hull, and the
+             hull's sides at y +/-47 wrap the two shoulder bases (the arms' fixed link0, from
+             y +/-31 outward): every sweep would report that as a contact that never ends. The box
+             stops at y +/-29.5, between the shoulder bases. The 17 mm band outside it on each
+             side is occupied by the shoulder bases themselves. Large elsewhere: x, z about 2 mm outward. -->
+        <geom class="visual" type="mesh" mesh="chest_cover" material="frame" pos="0.423 0 0.356875"
+              name="chest_cover_visual"/>
+        <geom class="collision" type="box" pos="0.4147 0 1.055875" size="0.07589 0.0295 0.088"
+              name="chest_cover_collision"/>
+
         <!-- THE HEAD: a Samsung Galaxy Tab A11 on a pan/tilt neck. Rides with the extrusion, so
              it hangs off the lift platform.
              TILT AXIS at CAD (423, 0, 1245.575), measured — 115.1 mm above the top of the arm
@@ -269,25 +307,29 @@
                  (y +/-41..60.55, x 40.75..70.75 mm) slide into two pockets in the face's holder,
                  held on all four sides, and leave it at the face's top face (z 52.0 from the tilt
                  axis). The frame is the centre of those pocket mouths, aligned with this body.
-                 The module is its own body so it can later be attached and swapped as one. -->
+                 The module is its own body so it can be swapped as one: this is the FITTED mount,
+                 the camera tilted 30 deg down; description/opendubs/variants.py swaps in the
+                 straight one, moving the meshes, the collision boxes and both camera sites. -->
             <body name="femto_mount" pos="0.05575 0 0.052">
-              <geom class="visual" type="mesh" mesh="femto_mount" material="frame" pos="-0.05575 0 -0.9407"/>
-              <geom class="visual" type="mesh" mesh="femto_bolt"  material="rubber" pos="-0.05575 0 -0.9407"/>
-              <!-- Coarse boxes from each mesh's extents, about 2 mm outward, in this body's
-                   frame. Mount: x -31.3..15.0, y +/-60.6, z -49.7..51.4 mm; camera: x -31.3..33.9,
-                   y +/-57.6, z 7.4..47.6 mm. -->
-              <geom class="collision" type="box" pos="-0.00813 0 0.00084" size="0.02513 0.06255 0.05253"
+              <geom class="visual" type="mesh" mesh="femto_mount_tilt30" material="frame" pos="-0.05575 0.38 -0.9327"
+                    name="femto_mount_visual"/>
+              <!-- Coarse boxes from the mesh, about 2 mm outward, in this body's frame: the camera's
+                   envelope as a box turned 30 deg down with it, and the mount as one box around
+                   everything else (x 26.4..70.8, y +/-60.6, z 891.0..1019.3 mm in the export). -->
+              <geom class="collision" type="box" pos="-0.00719 0 0.01445" size="0.02419 0.06255 0.06614"
                     name="femto_mount_collision"/>
-              <geom class="collision" type="box" pos="0.00135 0 0.0275" size="0.0346 0.0596 0.0221"
-                    name="femto_bolt_collision"/>
-              <!-- The cameras, on the two marks on the front face (x 89.7 in the export), at the
-                   surface: the true focal points are behind the glass, by an amount not yet
-                   located. camera_link is the DEPTH camera, OrbbecSDK_ROS2's root, x forward and
-                   pitched 6 deg DOWN from the colour camera (Orbbec's documentation): +6 deg about
-                   y. camera_color is square to the housing. -->
-              <site name="camera_link"  pos="0.03395 -0.030 0.02751" quat="0.998630 0 0.052336 0"
+              <geom class="collision" type="box" pos="0.01077 0 0.04164" size="0.0346 0.05958 0.0221"
+                    quat="0.965926 0 0.258819 0" name="femto_bolt_collision"/>
+              <!-- The cameras, on the two marks on the front face, at the surface: the true focal
+                   points are behind the glass, by an amount not yet located. The front face is
+                   turned 30 deg down with the mount. camera_link is the DEPTH camera,
+                   OrbbecSDK_ROS2's root, x forward and pitched 6 deg DOWN from the colour camera
+                   (Orbbec's documentation): +36 deg about y in all. camera_color is square to the
+                   housing: +30 deg. -->
+              <site name="camera_link"  pos="0.039004 -0.030 0.025341" quat="0.951057 0 0.309017 0"
                     size="0.004" rgba="0.15 0.65 0.95 1"/>
-              <site name="camera_color" pos="0.03395 0.002 0.02701" size="0.004" rgba="0.95 0.35 0.15 1"/>
+              <site name="camera_color" pos="0.038754 0.002 0.024908" quat="0.965926 0 0.258819 0"
+                    size="0.004" rgba="0.95 0.35 0.15 1"/>
             </body>
           </body>
         </body>

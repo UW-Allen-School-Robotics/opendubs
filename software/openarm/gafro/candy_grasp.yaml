@@ -1,0 +1,14 @@
+# The candy pick-up of services.candy_grasp, per arm. NOT TAUGHT: the basket's place is the robot's and the room's, and it is measured at the robot, never guessed.
+# `basket` is the hand's pose where the fingers close on a candy, in the arm model's frame (m; the quaternion is w, x, y, z; leave `orientation` out to hold the hand's own
+# at the start, which is right when the arm has been put in the pose that points the fingers down). Put it here, or send it in the request: {"basket": {"position": [x, y, z]}}.
+# The hand goes above it by `approach`, down, closes, and comes back up by `lift`; then to `ready` (the pose `follow` starts from) unless the request says {"then": "stay"}.
+right:
+  basket: null
+  approach: 0.08        # m above the basket pose to come down from
+  lift: 0.10            # m above it to carry the candy to before going to ready
+  # speed: rad/s, the fastest joint; left out, reach_pose.default_speed() (three quarters of what the limits allow)
+left:
+  basket: null
+  approach: 0.08
+  lift: 0.10
+  speed: 0.6

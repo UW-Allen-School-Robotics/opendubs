@@ -129,6 +129,7 @@ nav:
       - Deployment & portability: portability-audit.md
       - Network architecture: network-architecture.md
       - OpenArm setup: openarm-setup.md
+      - The arm service on gafro: openarm-arm-service.md
       - WebXR teleop: teleop-setup.md
       - Arm controls on the tablet: arm-dashboard.md
       - Arm motion planning (simulation): motion-planning.md

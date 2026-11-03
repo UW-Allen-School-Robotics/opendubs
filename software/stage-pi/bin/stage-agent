@@ -7,6 +7,8 @@ page (notes/design/display-devices.md):
         "audio_output": "hdmi" | "jack" | "usb" | "bt" | "none"   (what is ACTUALLY playing),
         "audio_name": <that output's own name> | null, "audio_setting": "auto" | "hdmi" | "jack" | "usb" | "bt",
         "audio_latency_ms": <the output's typical added delay> | null,
+        "audio_why": <why there is no sound, in the operator's words> | null   (only with "none": the robot
+                     refuses a show whose music is to play here, with this as the reason, #591),
         "bt": {"addr", "name", "paired", "connected"} | null,
         "under_voltage_now": bool, "under_voltage_since_boot": bool, "throttled_now": bool,
         "screen": {"connected": bool, "mode": "1920x1080" | "1920x1080@60" | null},
@@ -138,10 +140,13 @@ def device() -> dict:
     except (OSError, subprocess.SubprocessError):
         thr = None
     snd = sound.report() if sound else {}
+    silent = not snd.get("actual")
     return {"device": "stage-pi", "name": socket.gethostname(),
             "model": (_read("/proc/device-tree/model") or "").rstrip("\x00") or None,
             "audio_output": snd.get("actual") or "none", "audio_name": snd.get("name"),
             "audio_setting": snd.get("setting"), "audio_latency_ms": snd.get("latency_ms"),
+            "audio_why": (snd.get("error") or snd.get("why") or ("no sound output found" if sound
+                          else "the box's sound control is not running")) if silent else None,
             "bt": dict(snd["bt"]) if snd.get("bt") else None,
             **throttled(thr), "screen": screen(forced=_conf("MODE")), "media": media_summary()}
 

@@ -1,0 +1,12 @@
+# The dashboard (user kiosk) may start, stop and restart the arm services, and nothing else of systemd. Installed as /etc/sudoers.d/opendubs-arm by
+# provision-arm-service.sh, which checks it with visudo first.
+#
+# sudo matches the arguments as written, so a caller has to use exactly these: `sudo -n systemctl start opendubs-arm@right.service` (with `.service`, and the
+# full path /usr/bin/systemctl or a PATH that finds it). Starting a service enables the arm's motors and holds it where it is: the dashboard's button does that
+# on purpose, and the service still refuses every moving command until a person says they are at the e-stop (`supervise`) and CH5, the e-stop and CH6 allow it.
+Cmnd_Alias OPENDUBS_ARM_SERVICE = \
+    /usr/bin/systemctl start opendubs-arm@left.service, /usr/bin/systemctl start opendubs-arm@right.service, \
+    /usr/bin/systemctl stop opendubs-arm@left.service, /usr/bin/systemctl stop opendubs-arm@right.service, \
+    /usr/bin/systemctl restart opendubs-arm@left.service, /usr/bin/systemctl restart opendubs-arm@right.service
+
+kiosk ALL=(root) NOPASSWD: OPENDUBS_ARM_SERVICE
