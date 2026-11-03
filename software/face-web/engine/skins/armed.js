@@ -43,6 +43,7 @@ const VIOLET = "198, 92, 255";       // not a state colour, and far from red and
 const NUM_Y = 312;                   // the countdown, above
 const WORD_Y = 438;                  // the word, below it
 const NUM_CH = 163;                  // the channel between the eyes; a numeral must fit in it
+const WORD = "READY";                // 131 px at 40 px bold, inside NUM_CH; see where it is drawn
 
 // `armed` is null (nothing drawn), "wait" (no countdown), or a number of seconds remaining.
 // `t` is seconds, for the breathing.
@@ -63,7 +64,8 @@ export function drawArmed(ctx, armed, t) {
 
   // The countdown, in the channel between the eyes. Sized to FIT that channel: two digits at this
   // weight are about 134 px, and anything wider would run under the eyes it is sitting between.
-  if (typeof armed === "number" && isFinite(armed) && armed > 0) {
+  const counting = typeof armed === "number" && isFinite(armed) && armed > 0;
+  if (counting) {
     const text = String(Math.ceil(armed));
     let px = 132;
     ctx.font = `bold ${px}px system-ui, sans-serif`;
@@ -72,8 +74,23 @@ export function drawArmed(ctx, armed, t) {
     ctx.fillText(text, W / 2, NUM_Y);
   }
 
-  // The word, always: the frame alone says "something", this says which something.
-  ctx.font = "bold 40px system-ui, sans-serif";
-  ctx.fillText("ARMED", W / 2, WORD_Y);
+  // The word, EXCEPT while the countdown is up: the frame alone says "something", this says which
+  // something -- but once a numeral is counting down between the eyes, the numeral IS the message,
+  // and a word under it would only compete for the same 163 px channel.
+  //
+  // IT SAYS READY, NOT ARMED. "Armed" is a word about the machine; "ready" is a word about what
+  // happens next, and the operator reading it across a room is the person who has to decide
+  // whether to hold the deadman. The protocol still calls this armed (v10 keeps ARMED as an alias
+  // for READY) and the engine's own API is unchanged -- only what a person sees is different.
+  //
+  // READY is 131 px at this size and the channel between the eyes is 163, so it fits where ARMED
+  // did, at the same 40 px. That is not a coincidence: the wording was chosen against this
+  // measurement, and a longer phase word would have had to shrink or move. If one is ever proposed,
+  // measure it here first -- the band above is the camera-consent sign's and the band below is the
+  // caption's, so there is nowhere for it to go.
+  if (!counting) {
+    ctx.font = "bold 40px system-ui, sans-serif";
+    ctx.fillText(WORD, W / 2, WORD_Y);
+  }
   ctx.restore();
 }
