@@ -111,6 +111,8 @@ head:
       femto_mount: rides head_tilt   # meshes/femto_mount.stl: the straight mount (the variant, below)
       femto_bolt: rides head_tilt    # meshes/femto_bolt.stl: the camera's 115 x 65 x 40 envelope on it, not Orbbec's CAD
       chest_cover: rides lift_platform      # meshes/chest_cover.stl: the chest cover, the neck's M5Dial on its back
+      # chest_cover.stl is the project's own Fusion CAD (its M5Dial a plain cylinder stand-in), under
+      # CERN-OHL-W-2.0 (LICENSE-HARDWARE); meshes: says so for every mesh.
     registered:
       # femto_mount_tilt30.stl was NOT exported in this frame: it comes 380 mm to the robot's right
       # (y -440.55..-319.45) and 8 mm low. Moving it by this offset seats it, and two independent
