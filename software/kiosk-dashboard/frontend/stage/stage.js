@@ -142,10 +142,15 @@
       // loading because it can already play through, whatever it holds — at least MIN_START_S.
       const satisfied = video.readyState === 4 && video.networkState === 1 && me.buffered >= MIN_START_S;
       me.ready = me.local || me.buffered >= Math.min(me.need, rest) - 0.25 || satisfied;
+      // a HEARD item on a box that has no sound now (the speaker off, #591): not ready, and why
+      const mute = heardHere(m) && device && device.audio_output === "none";
+      if (mute) { me.ready = false; me.error = `no sound: ${device.audio_why || "the stage box has no sound output"}`; }
+      else if (me.error && me.error.startsWith("no sound: ")) me.error = null;
       me.report();
       setTimeout(tick, 500);
     })();
   }
+  const heardHere = (m) => (m.videos || []).some((v) => v.lead_kind === "audio");
   function showTime(now) {                          // seconds into the show, on the Thor's clock
     return show && show.state === "playing" && clock && show.t0_mono != null ? (now + clock.offset) / 1000 - show.t0_mono : null;
   }
@@ -176,6 +181,7 @@
     if (!it) {                                       // between videos, or after: black (or the last frame held)
       const last = (show.videos || []).filter((v) => v.end_t <= at(v, st)).pop();
       if (!(last && last.end === "hold")) { video.pause(); video.hidden = true; }
+      keepVideo.dry = 0;                             // not playing: not running dry either
       return st;
     }
     if (video.dataset.url !== it.url) { video.dataset.url = it.url; video.src = src(it.url); }   // the box's copy, if it has one
@@ -183,6 +189,9 @@
     video.hidden = !!it.audio;                       // a song alone: heard, under the page's own scene
     if (show.muted && !video.muted) video.muted = true;     // the tablet took the music after a stall
     if (video.paused) {
+      // a (re)start clears the dry clock: one left from an earlier show reported every show's first frame,
+      // still loading, as a stall (opendubs2 2026-10-28: "ran out of video at -0.2 s", the Boom muted)
+      keepVideo.dry = 0;
       video.currentTime = want; video.muted = !!show.muted;
       video.play().catch(() => { video.muted = true; video.play().catch(() => {}); });   // a browser may refuse sound
       keepVideo.synced = now;
@@ -403,6 +412,7 @@
       device: d.device, name: d.name, model: d.model, audio_output: d.audio_output, audio_name: d.audio_name,
       audio_latency_ms: typeof d.audio_latency_ms === "number" ? d.audio_latency_ms : undefined,
       audio_setting: typeof d.audio_setting === "string" ? d.audio_setting : undefined,
+      audio_why: typeof d.audio_why === "string" ? d.audio_why : undefined,   // why "none" (#591)
       under_voltage_now: d.under_voltage_now, under_voltage_since_boot: d.under_voltage_since_boot,
       throttled_now: d.throttled_now, screen_connected: d.screen?.connected, screen_mode: d.screen?.mode,
       media_items: d.media?.items, media_bytes: d.media?.bytes, media_free: d.media?.free,
@@ -438,7 +448,8 @@
     const rows = [["Robot", up ? "connected" : "NOT connected", !up],
                   ["Screen", res, false],
                   ["Sound", sound + (device && device.audio_name ? ` · ${device.audio_name}` : "")
-                    + (device && device.audio_latency_ms != null ? ` · ~${Math.round(device.audio_latency_ms)} ms delay` : ""),
+                    + (device && device.audio_latency_ms != null ? ` · ~${Math.round(device.audio_latency_ms)} ms delay` : "")
+                    + (device && device.audio_output === "none" && device.audio_why ? ` — ${device.audio_why}` : ""),
                    device && device.audio_output === "none"],
                   ["Clock to the Thor", clock ? `in step, ±${clock.err.toFixed(1)} ms` : "measuring…", !clock]];
     if (device && device.media_items != null)        // the box's own copies (its media stick)

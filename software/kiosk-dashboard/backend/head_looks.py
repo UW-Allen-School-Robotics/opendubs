@@ -15,7 +15,7 @@ Registered before the /face static mount (app.py), which would otherwise answer 
 READ-ONLY, BY THE USER'S RULE (2026-10-24): content DATA (images, sprites, parameter skins, audio, video,
 show files) may be uploaded through the dashboard; content CODE (code skins) arrives ONLY from the
 content repository by the deploy/sync path (show_sync), never by upload. So this serves the robot's
-content folder and nothing in the dashboard writes to it (tests/test_face_looks.py pins both). The one
+content folder and nothing in the dashboard writes to it (tests/test_head_looks.py pins both). The one
 upload endpoint, /api/play/upload, takes audio only, checked by its bytes, into its own folder.
 """
 from __future__ import annotations

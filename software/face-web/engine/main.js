@@ -173,7 +173,20 @@ requestAnimationFrame(frame);
 // ---- the door ---------------------------------------------------------------------------------
 const doorUrl = q.get("door");
 let door = null;                                   // the open door, for the tracker's target below
+// THE CONTENT FOLDER'S CODE SKINS (head-protocol.md "Discovering the looks"; Face & HRI's skins.loadLooks):
+// the robot's discovered looks, read BEFORE the door opens, so a SKIN naming a content skin finds it; and
+// again at every reconnect, so a redeployed content folder is picked up. A twin with no dashboard, or an
+// older robot, has the built-ins only. Never holds the door for more than 3 s.
+const LOOKS_URL = new URL("/api/head/looks", location.href).href;
+const CONTENT_SKINS = new URL("/face/content/skins/", location.href).href;
+function loadLooks() {
+  if (typeof skins.loadLooks !== "function") return Promise.resolve();   // a face from before content skins
+  return Promise.race([skins.loadLooks(LOOKS_URL, CONTENT_SKINS), new Promise((r) => setTimeout(r, 3000))]);
+}
 function connect() {
+  loadLooks().finally(openDoor);
+}
+function openDoor() {
   const ws = new WebSocket(doorUrl);
   door = ws;
   ws.onmessage = (m) => {

@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=9f38be46" />
+  <link rel="stylesheet" href="style.css?v=d13025ec" />
 </head>
 <body>
   <div id="app">
@@ -300,34 +300,114 @@
     <!-- HEAD & FACE — what the face does when no show is running (headface.js builds it) -->
     <main id="view-headface" class="view"></main>
     <main id="view-shows" class="view showsview">
-      <section class="card shows-card">
-        <h2>SHOWS <span id="showsTwin" class="badge twinbadge" title="On the robot the real ARMS follow every run, while CH5 is AUTO and the deadman is held; grippers, head and lift stay twin-only. A runner without the arms drives only the twins (MuJoCo, the face twin).">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
-        <div class="shows-req">Shows need the mode in AUTO. On the robot a run first ARMS: then let go of the deadman if you hold it, and press it to start. Once started, letting go stops the show, and the arms hold where they are.</div>
-        <div class="shows-start">
-          <label for="showsStart" title="How a run starts. Deadman: the run arms and waits (up to 5 minutes) for a fresh press of the deadman. Countdown: needs the deadman held now, and counts down at once. Now: starts as soon as its checks pass.">Start</label>
-          <select id="showsStart">
-            <option value="">default</option>
-            <option value="deadman">wait for the deadman</option>
-            <option value="countdown">count down now</option>
-            <option value="now">now, no countdown</option>
-          </select>
-          <label for="showsCountdown" title="Seconds between the go and the first move. Blank: the show's own, else 5.">countdown</label>
-          <input id="showsCountdown" type="number" min="0" max="60" step="1" placeholder="5" inputmode="numeric">
-          <span class="dim">s</span>
-        </div>
-        <div id="showsStatus" class="shows-status">—</div>
-        <div class="shows-audio">
-          <span id="showsAudio" class="dim" title="Show music and sound files play on ONE device. The Thor tells it when to start; it matches its clock to the Thor's to start on time.">Show audio: —</span>
-          <button id="showsAudioClaim" class="sysbtn" title="Play show music and sounds on this device instead (any browser can; the kiosk tablet takes it by default)">Play show audio here</button>
-        </div>
-        <div id="showsList" class="shows-list"></div>
-        <div class="shows-legend">Icons show what each routine does. Bright: on the robot. Faded: in the twin only, not on the robot yet.</div>
-        <div class="shows-ctl">
-          <button id="showsStop" class="sysbtn shows-stop" disabled>STOP</button>
-          <button id="showsPark" class="sysbtn shows-stop" title="Moves both arms to their stow pose, e.g. after a stopped run left them part-way. Confirm-on-tap; not while a routine runs.">PARK BOTH ARMS</button>
-        </div>
-        <div class="sub">Each routine ends with the arms at rest and the head centred, so any can follow any. A routine that does not validate cannot be started.</div>
+      <!-- The Shows page (notes/design/choreo-shows-page.md): three steps, then a fold. Every control says in
+           one line what it does; nothing on it overrides another unseen. choreo.js runs steps 2 and 3 and the
+           Robot line; projector.js / stagebox.js (the Tablet lane) fill the Video and Sound rows and their
+           parts of Advanced. -->
+      <section class="card shows-setup">
+        <h2>1 · BEFORE YOU START <span id="showsTwin" class="badge twinbadge" title="On the robot the real ARMS follow every run, while CH5 is AUTO and the deadman is held. A runner without the arms drives only the twins (MuJoCo, the face twin).">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
+        <div class="shows-lead">Where the video and the sound go for every show you start, and whether each is ready.</div>
+        <div id="showsVideoRow" class="shows-outrow"></div>
+        <div id="showsSoundRow" class="shows-outrow"></div>
+        <div id="showsRobotRow" class="shows-outrow"></div>
       </section>
+      <section class="card shows-card">
+        <h2>2 · PICK A SHOW</h2>
+        <div class="shows-lead">Tap a show to select it. Tapping never starts it. Each show says where its video and sound will go.</div>
+        <div id="showsList" class="shows-list"></div>
+      </section>
+      <section class="card shows-gocard">
+        <h2>3 · GO</h2>
+        <div class="shows-gorow">
+          <div id="showsStatus" class="shows-status">Pick a show above.</div>
+          <button id="showsGo" class="sysbtn shows-gobtn" disabled>GO</button>
+          <button id="showsStop" class="sysbtn shows-stopbtn" disabled>STOP</button>
+        </div>
+        <div class="shows-gonote">GO checks everything and makes the selected show READY; nothing moves until you press and hold the deadman.
+          Once it runs, letting go of the deadman stops it and the arms hold where they are.
+          <button id="showsPark" class="sysbtn shows-park" title="Moves both arms to their stow pose, e.g. after a stopped run left them part-way. Confirm-on-tap; not while a routine runs.">PARK BOTH ARMS</button>
+          moves both arms to stow (not during a show).</div>
+      </section>
+      <details id="showsAdvanced" class="card shows-adv">
+        <summary>ADVANCED — start mode, timing, stage box setup and diagnostics (not needed to run a show)</summary>
+        <div id="showsAdvStart" class="shows-advsec">
+          <h3>Start</h3>
+          <div class="shows-start">
+            <label for="showsStart">How a run starts</label>
+            <select id="showsStart">
+              <option value="">default</option>
+              <option value="deadman">wait for the deadman</option>
+              <option value="countdown">count down now</option>
+              <option value="now">now, no countdown</option>
+            </select>
+            <label for="showsCountdown">countdown</label>
+            <input id="showsCountdown" type="number" min="0" max="60" step="1" placeholder="5" inputmode="numeric">
+            <span class="dim">s, from the go to the first move (blank: the show's own, else 5)</span>
+          </div>
+          <h3>This browser</h3>
+          <div class="shows-audio">
+            <span id="showsAudio" class="dim">Show audio: —</span>
+            <button id="showsAudioClaim" class="sysbtn">Play the head tablet's show sound here</button>
+            <span class="dim">This browser then plays what "Head tablet" would play, instead of the tablet.</span>
+          </div>
+        </div>
+        <div id="showsAdvTiming" class="shows-advsec"></div>
+        <div id="showsAdvStageBox" class="shows-advsec"></div>
+        <div id="showsAdvDiag" class="shows-advsec"></div>
+      </details>
+    </main>
+
+    <!-- ARCHITECT: the demo day's state, the program it wrote, the Orbbec's image, what the listener hears (architect.js; read-only) -->
+    <main id="view-architect" class="view architectview">
+      <div class="arch-left">
+      <section class="card arch-cam">
+        <h2>CAMERA <span id="archCamBadge" class="badge dimbadge">—</span></h2>
+        <img id="archCam" alt="The Orbbec colour camera's latest frame">
+        <div id="archCamNote" class="sub">—</div>
+      </section>
+      <section class="card arch-arms">
+        <h2>ARMS <span id="archArmSrc" class="badge dimbadge">no joint data</span></h2>
+        <div class="tp-views">
+          <button class="iobtn on" data-arch-armview="iso">ISO</button>
+          <button class="iobtn" data-arch-armview="top">TOP</button>
+          <button class="iobtn" data-arch-armview="side">SIDE</button>
+          <button class="iobtn" data-arch-armview="front">FRONT</button>
+          <span class="tp-spacer"></span>
+          <span id="archStowL" class="sub">left —</span>
+          <span id="archStowR" class="sub">right —</span>
+        </div>
+        <canvas id="archArmCanvas" class="tp-canvas arch-arm-canvas"></canvas>
+      </section>
+      </div>
+      <div class="arch-right">
+      <section class="card arch-day">
+        <h2>DEMO DAY <span id="archDayBadge" class="badge dimbadge">—</span></h2>
+        <div class="arch-steps">
+          <span class="arch-step" data-day-state="IDLE_NAV">PATROL</span>
+          <span class="arch-step" data-day-state="APPROACH">APPROACH</span>
+          <span class="arch-step" data-day-state="ENGAGED">WITH A VISITOR</span>
+          <span class="arch-step" data-day-state="CANDY">CANDY</span>
+          <span class="arch-step" data-day-state="CHOREO">SHOW</span>
+          <span class="arch-step" data-day-state="PAUSED">PAUSED</span>
+        </div>
+        <div id="archDayWhy" class="arch-summary">—</div>
+        <div id="archDayMeta" class="sub">—</div>
+      </section>
+      <section class="card arch-speech">
+        <h2>SPEECH <span id="archEars" class="badge dimbadge">—</span></h2>
+        <div class="arch-meter" title="The Jabra microphone's level"><div id="archLevel"></div></div>
+        <div id="archHeardNote" class="sub">—</div>
+        <ol id="archFeed" class="arch-feed"></ol>
+        <div class="sub">Left: exactly what Parakeet heard in each clip it was given (after the spotter caught a phrase, or while the robot waited for a reply). Right: exactly what the robot said on the Jabra. Between: what the listener did, timed from the phrase. Newest first; kept in memory on the robot only.</div>
+      </section>
+      <section class="card arch-prog">
+        <h2>PROGRAM <span id="archProgBadge" class="badge dimbadge">—</span></h2>
+        <div id="archSummary" class="arch-summary">—</div>
+        <div id="archMeta" class="sub"></div>
+        <div id="archCode" class="arch-code"></div>
+        <details id="archDiffBox" hidden><summary id="archDiffNote">Changes</summary><div id="archDiff" class="arch-code"></div></details>
+      </section>
+      </div>
     </main>
 
     <!-- ARMS view (placeholder) -->
@@ -451,13 +531,43 @@
             <button id="btnTeleopStop" class="sysbtn">STOP</button>
           </div>
         </section>
+        <section class="card tp-ctl">
+          <h2>PREPARE FOR A SHOW <span class="tp-warn">· energizes, then moves to ready</span></h2>
+          <div class="tp-btns">
+            <button id="btnArmPrepL" class="sysbtn tp-accent">PREPARE L</button>
+            <button id="btnArmPrepR" class="sysbtn tp-accent">PREPARE R</button>
+            <button id="btnArmPrepBoth" class="sysbtn tp-accent">PREPARE BOTH</button>
+          </div>
+        </section>
         <section class="card tp-ctl tp-power">
           <h2>ARM POWER <span class="tp-warn">· moves the arm</span></h2>
           <div class="tp-btns">
+            <button id="btnArmSupL" class="sysbtn" hidden>SUPERVISE L</button>
+            <button id="btnArmSupR" class="sysbtn" hidden>SUPERVISE R</button>
+            <button id="btnArmUnsupL" class="sysbtn" hidden>END SUPERVISION L</button>
+            <button id="btnArmUnsupR" class="sysbtn" hidden>END SUPERVISION R</button>
+            <button id="btnArmStartL" class="sysbtn">START L</button>
+            <button id="btnArmStartR" class="sysbtn">START R</button>
             <button id="btnArmActL" class="sysbtn">ACTIVATE L</button>
             <button id="btnArmActR" class="sysbtn">ACTIVATE R</button>
+            <button id="btnArmFollowL" class="sysbtn">FOLLOW L</button>
+            <button id="btnArmFollowR" class="sysbtn">FOLLOW R</button>
+            <button id="btnArmDownL" class="sysbtn danger">DE-ENERGIZE L</button>
+            <button id="btnArmDownR" class="sysbtn danger">DE-ENERGIZE R</button>
             <button id="btnArmDown" class="sysbtn danger">DE-ENERGIZE</button>
           </div>
+        </section>
+        <section class="card tp-ctl">
+          <h2>VIEWER &amp; CHECK <span class="tp-warn">· moves nothing</span></h2>
+          <div class="tp-btns">
+            <button id="btnViewerL" class="sysbtn">VIEWER L</button>
+            <button id="btnViewerR" class="sysbtn">VIEWER R</button>
+            <button id="btnViewerStopL" class="sysbtn" hidden>STOP VIEWER L</button>
+            <button id="btnViewerStopR" class="sysbtn" hidden>STOP VIEWER R</button>
+            <button id="btnArmDoctorL" class="sysbtn">CHECK L</button>
+            <button id="btnArmDoctorR" class="sysbtn">CHECK R</button>
+          </div>
+          <pre id="tpDoctor" class="sub" hidden></pre>
         </section>
       </div>
 
@@ -536,17 +646,19 @@
     <div class="ditem" data-view="payload">Payload / mast<span class="ch">›</span></div>
     <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
     <div class="ditem" data-view="shows">Shows — routines<span class="ch">›</span></div>
+    <div class="ditem" data-view="architect">ARCHITECT — program, camera, speech<span class="ch">›</span></div>
     <div class="ditem" data-view="headface">Head &amp; face — idle, looks, sound<span class="ch">›</span></div>
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
-  <script src="app.js?v=48740d1e"></script>
-  <script src="operate.js?v=5de49b13"></script>
-  <script type="module" src="teleop.js?v=88924ca4"></script>
-  <script src="show_audio.js?v=b2f6a4e4"></script>
-  <script src="choreo.js?v=e4aa7cbc"></script>
+  <script src="app.js?v=8c2fceb6"></script>
+  <script src="operate.js?v=a416f5b7"></script>
+  <script type="module" src="teleop.js?v=4f3be772"></script>
+  <script src="show_audio.js?v=6ae749a1"></script>
+  <script type="module" src="architect.js?v=cd084c5c"></script>
+  <script src="choreo.js?v=ced8f8c7"></script>
   <script src="headface.js?v=ea3f18f3"></script>
-  <script src="projector.js"></script>
-  <script src="stagebox.js?v=bb469242"></script>
+  <script src="projector.js?v=5500e329"></script>
+  <script src="stagebox.js?v=e0c33aa5"></script>
   <script src="tablet_sensors.js"></script>
 </body>
 </html>

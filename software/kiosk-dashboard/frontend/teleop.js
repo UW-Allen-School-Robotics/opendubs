@@ -33,16 +33,38 @@ function paintStow() {
   }
 }
 
-window.onJointStates = (msg) => {
-  if (!view || !msg || !msg.name) return;
+let lastRosMs = 0;             // when /joint_states (rosbridge) last delivered: while it does, it is the source and the arm service's own report is not used
+
+function applyJoints(msg, source) {
   const angles = {};
   for (let i = 0; i < msg.name.length; i++) angles[msg.name[i]] = msg.position?.[i];
   view.setJoints(angles);
   lastJointMs = Date.now();
   const b = $("tpPoseSrc");
-  if (b) { b.textContent = "live"; b.className = "badge good"; }
+  if (b) { b.textContent = source === "ros" ? "live" : "live · arm service"; b.className = "badge good"; }
   paintStow();
+}
+
+window.onJointStates = (msg) => {
+  if (!view || !msg || !msg.name) return;
+  lastRosMs = Date.now();
+  applyJoints(msg, "ros");
 };
+
+/* The arm service reports its joints in its status text (`joints (deg) +1.0 ...`, the arm's seven in order), which this page polls anyway. When /joint_states is not arriving (no ROS
+ * on this machine, a different DDS domain, a service started --no-ros) the pose view would say "no joint data" about an arm that is answering, so it is drawn from that report and the
+ * badge says where it came from. /joint_states wins while it arrives. A report older than the poll's own failure shows as STALE exactly as before: lastJointMs is only set here. */
+function feedFromService() {
+  if (!view || !lastService || Date.now() - lastRosMs < 1500) return;
+  const name = [], position = [];
+  for (const side of ["left", "right"]) {
+    const m = (lastService[side] || "").match(/^joints \(deg\)\s+(.+)$/m);
+    const deg = m ? m[1].trim().split(/\s+/).map(Number) : [];
+    if (deg.length !== 7 || deg.some(Number.isNaN)) continue;
+    deg.forEach((d, i) => { name.push(`openarm_${side}_joint${i + 1}`); position.push(d * Math.PI / 180); });
+  }
+  if (name.length) applyJoints({ name, position }, "service");
+}
 
 /* Stale joint data must read as STALE, never as a pose. A frozen render showing a plausible arm is
  * the failure this whole panel exists to prevent — the same reason the view is driven from
@@ -92,19 +114,44 @@ async function boot() {
  * disabled meanwhile (one arm action at a time -- a second would be refused with 409), and a press
  * that is refused anyway says so instead of looking like success. */
 const ARM_BUTTONS = [
+  // One tap for the three steps a show needs, per arm or both: START (enables the motors), SUPERVISE (the person's word that they are at the e-stop) and ACTIVATE (to ready). The
+  // confirmation names all three, because the second is an attestation. The first refusal stops the chain; nothing runs while a show does.
+  { id: "btnArmPrepL",    url: "/api/arms/prepare?arm=left",  op: "prepare left",  confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE L" },
+  { id: "btnArmPrepR",    url: "/api/arms/prepare?arm=right", op: "prepare right", confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE R" },
+  { id: "btnArmPrepBoth", url: "/api/arms/prepare?arm=both",  op: "prepare both",  confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE BOTH" },
   { id: "btnArmPark",  url: "/api/arms/park?arm=both",      op: "park both",      confirm: "CONFIRM PARK",  pending: "PARKING…",    label: "PARK BOTH" },
-  { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L" },
-  { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R" },
-  { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO ZERO", pending: "ACTIVATING…", label: "ACTIVATE L" },
-  { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO ZERO", pending: "ACTIVATING…", label: "ACTIVATE R" },
+  { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L", instant: true },
+  { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R", instant: true },
+  // Brings that arm's service up (systemctl start opendubs-arm@<side>): it ENABLES the arm's motors and holds it where it is, and moves nothing. Every other button here needs it.
+  { id: "btnArmStartL", url: "/api/arms/start?arm=left",   op: "start left",     confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START L" },
+  { id: "btnArmStartR", url: "/api/arms/start?arm=right",  op: "start right",    confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START R" },
+  // The attestation the arm service wants before any moving command: a person is at the e-stop, head tracking is off and the neck centred. Shown only while the
+  // service answers, and only the one that applies. Ending it only takes capability away, so it never waits for a running move.
+  { id: "btnArmSupL",   url: "/api/arms/supervise?arm=left",    op: "supervise left",    confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE L",       sup: { side: "left",  on: true } },
+  { id: "btnArmSupR",   url: "/api/arms/supervise?arm=right",   op: "supervise right",   confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE R",       sup: { side: "right", on: true } },
+  { id: "btnArmUnsupL", url: "/api/arms/unsupervise?arm=left",  op: "unsupervise left",  confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION L", sup: { side: "left",  on: false }, instant: true },
+  { id: "btnArmUnsupR", url: "/api/arms/unsupervise?arm=right", op: "unsupervise right", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION R", sup: { side: "right", on: false }, instant: true },
+  { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE L" },
+  { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE R" },
+  // The hand follows the pose target the viewer (or the ROS bridge) publishes. The service refuses it until SUPERVISE, and `hold`, CH6 or the e-stop ends it.
+  { id: "btnArmFollowL", url: "/api/arms/follow?arm=left",  op: "follow left",  confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW L" },
+  { id: "btnArmFollowR", url: "/api/arms/follow?arm=right", op: "follow right", confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW R" },
   { id: "btnArmDown",  url: "/api/arms/down",               op: "down both",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE" },
+  { id: "btnArmDownL", url: "/api/arms/down?arm=left",     op: "down left",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE L" },
+  { id: "btnArmDownR", url: "/api/arms/down?arm=right",    op: "down right",     confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE R" },
+  // Reads only (`arm doctor`): is the service up, is /joint_states publishing, is a viewer on the graph. It finds things, so its words are shown whatever its status was.
+  { id: "btnArmDoctorL", url: "/api/arms/doctor?arm=left",  op: "doctor left",  confirm: "RUN CHECK", pending: "CHECKING…", label: "CHECK L", report: true },
+  { id: "btnArmDoctorR", url: "/api/arms/doctor?arm=right", op: "doctor right", confirm: "RUN CHECK", pending: "CHECKING…", label: "CHECK R", report: true },
   // Shown only while that arm's CAN link is missing a restart can fix; the backend and openarm-up
   // refuse it during a show and under an energized arm.
   { id: "btnArmRelinkL", url: "/api/arms/relink?arm=left",  op: "relink left",  confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK L", side: "left" },
   { id: "btnArmRelinkR", url: "/api/arms/relink?arm=right", op: "relink right", confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK R", side: "right" },
 ];
+let lastService = null;        // /api/arms/status "service": per arm, the arm service's status text (null if it does not answer)
 let lastLinks = null;          // /api/arms/status "links": per arm, its CAN link and any message
 let lastOp = null;             // the backend's op, from the last status poll
+let lastViewers = null;        // /api/arms/status "viewers": per arm, {state: stopped|starting|running|failed, port, error}
+let viewerNote = "";           // a refused or failed viewer, in words
 let requested = null;          // { id, at } -- pressed, and the poll has not shown it running yet
 const flash = {};              // id -> { text, until } -- REFUSED / DONE / FAILED, shown briefly
 
@@ -124,10 +171,16 @@ function paintArmButtons() {
       el.hidden = !show;
       if (!show) continue;
     }
+    if (b.sup) {                                                   // SUPERVISE / END SUPERVISION: the one that applies, while the service answers
+      const st = lastService && lastService[b.sup.side];
+      const supervised = !!(st && /^supervised: yes$/m.test(st));
+      el.hidden = !(st && (b.sup.on ? !supervised : supervised));
+      if (el.hidden) continue;
+    }
     const f = flash[b.id];
     const mine = running ? lastOp.name === b.op : !!(requested && requested.id === b.id);
     el.classList.toggle("busy", mine);
-    el.disabled = running || !!requested;                          // one arm action at a time
+    el.disabled = !b.instant && (running || !!requested);          // one arm action at a time, except the ones that only stop
     if (mine) {
       el.textContent = running ? `${b.pending} ${Math.round(lastOp.elapsed || 0)} s` : b.pending;
       el.title = "";
@@ -139,6 +192,47 @@ function paintArmButtons() {
     }
   }
 }
+/* The viewer (viser) is its own thing and not an arm action: it moves nothing, so it takes no confirmation and does not wait for a running move. One button per arm: it starts
+ * the viewer, and once that runs it opens it (this host's address, the viewer's port) in a new tab; STOP VIEWER shows only while this dashboard's own viewer runs. */
+function paintViewers() {
+  for (const [side, L] of [["left", "L"], ["right", "R"]]) {
+    const open = $("btnViewer" + L), stop = $("btnViewerStop" + L);
+    if (!open) continue;
+    const v = lastViewers && lastViewers[side];
+    const state = v ? v.state : "stopped";
+    open.textContent = state === "running" ? `OPEN VIEWER ${L}` : state === "starting" ? `STARTING VIEWER ${L}…` : `VIEWER ${L}`;
+    open.disabled = state === "starting";
+    open.title = state === "failed" && v.error ? `failed: ${v.error}` : "";
+    if (stop) stop.hidden = state !== "running";
+  }
+  paintReport();
+}
+
+function paintReport() {
+  const el = $("tpDoctor");
+  if (!el) return;
+  const parts = [];
+  if (lastOp && !lastOp.running && lastOp.name && lastOp.name.startsWith("doctor") && lastOp.out) parts.push(`${lastOp.name}:\n${lastOp.out.trim()}`);
+  for (const side of ["left", "right"]) {
+    const v = lastViewers && lastViewers[side];
+    if (v && v.error) parts.push(`viewer ${side}: ${v.state}: ${v.error}`);
+  }
+  if (viewerNote) parts.push(viewerNote);
+  el.textContent = parts.join("\n\n");
+  el.hidden = parts.length === 0;
+}
+
+async function viewerPress(op, side) {
+  const v = lastViewers && lastViewers[side];
+  if (op === "viewer" && v && v.state === "running") { window.open(`http://${location.hostname}:${v.port}/`, "_blank"); return; }
+  viewerNote = "";
+  try {
+    const r = await fetch(`/api/arms/${op}?arm=${side}`, { method: "POST" });
+    if (!r.ok) { let why = `HTTP ${r.status}`; try { why = (await r.json()).error || why; } catch (e) { /* keep the status */ } viewerNote = `${op} ${side} refused: ${why}`; }
+  } catch (e) { viewerNote = `${op} ${side}: the dashboard did not answer`; }
+  paintReport(); pollStatus();
+}
+
 function opOf(id) { const b = ARM_BUTTONS.find((x) => x.id === id); return b ? b.op : null; }
 
 function noteArm(text, cls) {
@@ -154,6 +248,10 @@ function noteArm(text, cls) {
 }
 
 async function onArmResponse(b, r) {
+  if (r && r.ok && b.instant) {                                     // answered already: nothing to wait for
+    flash[b.id] = { text: "DONE", until: Date.now() + 2500 };
+    paintArmButtons(); setTimeout(paintArmButtons, 2600); pollStatus(); return;
+  }
   if (r && r.ok) { requested = { id: b.id, at: Date.now() }; paintArmButtons(); pollStatus(); return; }
   let why = "the dashboard did not answer";
   if (r) { try { why = (await r.json()).error || `HTTP ${r.status}`; } catch (e) { why = `HTTP ${r.status}`; } }
@@ -185,6 +283,11 @@ function wire() {
     const el = $(b.id);
     if (el) cb(el, { url: () => b.url, confirm: b.confirm, pending: b.pending,
                      label: paintArmButtons, onResponse: (r) => onArmResponse(b, r) });
+  }
+  for (const [side, L] of [["left", "L"], ["right", "R"]]) {
+    const open = $("btnViewer" + L), stop = $("btnViewerStop" + L);
+    if (open) open.addEventListener("click", () => viewerPress("viewer", side));
+    if (stop) stop.addEventListener("click", () => viewerPress("viewer-stop", side));
   }
   const mk = (id, url, confirmText, pending, label) => {
     const el = $(id);
@@ -295,11 +398,15 @@ async function pollStatus() {
       const prev = lastOp;
       lastOp = s.op || null;
       lastLinks = s.links || null;
+      lastService = s.service || null;
+      lastViewers = s.viewers || null;
+      paintViewers();
+      feedFromService();
       // An op just finished: say how, on its own button, for a few seconds.
       if (prev && prev.running && lastOp && !lastOp.running && prev.name === lastOp.name) {
         const b = ARM_BUTTONS.find((x) => x.op === lastOp.name);
         if (b) {
-          const ok = lastOp.rc === 0 && !lastOp.error;
+          const ok = (lastOp.rc === 0 || b.report) && !lastOp.error;
           flash[b.id] = { text: ok ? "DONE" : "FAILED — SEE BELOW", until: Date.now() + (ok ? 2500 : 6000) };
           noteArm(ok ? `${b.label}: done in ${Math.round(lastOp.elapsed || 0)} s` : "", ok ? "ok" : "sub");
           setTimeout(paintArmButtons, ok ? 2600 : 6100);

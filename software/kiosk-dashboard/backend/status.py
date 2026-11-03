@@ -457,6 +457,7 @@ def _robot_state():
     import state_words
     r = state_words.recovery(out)
     out["recovery"] = r[0] if r else None
+    out["ch5"] = ch5_position(rc)        # OFF | MANUAL | AUTO | None: the Operate RE-ARM says when to switch it
     out["latched"] = {"estop": supervisor.estop_latched,
                       "faults": list(supervisor.fault_latched),
                       "fault_detail": [fault_detail(f) for f in supervisor.fault_latched],
