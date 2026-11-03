@@ -8,6 +8,10 @@ Dialogue stays on the robot's head tablet; this is the music. The outputs:
   auto   hdmi if the screen says it has sound (its EDID), else usb if plugged in, else bt if paired and
          connected, else the jack. A building's video wall with no speaker reports none, so auto skips it.
 
+A NAMED output is never swapped for another (#591, no quiet fallback): bt chosen with the speaker off
+reports NO output and why, so the robot refuses a show that would play here, rather than playing it into
+the jack with nothing plugged in. Only auto falls through the list.
+
 HOW: PipeWire with WirePlumber, Raspberry Pi OS's own sound stack, with bluez5 for Bluetooth. Chromium
 plays to PipeWire's DEFAULT sink, and this sets that default. So the output changes live: the page never
 reloads, its video and its clock sync are untouched. A test tone mixes in beside the page. And a speaker
@@ -30,6 +34,7 @@ import json
 import math
 import os
 import pwd
+import re
 import struct
 import subprocess
 import threading
@@ -39,16 +44,21 @@ import wave
 OUTPUTS = ("hdmi", "jack", "usb", "bt")
 SETTINGS = ("auto",) + OUTPUTS
 AUTO_ORDER = ("hdmi", "usb", "bt", "jack")
+MISSING = {"hdmi": "no HDMI sound output: is a screen with a speaker on the HDMI port?",
+           "usb": "no USB audio adapter is plugged in",
+           "jack": "this box has no 3.5 mm jack (a Raspberry Pi 5 has none)",
+           "bt": "the Bluetooth speaker is not connected"}
 LATENCY_MS = {"hdmi": 40, "jack": 20, "usb": 20, "bt": 200}
 DEFAULT_VOLUME = 0.7
 MAX_VOLUME = 1.0                       # no boost past the sink's own 100 %
 USER = "stage"
 RECONNECT_EVERY_S = 20
 SCAN_S = 15
+REFIND_S, REFIND_TRIES = 3, 4            # a speaker BlueZ forgot since the scan: look again, up to ~12 s
 
 lock = threading.Lock()
 live = {"sinks": {}, "actual": None, "why": None, "playing": [], "bt": None, "found": [],
-        "busy": None, "error": None, "applied": {}, "default": None}
+        "busy": None, "error": None, "applied": {}, "default": None, "adapter": None}
 
 
 # ---- settings ----------------------------------------------------------------------------------------
@@ -216,19 +226,29 @@ def parse_dump(dump: list, shown: list[dict]) -> dict:
 
 
 def choose(setting: str, available: set, hdmi_audio: bool) -> tuple[str | None, str | None]:
-    """The output to use, and why it is not the one chosen (None when it is)."""
+    """The output to use, and why there is none (None when there is one). A named output or nothing."""
     if setting in OUTPUTS:
-        if setting in available:
-            return setting, None
-        why = f"{setting} is not available"
-    else:
-        why = None
+        return (setting, None) if setting in available else (None, MISSING[setting])
     for k in AUTO_ORDER:
         if k == "hdmi" and not hdmi_audio:
             continue                                      # a screen with no speaker (a video wall)
         if k in available:
-            return k, why
-    return None, why or "no sound output found"
+            return k, None
+    return None, "no sound output found"
+
+
+def bt_why(bt: dict | None, adapter: str | None) -> str:
+    """Why a chosen Bluetooth speaker is not playing, in the operator's words."""
+    if adapter == "none":
+        return "the box has no Bluetooth adapter"
+    if adapter in ("blocked", "off"):
+        return "the box's Bluetooth is off: it turns it on itself within seconds"
+    if not bt:
+        return "no Bluetooth speaker is paired: pair one on the Stage Box Sound card"
+    name = bt.get("name") or bt.get("addr")
+    if not bt.get("paired"):
+        return f"the Bluetooth speaker {name} is not paired any more: pair it again"
+    return f"the Bluetooth speaker {name} is not connected: is it on, and in range?"
 
 
 # ---- Bluetooth ---------------------------------------------------------------------------------------
@@ -241,9 +261,11 @@ def _btctl(*args: str, timeout: float = 10) -> str:
 
 
 def bt_info(addr: str, text: str | None = None) -> dict:
-    """`bluetoothctl info ADDR`, as {name, addr, paired, connected, audio}."""
+    """`bluetoothctl info ADDR`, as {name, addr, paired, connected, audio, known}. `known`: BlueZ still has
+    the device (it drops one it discovered but never paired ~30 s after discovery stops)."""
     text = _btctl("info", addr) if text is None else text
-    d = {"addr": addr, "name": None, "paired": False, "connected": False, "audio": False}
+    d = {"addr": addr, "name": None, "paired": False, "connected": False, "audio": False,
+         "known": text.lstrip().startswith("Device ") and "not available" not in text}
     for line in text.splitlines():
         k, _, v = line.strip().partition(": ")
         if k in ("Name", "Alias") and not d["name"]:
@@ -265,6 +287,43 @@ def bt_devices(text: str) -> list[tuple[str, str]]:
         if len(p) >= 2 and p[0] == "Device" and is_addr(p[1]):
             out.append((p[1].upper(), p[2].strip() if len(p) > 2 else ""))
     return out
+
+
+def rfkill_unblock(base: str = "/sys/class/rfkill") -> list[str]:
+    """Lift the SOFT block on every Bluetooth radio, through sysfs (no rfkill tool, no package). A fresh
+    Raspberry Pi OS keeps Bluetooth soft-blocked, and systemd-rfkill restores that at every boot from the
+    root, which the read-only overlay never lets change (found 2026-10-26: Powered: no, PowerState:
+    off-blocked, "Failed to set mode: Failed (0x03)" at every pairing). So it is lifted here, at start and
+    on every check, whatever put it back. A hard block (a switch) is not ours to lift. Returns what it lifted."""
+    done = []
+    try:
+        radios = sorted(os.listdir(base))
+    except OSError:
+        return done
+    for r in radios:
+        try:
+            with open(f"{base}/{r}/type") as f:
+                if f.read().strip() != "bluetooth":
+                    continue
+            with open(f"{base}/{r}/soft") as f:
+                if f.read().strip() != "1":
+                    continue
+            with open(f"{base}/{r}/soft", "w") as f:
+                f.write("0")
+            done.append(r)
+        except OSError:
+            continue
+    return done
+
+
+def adapter_state(show: str) -> str:
+    """`bluetoothctl show` -> "on", "off", "blocked" (rfkill), or "none" (no adapter)."""
+    if not show.strip() or "No default controller" in show:
+        return "none"
+    powered = re.search(r"^\s*Powered:\s*(yes|no)", show, re.M)
+    if "off-blocked" in show:
+        return "blocked"
+    return "on" if powered and powered.group(1) == "yes" else "off"
 
 
 # ---- the test tone -----------------------------------------------------------------------------------
@@ -299,6 +358,16 @@ class Sound:
         self.settings = load(os.path.join(self.dir, "audio.json"), default_output)
         self.last_reconnect = 0.0
         self.results: dict[str, dict] = {}
+        self._tidy()
+
+    def _tidy(self) -> None:
+        """One speaker: forget every device BlueZ knows as paired or trusted that is not the kept one, so
+        nothing else is retried in the background (a failed pairing used to leave its device trusted)."""
+        keep = (self.settings["bt"] or {}).get("addr")
+        for kind in ("Paired", "Trusted"):
+            for addr, _ in bt_devices(_btctl("devices", kind)):
+                if addr != keep:
+                    _btctl("remove", addr)
 
     def _save(self) -> None:
         try:
@@ -308,6 +377,11 @@ class Sound:
 
     # -- the loop --
     def tick(self) -> None:
+        if rfkill_unblock():                               # Bluetooth was blocked: lift it, then power it
+            _btctl("power", "on")
+        live["adapter"] = adapter_state(_btctl("show"))
+        if live["adapter"] == "off":
+            _btctl("power", "on")
         shown = screens()
         try:
             r = _as_stage(["pw-dump"], timeout=8)
@@ -327,6 +401,8 @@ class Sound:
                 _as_stage(["wpctl", "set-volume", str(s["id"]), f"{want:.2f}"])
                 live["applied"][k] = (s["id"], want)
         self._keep_connected("bt" in sinks)
+        if actual is None and self.settings["output"] == "bt":
+            why = bt_why(live["bt"], live["adapter"])
         with lock:
             live.update(sinks=sinks, actual=actual, why=why, playing=p["playing"], default=p["default"], error=None)
 
@@ -399,12 +475,34 @@ class Sound:
         old = self.settings["bt"]
         if old and old["addr"] != addr:
             _btctl("remove", old["addr"])                  # one speaker: the new one replaces the old
-        _btctl("--agent", "NoInputNoOutput", "--timeout", "25", "pair", addr, timeout=30)
-        _btctl("trust", addr)
-        _btctl("connect", addr, timeout=20)
-        d = bt_info(addr)
-        if not d["paired"]:
-            return {"ok": False, "text": "pairing failed: put the speaker in pairing mode and try again"}
+        # PAIRABLE (BlueZ's "bondable") only for this attempt: without it the speaker pairs, but no link key
+        # is kept and it reads Paired: no at once (found 2026-10-26, BlueZ 5.82). Off again whatever happens;
+        # the box is never discoverable either way.
+        _btctl("pairable", "on")
+        try:
+            # A person picks from the list after the scan has ended, and BlueZ forgets a device it found but
+            # never paired ~30 s after that: then `pair` answers "not available" (2026-10-26). So find it
+            # again first, in short rounds, and pair the moment it is back.
+            for _ in range(REFIND_TRIES):
+                if bt_info(addr)["known"]:
+                    break
+                _btctl("--timeout", str(REFIND_S), "scan", "on", timeout=REFIND_S + 5)
+            else:
+                if not bt_info(addr)["known"]:
+                    return {"ok": False, "text": "the speaker is not in range any more: put it in pairing mode, "
+                                                 "then press PAIR SPEAKER again"}
+            _btctl("--agent", "NoInputNoOutput", "--timeout", "25", "pair", addr, timeout=30)
+            d = bt_info(addr)
+            if not d["paired"]:
+                # Not trusted, and forgotten: a device left trusted is one BlueZ keeps trying to reconnect
+                # (the Nebula projector, retried every ~40 s after a failed attempt).
+                _btctl("remove", addr)
+                return {"ok": False, "text": "pairing failed: put the speaker in pairing mode and try again"}
+            _btctl("trust", addr)
+            _btctl("connect", addr, timeout=20)
+            d = bt_info(addr)
+        finally:
+            _btctl("pairable", "off")
         self.settings["bt"] = {"addr": addr, "name": d["name"] or addr}
         self._save()
         kept = "" if self.kept else " (not kept after a reboot: no media stick)"
@@ -444,4 +542,4 @@ class Sound:
                     "latency_ms": LATENCY_MS.get(a), "latency_by_output": LATENCY_MS,
                     "available": sorted(live["sinks"]), "volumes": self.settings["volumes"],
                     "playing": live["playing"], "bt": live["bt"], "found": live["found"],
-                    "busy": live["busy"], "kept": self.kept, "error": live["error"]}
+                    "busy": live["busy"], "kept": self.kept, "error": live["error"], "adapter": live["adapter"]}

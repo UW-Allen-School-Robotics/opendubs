@@ -122,8 +122,12 @@ def _repo_ids(t: LS.Target, repo_shows: str) -> dict:
 
 def _folder_ready(t: LS.Target, create: bool) -> None:
     q = shlex.quote(t.root)
-    if _run(t, f"test -d {q} && test -w {q}").returncode == 0:
+    res = _run(t, f"test -d {q} && test -w {q}")
+    if res.returncode == 0:
         return
+    if res.returncode == 255:
+        err = res.stderr.decode(errors="replace").strip()
+        raise ShowSyncError(f"could not connect to {t.host}: {err or 'ssh connection failed'}")
     if not create:
         raise ShowSyncError(f"the robot's shows folder {t.root} on {t.host} is missing or not writable — "
                             "create it once with --create")

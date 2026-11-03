@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The robot's FastDDS profile, for every ROS unit on the Thor (named by ros-dds.env; installed by
+     provision-ros.sh at /etc/opendubs/fastdds-robot.xml). UDP on the loopback interface only:
+     - No shared memory. A long-lived subscriber on it can go deaf (workplan L.10), and it doesn't
+       cross a container's private /dev/shm or another Unix user.
+     - No multicast onto the network. Every participant is on the Thor (the containers are
+       host-network); off-robot clients use rosbridge or foxglove. Discovery multicast went out over
+       the robot's Wi-Fi at the basic rate, about 13% of its airtime (2026-10-28).
+     Discovery is unicast to 127.0.0.1, to participant ids 0..63 on the host. A participant that
+     doesn't use this profile is still found, both ways: measured against the arm container's
+     UDP-only profile, the ARCHITECT containers' built-in UDPv4, and FastDDS's defaults.
+     Not ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST: in Jazzy that adds a shared-memory transport on top
+     of any profile (rmw_fastrtps_shared_cpp participant.cpp). -->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_localhost</transport_id>
+        <type>UDPv4</type>
+        <interfaceWhiteList><address>127.0.0.1</address></interfaceWhiteList>
+        <maxInitialPeersRange>64</maxInitialPeersRange>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name="opendubs_robot" is_default_profile="true">
+      <rtps>
+        <userTransports><transport_id>udp_localhost</transport_id></userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+        <builtin>
+          <metatrafficUnicastLocatorList>
+            <locator><udpv4><address>127.0.0.1</address></udpv4></locator>
+          </metatrafficUnicastLocatorList>
+          <initialPeersList>
+            <locator><udpv4><address>127.0.0.1</address></udpv4></locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

@@ -100,6 +100,13 @@
     const btn = $("opRearm"); if (!btn) return;
     const fill = btn.querySelector(".op-rearmfill"), txt = btn.querySelector(".op-rearmtxt");
     const HOLD = 1000; let t0 = 0, raf = 0, done = false;
+    // CH5 must be OFF before a re-arm is accepted (ESTOP_REARM_CH5): until it is, the button says so.
+    const ch5Off = () => !!lastRS && lastRS.ch5 === "OFF";     // unknown counts as not OFF, as the guard does
+    const idle = () => ch5Off() ? "HOLD TO RE-ARM" : "CH5 OFF TO RE-ARM";
+    window.renderRearm = (latched) => {
+      if (window.setHelp) setHelp(btn, latched && !ch5Off() ? "ESTOP_REARM_CH5" : null);
+      if (latched && !done && !btn.classList.contains("blocked")) txt.textContent = idle();
+    };
     const reset = () => { cancelAnimationFrame(raf); fill.style.width = "0"; done = false; };
     function tick() {
       const f = Math.min(1, (performance.now() - t0) / HOLD);
@@ -111,15 +118,15 @@
       txt.textContent = "RE-ARMING…";
       try {
         const r = await fetch("/api/estop/clear", { method: "POST" });
-        if (r.ok) { txt.textContent = "HOLD TO RE-ARM"; btn.classList.remove("blocked"); }
+        if (r.ok) { txt.textContent = idle(); btn.classList.remove("blocked"); }
         else {
           const j = await r.json().catch(() => ({}));
           const b = (j.blockers || ["refused"]).join(" · ");
           btn.classList.add("blocked"); txt.textContent = "BLOCKED";
           setNotifs([{ sev: "bad", txt: "RE-ARM BLOCKED · " + b }]);
-          setTimeout(() => { txt.textContent = "HOLD TO RE-ARM"; btn.classList.remove("blocked"); }, 3000);
+          setTimeout(() => { txt.textContent = idle(); btn.classList.remove("blocked"); }, 3000);
         }
-      } catch (e) { txt.textContent = "HOLD TO RE-ARM"; }
+      } catch (e) { txt.textContent = idle(); }
       reset();
     }
     btn.addEventListener("pointerdown", (e) => { btn.setPointerCapture(e.pointerId); t0 = performance.now(); raf = requestAnimationFrame(tick); });
@@ -281,6 +288,7 @@
     const n = [], inp = rs.inputs || {};
     const latched = !!(inp.estopped || (inp.estop_sources && inp.estop_sources.length));
     document.body.classList.toggle("op-estopped", latched);   // reveals the RE-ARM control
+    if (window.renderRearm) renderRearm(latched);
     if (inp.estop_sources && inp.estop_sources.length) n.push({ sev: "bad", txt: "E-STOP · " + inp.estop_sources.join(" + ") });
     if (rs.recovery) n.push({ sev: "bad", txt: rs.recovery });     // what to do about it (the registry's words)
     // A latched DEGRADED fault: what it is, and whether its cause is still there (status.fault_detail).

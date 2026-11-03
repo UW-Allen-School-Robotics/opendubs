@@ -639,7 +639,11 @@ class Composer:
         except Exception:
             doc = yaml.safe_load(text)
         try:
+            import importlib
             import arm_planner_bridge
+            import yamledit
+            importlib.reload(arm_planner_bridge)
+            importlib.reload(yamledit)
         except ImportError as e:
             raise ApiError(f"Motion planning bridge is unavailable: {e}") from e
         try:

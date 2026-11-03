@@ -1,0 +1,10 @@
+{
+  "themes": [],
+  "skins": [
+    { "id": "fixture_good",    "label": "Fixture",  "kind": "code",  "source": "content" },
+    { "id": "fixture_nodraw",  "label": "No draw",  "kind": "code",  "source": "content" },
+    { "id": "fixture_missing", "label": "Missing",  "kind": "code",  "source": "content" },
+    { "id": "ring",            "label": "Ring",     "kind": "code",  "source": "builtin" },
+    { "id": "default",         "label": "Eyes",     "kind": "code",  "source": "content" }
+  ]
+}

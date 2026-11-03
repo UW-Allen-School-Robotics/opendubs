@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# Sign a firmware image for ONE board, on the Thor: the single signing step for every OpenDubs board.
+# Sign an update for ONE target, on the Thor: the single signing step for every OpenDubs board, and
+# for the stage box's software bundle.
 #
 #   sudo sign-firmware.sh stamplc firmware.bin     -> firmware.bin.sig
 #   sudo sign-firmware.sh neck    firmware.bin     -> firmware.bin.sig
+#   sudo sign-firmware.sh stage   manifest.json    -> manifest.json.sig   (software/stage-pi/release/)
 #
 # Signs "OPENDUBS-FW-SIG-1" \0 <board> \0 <image> (ECDSA P-256, SHA-256, DER), so the signature is
 # good for that board only, then checks it against the key's public half before writing it. Serve
 # the .sig beside the image: each board fetches <image URL>.sig. ota-from-thor.sh calls this for the
-# StamPLC; the neck Dial's OTA recipe (firmware/neck_dial/README.md) calls it for the Dial.
+# StamPLC; the neck Dial's OTA recipe (firmware/neck_dial/README.md) calls it for the Dial; the stage
+# box's publish-bundle.sh calls it for the bundle's manifest, which the box checks before installing.
 # Key: $OPENDUBS_FW_KS_DIR (default /etc/opendubs/firmware-signing; see provision-firmware-signing.sh).
 set -euo pipefail
 die() { echo "!! $*" >&2; exit 2; }
-BOARDS="stamplc neck"
+BOARDS="stamplc neck stage"
 [ $# -eq 2 ] || die "usage: sign-firmware.sh <$(echo $BOARDS | tr ' ' '|')> IMAGE"
 BOARD="$1"; IMAGE="$2"
 case " $BOARDS " in *" $BOARD "*) ;; *) die "unknown board '$BOARD' (one of: $BOARDS)";; esac

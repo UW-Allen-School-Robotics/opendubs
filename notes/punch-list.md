@@ -15,7 +15,7 @@ are listed here only when they carry open items of their own. Check here before 
 | [`docs-review-checklist.md`](docs-review-checklist.md) | 41 | the 2026-09-12 documentation review, now tracked so the rulings are durable. **A: 1** left (a content decision), **B: 5** still open, **C: 25** need a photo/measurement/part number, **D: 10** platform projects |
 | `docs/build/*.md` | 45 | authoring placeholders — photos, Fusion permalinks, STL/STEP exports, a few TBD values. **This is the same work as bucket C above, seen from the pages instead of the list** |
 | [`per-robot-calibration.md`](per-robot-calibration.md) | — | **backup of opendubs2's drive calibration.** Not a source: the values live in `main.cpp` on the robot, and `deploy-all.sh` rsyncs over it with `--delete` |
-| [`design/arm-authority.md`](design/arm-authority.md) | 1 | **arm authority, modes and the vendor-swap boundary.** Decisions settled, `[AUTH]` in firmware, the arm arbiter chosen (wrap Sidd's `OwnershipRegistry`), and `openarm-up` no longer drops the arms on the way down. Open: report the abort-recovery gap to `personalrobotics/mj_manipulator` |
+| [`design/arm-authority.md`](design/arm-authority.md) | 1 | **arm authority, modes and the vendor-swap boundary.** Decisions settled, `[AUTH]` in firmware, the arm arbiter chosen (wrap mj_manipulator's `OwnershipRegistry`), and `openarm-up` no longer drops the arms on the way down. Open: report the abort-recovery gap to `personalrobotics/mj_manipulator` |
 | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | 3 | **goal 5 — arm display on the tablet, and arm telemetry to other clients.** Settled: not Viser (it renders commanded pose), `/joint_states` over rosbridge with per-subscription throttling, and the dashboard backend stays out of it |
 | [`design/arm-manual-control.md`](design/arm-manual-control.md) | 1 | **moving an arm by hand** — freedrive, the frame selector, and click-to-reach. Freedrive settled: per-arm, requires CH5 `MANUAL`, latched not held (both hands are on the arm), and on exit it holds *where it is*. Open: prototype click-to-reach against jogging before building either |
 | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | 2 | **goal 6 — two RPLIDAR A1s and how the stack consumes them.** Drivers are done; the gap is that no `base_link`→sensor TF exists, so the dashboard hardcodes a guessed orientation. Settled: publish extrinsics from a URDF, do not merge the scans |
@@ -37,13 +37,13 @@ Goals, not tasks: each one is done when the thing it names is true.
 
 | # | Goal | Where it lives | State |
 |---|---|---|---|
-| 1 | Documentation for **setting up** teleop in the build docs | — | unblocked: Eric's WebXR is the baseline and the code is at `EricJGoossen/openarm`. Not written |
+| 1 | Documentation for **setting up** teleop in the build docs | — | unblocked: the contributed WebXR teleop is the baseline and the code is at `EricJGoossen/openarm`. Not written |
 | 2 | Documentation for **day-to-day** arm bring-up | [`docs/openarm-setup.md`](../docs/openarm-setup.md) | largely existed; `openarm-up park` closed the bring-down hole |
 | 3 | **UI / mode selection** for the arms — behaviour and which teleop source they answer | [`design/arm-authority.md`](design/arm-authority.md) | model settled, `[AUTH]` in firmware, arbiter chosen. Wrapper node and tablet surface unbuilt |
 | 4 | **Contracts / modularity** so SSIK can be swapped for e.g. the NVIDIA stack | [`design/arm-authority.md`](design/arm-authority.md) | the adapter contract — same work as goal 3. Two command paths named; only `FollowJointTrajectory` is standard |
 | 5 | **Arm visualization** on the tablet + arm telemetry to other clients | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | source and transport settled; nothing built |
 | 6 | **LIDAR integration** — both units, and how the stack consumes them | [`design/lidar-frames-and-fusion.md`](design/lidar-frames-and-fusion.md) | drivers done; blocked on measuring the extrinsics |
-| 7 | **Run Eric's WebXR teleop first-hand**, and investigate the latency seen before | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | **run 2026-10-02 on real arms.** Root cause found and fixed: the viser viewer was 67% of the control loop and the loop missed ~23% of its deadlines; headless is clean. Open: gripper analog rework, and a teleop page on the dashboard |
+| 7 | **Run the contributed WebXR teleop first-hand**, and investigate the latency seen before | [`design/arm-telemetry-and-viz.md`](design/arm-telemetry-and-viz.md) | **run 2026-10-02 on real arms.** Root cause found and fixed: the viser viewer was 67% of the control loop and the loop missed ~23% of its deadlines; headless is clean. Open: gripper analog rework, and a teleop page on the dashboard |
 
 Goals 3 and 4 are one piece of work. Goals 5 and 6 share a root cause: **the tablet needs sensor and
 arm geometry, and geometry must have exactly one source** — today the LIDAR's lives in `app.js` as a
@@ -62,7 +62,7 @@ found the board via mDNS, so the discovery guard works. Verified: `[AUTH]` at 8.
 cross-checked against `[RC]`/`[IO]`, the auto-arm re-closed the contactor after reboot, and
 `ch5=unknown` with the transmitter off.
 
-**Note `/opt/opendubs` is owned by `andrew`,** so editing the robot's sources needs `sudo` — the
+**Note `/opt/opendubs` is owned by a contributor's personal account,** so editing the robot's sources needs `sudo` — the
 first attempt failed with `PermissionError`. Still worth fixing (see housekeeping).
 
 **Found while doing it, still open: the dashboard learns a stale StamPLC peer.** `/api/snapshot`
@@ -124,7 +124,7 @@ both repos have already proven to drift from their published versions, so writin
 be guessing at anchors.
 
 **1 · Reflash both boards from `main` and confirm.** PR #32 is merged, so `main` carries the pinch
-guard *and* Andrew's tracker feedback for the first time, and builds (15.7 s). The guard was
+guard *and* the tracker feedback for the first time, and builds (15.7 s). The guard was
 exercised on `e00920a`; **the merged build has never run on hardware.** Confirm two things
 separately: the guard still behaves at the bottom of the stroke, and the YOLO tracker still drives
 the head. CH5 must be OFF to flash.
@@ -242,7 +242,7 @@ stands between the model and a TF tree (§0d).
 
 ## 0c-ii. The dashboard's AI TRACKING button — fixed 2026-10-01
 
-Andrew reported it "doesn't work". The endpoint existed; what it did was wrong.
+A contributor reported it "doesn't work". The endpoint existed; what it did was wrong.
 
 It `subprocess.Popen`'d `yolo_tracker.py` from the backend with the Tab5's address hardcoded as
 `10.42.2.14`, ignoring the systemd unit. Three failure modes: a second copy fought the service for

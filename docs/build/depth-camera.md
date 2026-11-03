@@ -28,6 +28,15 @@ face. It rides the face's tilt, so the camera always looks where the face looks.
 The mount is a single printed part: a **rectangular sleeve** that wraps the camera's body, with
 **two legs** underneath that drop into pockets in the top of the face holder.
 
+There are two versions of the mount, and both fit the same pockets in the same way:
+
+- the **30° mount**, which tilts the camera 30° down from the face. This is the default, and the
+  one the robot model describes;
+- the **straight mount**, which holds the camera square to the face.
+
+Print whichever suits where the robot works. The sleeve measurements below are the straight
+mount's; *TODO: the 30° mount's, where they differ.*
+
 The Intel RealSense D415 is an alternative depth camera, also listed as optional in the
 [Hardware BOM](../hardware-bom.md). This mount is for the Femto Bolt only.
 [Camera selection](../camera-selection.md) compares these and other cameras.
@@ -38,10 +47,11 @@ The Intel RealSense D415 is an alternative depth camera, also listed as optional
 - **Download:** *TODO — STEP, plus the mount's STL and 3MF print file, into `hardware/`. 3MF
   print files are still to come for every printed part in this guide.*
 
-The robot's description in the repository already carries simplified meshes of both parts,
-for the simulator and the robot model: `description/opendubs/meshes/femto_mount.stl` (the mount)
-and `femto_bolt.stl` (the camera's 115 × 65 × 40 mm outer envelope, not Orbbec's CAD). Use the
-CAD downloads above for printing, not these.
+The robot's description in the repository already carries simplified meshes, for the simulator
+and the robot model, in `description/opendubs/meshes/`: `femto_mount_tilt30.stl` (the 30° mount
+with the camera in it), and for the straight mount `femto_mount.stl` and `femto_bolt.stl` (the
+camera's 115 × 65 × 40 mm outer envelope, not Orbbec's CAD). Use the CAD downloads above for
+printing, not these.
 
 ## Bill of materials
 
@@ -59,7 +69,7 @@ CAD downloads above for printing, not these.
 
 | Part | SKU | Qty | Notes |
 |---|---|---:|---|
-| Femto Bolt mount (3D-printed) | — | 1 | A sleeve around the camera with two legs that drop into the face holder's pockets. PLA or PETG, 15% infill; STL and 3MF in hardware/ TBD. |
+| Femto Bolt mount, 30° or straight (3D-printed) | — | 1 | A sleeve around the camera with two legs that drop into the face holder's pockets. The 30° mount tilts the camera down and is the default; the straight one holds it square. PLA or PETG, 15% infill; STL and 3MF in hardware/ TBD. |
 | M4 x 16 mm bolt with a nut or threaded insert | — | 2 | One through each pocket of the face holder and the leg inside it (4.3 mm hole). A pin that stops the leg sliding out; the pocket's fit holds the mount. |
 | Camera retaining screw (size TBD) | — | 4 | Through the small holes in the sleeve's side walls, two a side, to hold the camera in. Size and length to be confirmed. |
 <!-- /BOM-AUTO:build:depth-camera -->
@@ -102,12 +112,18 @@ the head at its centre (no pan, no tilt) and the lift fully down; the robot mode
 | Frame | Attached to | Where | Orientation |
 |---|---|---|---|
 | `femto_mount_link` | `head_tilt_link` (the tilting face) | where the mount's legs enter the face holder: centred between the two pockets, on the holder's top face | the same as `head_tilt_link` |
-| `camera_link` | `femto_mount_link` | on the **depth** camera's lens, at the camera's front face: 33.95 mm forward, 30.0 mm to the robot's right and 27.51 mm up from `femto_mount_link` | pitched **6° down** |
+| `camera_link`, 30° mount | `femto_mount_link` | on the **depth** camera's lens, at the camera's front face: 39.00 mm forward, 30.0 mm to the robot's right and 25.34 mm up from `femto_mount_link` | pitched **36° down** |
+| `camera_link`, straight mount | `femto_mount_link` | the same point: 33.95 mm forward, 30.0 mm to the robot's right and 27.51 mm up | pitched **6° down** |
 
 The depth lens is the one 30 mm to the right of the camera's centre, as seen from behind the
 robot; the colour (RGB) lens is near the centre. Orbbec's documentation gives the depth camera a
-6° downward tilt relative to the colour camera, which is square to the housing, so
-`camera_link` is pitched 6° down.
+6° downward tilt relative to the colour camera, which is square to the housing. So `camera_link`
+is pitched 6° down on the straight mount, and 36° down on the 30° mount (Orbbec's 6° plus the
+mount's 30°).
+
+The robot's URDF, `opendubs.urdf`, describes the 30° mount. The straight mount has its own,
+`opendubs-femto-straight.urdf`: on a robot that carries the straight mount, point
+`robot_state_publisher` at that one (the `OPENDUBS_URDF` setting).
 
 `camera_link` is placed at the front face of the housing. The depth camera's true optical
 centre is somewhat behind the glass; its exact depth is not in this geometry.
