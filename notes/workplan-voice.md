@@ -228,6 +228,16 @@ ReSpeaker XVF3800 USB microphone array is ordered and arrives. No work before th
 This is the plan for when it lands. Details marked *(check)* are from the vendor's description and
 are confirmed on the bench before anything depends on them.
 
+**A first result with a USB speakerphone, pending details** (2026-10-26). A team member's demo
+branch runs a Jabra Speak 510 speakerphone (microphones, speaker and its own echo canceller in one
+USB device) on the Thor, as the array would be. The same sherpa-onnx spotter and model run on the
+Thor with gain ×4, Parakeet confirms every hit, and the robot's voice plays out of the speakerphone,
+so its echo canceller has the playback to subtract. On two takes with one speaker: it **works at
+1 m, catches nothing at 2 m**, and a new spoken instruction needs any music turned down. One lesson
+for any spotter on the Thor: feed it every frame, since its decoder does not survive a gap. It may
+be a cheaper first step than the array. Pending from the team member: where the speakerphone sat,
+the gain and threshold tried at 2 m, and whether Talk does better on it than on the tablet.
+
 **What it is.** A four-microphone circular array on an XMOS XVF3800 voice processor, appearing as a
 USB audio device. On the board: echo cancellation, beamforming, noise suppression, automatic gain
 and direction of arrival, configured over USB with the vendor's host tool *(check)*. The tablet's
