@@ -434,7 +434,40 @@ MIRROR_SLOT = {"ARM_L": "ARM_R", "ARM_R": "ARM_L", "GRIP_L": "GRIP_R", "GRIP_R":
 CLIP_KEYS = {"cues", "length_s", "length_beats", "notes"}
 TOP_KEYS = {"format", "id", "name", "slots", "requires", "music", "notes", "clips", "markers",
             "cues", "dance", "sounds", "themes", "palette", "timeline_notes", "clearance",
-            "start_countdown_s", "device", "video", "can_skip", "tools", "crawler"}
+            "start_countdown_s", "device", "video", "can_skip", "tools", "crawler", "generated"}
+# GENERATED: a cue sheet another tool made from its own source (ENCORE: notes/design/choreo-content-split.md)
+# says so here. The source is the original and the sheet is made again from it at every push, so the
+# composer and studio open a marked sheet read-only. Only the marker's shape is checked; the tool that
+# made the sheet is the only writer of it.
+#   generated: { by: encore, source: encore/shows/<id>.yaml, sha256: "<the source file's bytes>",
+#                revision: "<the tool's commit>" }
+GENERATED_KEYS = ("by", "source", "sha256", "revision")
+
+
+def generated_marker(doc) -> dict | None:
+    """The sheet's `generated:` marker, or None for a sheet written by hand (or a malformed marker,
+    which the validator reports)."""
+    g = doc.get("generated") if isinstance(doc, dict) else None
+    return g if isinstance(g, dict) else None
+
+
+def generated_problems(g) -> list[str]:
+    """What is wrong with a `generated:` marker's shape (empty when nothing is)."""
+    if not isinstance(g, dict):
+        return ["must be a mapping { by, source, sha256, revision }"]
+    out = [f"unknown key {k!r} (known: {', '.join(GENERATED_KEYS)})" for k in g if k not in GENERATED_KEYS]
+    for k in ("by", "source", "sha256"):
+        if not isinstance(g.get(k), str) or not g[k].strip():
+            out.append(f"{k}: is required, as a string")
+    src = g.get("source")
+    if isinstance(src, str) and (src.startswith("/") or ".." in src.replace("\\", "/").split("/")):
+        out.append("source: is a path inside the content folder: not absolute, no ..")
+    sha = g.get("sha256")
+    if isinstance(sha, str) and not re.fullmatch(r"[0-9a-f]{64}", sha):
+        out.append("sha256: is 64 lowercase hex digits, the hash of the source file's bytes")
+    if "revision" in g and not (isinstance(g["revision"], str) and g["revision"].strip()):
+        out.append("revision: is a string (quote it: a commit id of digits reads as a number)")
+    return out
 # EFFECTORS: the robot's parts a show NEEDS — derived from the slots its cues use, never hand-listed —
 # and the names the robot reports their availability by (the runner's preflight). A show may list in
 # `can_skip:` the parts it can do without: the runner then offers that variant, the show without
@@ -912,6 +945,10 @@ class Show:
                     P(Problem("video: required must be true or false"))
                 if "skeletons" in vblock and not isinstance(vblock["skeletons"], bool):
                     P(Problem("video: skeletons must be true or false"))
+
+        if "generated" in self.doc:
+            for msg in generated_problems(self.doc["generated"]):
+                P(Problem(f"generated: {msg}"))
 
         fmt = self.doc.get("format", FORMAT_VERSION)
         if fmt != FORMAT_VERSION:

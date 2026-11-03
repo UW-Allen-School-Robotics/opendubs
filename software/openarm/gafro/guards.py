@@ -53,13 +53,19 @@ class Refused(RuntimeError):
 # -- another controller on the bus ---------------------------------------------------------------------------------------------------
 
 def stack_running(names=STACK_PROCESSES, run=subprocess.run) -> list[str]:
-    """The command lines of any process matching `names`, other than this one. The arm stack runs in a container, whose processes the host sees."""
+    """The command lines of any process whose executable is one of `names`, other than this one. The arm stack runs in a container the host sees.
+
+    `pgrep -f` matches the whole command line, so it also finds anything that merely mentions the name: another `pgrep -f ros2_control_node`
+    (the dashboard runs one at every status poll), a shell, a sudo. Those are not the stack. On opendubs2 (2026-10-29) the services' watch
+    found the dashboard's pgrep, latched "the existing arm stack is running" and refused every move, and stopped a park in progress.
+    Only a line whose first word, the executable, is the name counts."""
     found = []
     for name in names:
         result = run(["pgrep", "-af", name], capture_output=True, text=True)
         for line in result.stdout.splitlines():
             pid, _, command = line.partition(" ")
-            if pid.isdigit() and int(pid) != os.getpid():
+            executable = command.split(" ", 1)[0].rsplit("/", 1)[-1]
+            if pid.isdigit() and int(pid) != os.getpid() and executable == name:
                 found.append(f"{pid} {command[:100]}")
     return found
 

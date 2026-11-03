@@ -591,6 +591,46 @@ check("before and after a move the base is at the origin",
 n = sum(1 for _ in sim_preview.frames(tl, 10))
 check("frames cover the whole show at the requested rate", n == int(tl["duration_s"] * 10) + 1, n)
 
+print("\na generated sheet is read-only in the composer (cue.py generated:)")
+tmp_g = tempfile.mkdtemp()
+try:
+    os.makedirs(os.path.join(tmp_g, "encore", "shows"))
+    os.makedirs(os.path.join(tmp_g, "tools", "surge"))
+    for d_ in ("encore/shows/x.yaml", "tools/surge/surge_right.yaml"):
+        open(os.path.join(tmp_g, d_), "w").write("id: not-a-sheet\n")
+    MARK = ('generated: { by: encore, source: encore/shows/gen.yaml, sha256: "' + "ab" * 32
+            + '", revision: "1a2b3c4" }\n')
+    open(os.path.join(tmp_g, "gen.yaml"), "w").write(MARK + HELLO)
+    open(os.path.join(tmp_g, "hand.yaml"), "w").write(HELLO)
+    cg = Composer(tmp_g, FIXTURE)
+    check("the content folder's ENCORE sources and tool packs are not listed as shows",
+          [s["path"] for s in cg.list_shows()] == ["gen.yaml", "hand.yaml"], cg.list_shows())
+    lg = cg.load("gen.yaml")
+    check("a generated sheet opens with its marker, so the editor shows it read-only",
+          lg["generated"] and lg["generated"]["source"] == "encore/shows/gen.yaml" and lg["timeline"]["valid"],
+          (lg.get("generated"), lg["timeline"]["problems"] if lg["timeline"] else lg["parse_error"]))
+    check("a hand-written sheet has none", cg.load("hand.yaml")["generated"] is None)
+    before = open(os.path.join(tmp_g, "gen.yaml")).read()
+    err = api_error(cg.save, "gen.yaml", lg["text"])
+    check("saving over a generated sheet is refused (409), naming its source",
+          err and err[0] == 409 and "encore/shows/gen.yaml" in err[1], err)
+    err = api_error(cg.save, "gen.yaml", HELLO)
+    check("... even with the marker removed from the text", err and err[0] == 409, err)
+    check("... and the file is untouched", open(os.path.join(tmp_g, "gen.yaml")).read() == before)
+    err = api_error(cg.save, "hand.yaml", MARK + HELLO)
+    check("writing a marker into a hand-written sheet is refused: only the generating tool sets it",
+          err and err[0] == 409 and open(os.path.join(tmp_g, "hand.yaml")).read() == HELLO, err)
+    err = api_error(cg.rename, "gen.yaml", "renamed")
+    check("renaming a generated sheet is refused", err and err[0] == 409
+          and os.path.isfile(os.path.join(tmp_g, "gen.yaml")), err)
+    sa = cg.save_as("gen.yaml", "my-copy", lg["text"])
+    copy = open(os.path.join(tmp_g, "my-copy.yaml")).read()
+    check("Save As makes a show of its own: no marker, and it saves like any other",
+          sa["generated"] is None and "generated" not in copy and cg.save("my-copy.yaml", copy)["saved"],
+          copy[:200])
+finally:
+    shutil.rmtree(tmp_g, ignore_errors=True)
+
 print("\nnothing in the composer can command the robot")
 src = ""
 for root, _, files in os.walk(os.path.join(HERE, "..", "composer")):

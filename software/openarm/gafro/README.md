@@ -91,8 +91,12 @@ name or params are not valid; a cancel holds the arm where it is. The poses are 
 | `reach_pose` | `{"position": [x, y, z], "orientation": [w, x, y, z]?, "speed"?, "duration"?, "tolerance_mm"?, "tolerance_deg"?}` (orientation left out is held; `duration` fixes the move's time in seconds, refused if the arm cannot follow it, where `speed` leaves the time to the planner) | the hand is within 15 mm and 6 deg of the pose, measured once the arm has stopped (a move that stopped short is made again, twice) |
 | `ready` | `{}` | the arm is at the model's `ready` keyframe: the pose `follow` (hand tracking) starts from |
 | `candy_grasp` | `{"basket": {"position": [x, y, z], "orientation"?}?, "approach"?, "lift"?, "speed"?, "then": "ready" or "stay"}` | open, above the basket, down, close on a candy, lift, then to `ready`. A close on nothing fails and opens again |
+| `open_gripper` | `{}` | the finger is at its full travel (0.044 m) |
+| `close_gripper` | `{}` | the finger stopped on something (`data.holding` true, `data.position` the object's width). Shut on nothing is a failure ("closed on nothing"), the gripper left closed |
 
-The gripper alone is `gripper_cmd` (position in finger metres, 0.044 open, 0 shut; a close that stops on something aborts as stalled).
+The gripper alone is also `gripper_cmd` (position in finger metres, 0.044 open, 0 shut; a close that stops on something aborts as stalled). `open_gripper` and `close_gripper` are the same move as
+named commands with the grasp read out for you; they are not an arm move, so they are gated like a trajectory goal (no head clearance), and refused while another command runs. Holding is judged as
+`gripper.grip` judges it: the finger stops short of shut (or the driver says `grasped`) for a second. An object thinner than 2 mm reads as shut on nothing.
 
 ```sh
 ros2 action send_goal --feedback /right_arm/command opendubs_arm_interfaces/action/ArmCommand '{name: reach_pose, params: "{\"position\": [0.45, -0.13, 0.55]}"}'

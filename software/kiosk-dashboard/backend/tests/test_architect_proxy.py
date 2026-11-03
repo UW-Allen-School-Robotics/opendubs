@@ -81,7 +81,8 @@ def test_nothing_can_be_posted():
 
 
 # ---- /api/architect/state, the face's Halloween ghost ---------------------------------------------
-# summarise's two tests are suzy/halloween's (tests/test_architect_proxy.py there), kept as they were.
+# summarise's two tests come from the ARCHITECT project's first Halloween branch (tests/test_architect_proxy.py
+# there), kept as they were.
 
 def test_a_runner_that_is_not_answering_is_unavailable(monkeypatch):
     async def down(url):

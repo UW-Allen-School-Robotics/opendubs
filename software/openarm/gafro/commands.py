@@ -3,8 +3,10 @@
   reach_pose     {"position": [x, y, z], "orientation": [w, x, y, z]?, "speed"?, "duration"?, "tolerance_mm"?, "tolerance_deg"?}    reach_pose.py
   ready          {}                                  the model's `ready` pose, where hand tracking (follow) starts
   candy_grasp    {"basket": {"position": [x, y, z], "orientation"?}?, "approach"?, "lift"?, "speed"?, "then": "ready" or "stay"}   candy_grasp.yaml
+  open_gripper   {}                                  the finger to its full travel
+  close_gripper  {}                                  close on what is between the fingers (success, data["holding"], data["position"] its width); shut on nothing is a failure
 
-The gripper alone is the `gripper_cmd` action (ros_actions.serve_gripper), which already exists; candy_grasp drives it inside the sequence. One command at a time: `run` takes the arm with `ArmService.begin` and is refused while anything else runs (a trajectory, `activate`, `follow`, another command), and `hold` ends it.
+The gripper is also the `gripper_cmd` action (ros_actions.serve_gripper), position in metres; candy_grasp drives it inside the sequence. One command at a time: `run` takes the arm with `ArmService.begin` and is refused while anything else runs (a trajectory, `activate`, `follow`, another command), and `hold` ends it.
 The poses are in the arm model's frame, the one `<side>/target` is in (+x forward, +y left, +z up, metres; quaternions w, x, y, z). ROS is not imported here, so `run` is tested on the simulator.
 """
 from __future__ import annotations
@@ -42,6 +44,21 @@ def _finger(service, metres: float, close: bool) -> Outcome:
     if result.reached or (close and result.stalled):
         return Outcome(SUCCESS, "closed on something" if data["holding"] else "reached", data)
     return Outcome(FAILURE, result.message, data)
+
+
+def open_gripper(service, _, progress) -> Outcome:
+    progress("open the gripper")
+    return _finger(service, gripper.TRAVEL, close=False)
+
+
+def close_gripper(service, _, progress) -> Outcome:
+    """Close fully. Stopped by something between the fingers is the grasp: a success with `holding` true and the finger position (the object's width). Shut on nothing is a failure,
+    as in candy_grasp: nothing was grasped. The gripper stays closed either way."""
+    progress("close the gripper")
+    outcome = _finger(service, 0.0, close=True)
+    if outcome.ok and not outcome.data["holding"]:
+        return Outcome(FAILURE, "closed on nothing: no object between the fingers", outcome.data)
+    return outcome
 
 
 def ready_target(service):
@@ -128,6 +145,7 @@ def candy_grasp(service, plan, progress) -> Outcome:
 class Command:
     parse: object          # (service, params) -> what `run` is given; raises ValueError for params that are not valid
     run: object            # (service, parsed, progress) -> Outcome
+    own_move: bool = True  # False: not a move of the arm (the gripper), so the gate does not ask for the head's clearance
 
 
 def _no_params(service, params):
@@ -138,6 +156,8 @@ COMMANDS = {
     "reach_pose": Command(lambda service, params: reach_pose.parse(params, service.limits), lambda service, request, progress: reach_pose.move_to(service, request, progress)),
     "ready": Command(_no_params, go_ready),
     "candy_grasp": Command(parse_candy, candy_grasp),
+    "open_gripper": Command(_no_params, open_gripper, own_move=False),
+    "close_gripper": Command(_no_params, close_gripper, own_move=False),
 }
 
 
@@ -162,7 +182,7 @@ def run(service, name: str, params="", progress=lambda text: None) -> Outcome:
         parsed = command.parse(service, params)
     except ValueError as error:
         return Outcome(INVALID_INPUT, str(error))
-    refusal = service.begin(name)
+    refusal = service.begin(name, own_move=command.own_move)
     if refusal:
         return Outcome(FAILURE, f"refused: {refusal}")
     try:
