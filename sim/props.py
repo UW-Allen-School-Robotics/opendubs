@@ -1,7 +1,7 @@
 """Things in the room that are not the robot, for the twin, the clearance sweep and pick planning.
 
-THE CANDY BUCKET (ARCHITECT's trick-or-treat pick, #576): props/candy_bucket.stl, from the user's Fusion
-model. The export came out upside down; the file here is flipped about x, in metres, with its origin at
+THE CANDY BUCKET (ARCHITECT's trick-or-treat pick, #576): props/candy_bucket.stl, from the project's
+Fusion model. The export came out upside down; the file here is flipped about x, in metres, with its origin at
 the bottom centre and its handle arching along its own x. MuJoCo collides a mesh as its convex hull, which
 would fill the opening, so the mesh is drawn only and the collision is built from primitives that leave
 the inside free: the base, sixteen wall panels, and the handle as capsules along its arc.
@@ -25,6 +25,11 @@ upright relative to that: a bad contact or mass would send it flying in every re
 
 Geometry: base r 92.5 mm, rim r 126 mm at 205 mm, a 5 mm floor, the handle 15 mm wide and up to 285 mm,
 all read off the mesh.
+
+PROVENANCE AND LICENCE. Both meshes in props/ (candy_bucket.stl, candy_bucket_handle_down.stl) are the
+project's own CAD: exported from the project's Autodesk Fusion model of the bucket, not a vendor's model,
+and licensed under the repository's hardware licence, CERN-OHL-W-2.0 (LICENSE-HARDWARE), copyright The
+OpenDubs Authors.
 
 TWO VARIANTS, the same bucket: `handle_up` (the default, props/candy_bucket.stl) and `handle_down`
 (props/candy_bucket_handle_down.stl, the handle folded down onto the rim, 205 mm tall overall). The
