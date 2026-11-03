@@ -34,6 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from api import MAX_SONG_BYTES, STATIC_DIR, ApiError, Composer  # noqa: E402
+import content  # noqa: E402  (api.py put software/choreo on the path)
 
 STATIC = STATIC_DIR
 MAX_BODY = 2 * 1024 * 1024
@@ -219,7 +220,10 @@ def make_handler(comp: Composer):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--shows", default=os.path.join(os.path.dirname(HERE), "shows"))
+    examples = os.path.join(os.path.dirname(HERE), "shows")
+    ap.add_argument("--shows", default=None,
+                    help="the shows folder (default: the content folder, content.py, when it exists; "
+                         "else the repository's example shows)")
     ap.add_argument("--limits", default=None,
                     help="the arm software's joint_limits.yaml; default: the container path if "
                          "present, else the TEST FIXTURE (and the editor says so)")
@@ -229,6 +233,8 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8091)
     a = ap.parse_args()
+    if a.shows is None:
+        a.shows = content.shows_dir() if os.path.isdir(content.shows_dir()) else examples
 
     comp = Composer(a.shows, a.limits, a.library)
     print(f"composer: shows from {comp.shows_dir}")

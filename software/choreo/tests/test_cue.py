@@ -686,6 +686,23 @@ _y = doc_show([{"t": 1.0, "slot": "LIGHT", "do": "release"}], device={"brightnes
 check_true("... and a dim show-level brightness is warned too", any("bright_min" in w["msg"] for w in _y["warnings"]),
            _y["warnings"])
 
+print("\na generated sheet's marker (generated:, notes/design/choreo-content-split.md)")
+_G = {"by": "encore", "source": "encore/shows/t.yaml", "sha256": "ab" * 32, "revision": "1a2b3c4"}
+_L = [{"t": 1.0, "slot": "LIGHT", "do": "release"}]
+check_doc("a well-formed marker passes", doc_show(_L, generated=_G), None)
+_e = doc_show(_L, generated=_G).export(LIMITS, _FIX)
+check_true("... and is part of the format, not an ignored key",
+           _e["valid"] and not any("generated" in n for n in _e["notices"]), _e["notices"])
+check_doc("a marker that is not a mapping is refused", doc_show(_L, generated="encore"), "generated: must be a mapping")
+check_doc("a marker without its source is refused",
+          doc_show(_L, generated={k: v for k, v in _G.items() if k != "source"}), "source: is required")
+check_doc("a hash that is not 64 hex digits is refused", doc_show(_L, generated={**_G, "sha256": "abc"}), "64 lowercase hex")
+check_doc("a source outside the content folder is refused",
+          doc_show(_L, generated={**_G, "source": "../elsewhere.yaml"}), "not absolute, no ..")
+check_doc("an unquoted, all-digit revision is refused, saying to quote it",
+          doc_show(_L, generated={**_G, "revision": 1234567}), "quote it")
+check_doc("an unknown key in the marker is refused", doc_show(_L, generated={**_G, "author": "x"}), "unknown key 'author'")
+
 print()
 if fails:
     for f in fails:

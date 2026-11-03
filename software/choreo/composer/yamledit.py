@@ -370,6 +370,15 @@ def _set_top(text, key, value):
     return text[:v.start_mark.index] + fmt(value) + text[_end(v):]
 
 
+def drop_top(text, key):
+    """The text without the top-level `key:` and its value (a no-op when there is none)."""
+    k, v = _key(_root(text), key)
+    if k is None:
+        return text
+    ls, le = _line_bounds(text, k.start_mark.index, _end(v))
+    return text[:ls] + text[le:]
+
+
 def _require(text, key, value):
     """Set one entry of the show's `requires:` mapping (added above `cues:` if there is none)."""
     if not isinstance(key, str) or not key:

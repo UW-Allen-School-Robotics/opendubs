@@ -116,9 +116,14 @@ python3 composer/server.py                   # 1. the composer — then open htt
 * **Busy ports.** Another session may already run a web face twin. `face.sh` never reuses a door it
   did not start: it stops and names the owner. Choose other ports with
   `OPENDUBS_FACE_WEB_PORTS=http,ws,face,neck ./face.sh --head tablet` (e.g. `8785,8786,4264,4265`).
-* **Your own shows.** `python3 composer/server.py --shows <a folder>` edits shows outside the repo —
-  the right place for show content that should not be committed — and `--port` moves it off 8091;
-  then give both twins `--composer http://127.0.0.1:<port>`.
+* **Your own shows.** With no `--shows`, the composer opens the content folder (`content.py`:
+  `$OPENDUBS_SHOWS_DIR`, else a robot's `/var/lib/opendubs/shows`, else `~/opendubs-shows`) when it exists, and the repository's example shows
+  when it does not. `--shows <a folder>` chooses another. The content folder is the right place for
+  show content that should not be committed. `--port` moves it off 8091; then give both twins
+  `--composer http://127.0.0.1:<port>`.
+* **Generated sheets.** A sheet with a `generated:` marker was made by another tool, such as ENCORE,
+  from its own source, and is made again at every push. The composer opens it read-only, with a
+  banner naming the source. Save As makes an ordinary copy without the marker.
 * **Play.** Open the show in the composer and press play (space). The body twin and the face follow
   the playhead, including scrubbing and seeking. The body twin's screen does not show the web face
   yet; watch the face page beside it.
