@@ -1,7 +1,10 @@
 # Content split before going public: inventory and proposal
 
-Owned by the Hygiene lane, with the Choreography lane for show content (its list is folded in below). **Inventory and proposal
-only: nothing has moved.** Taken against `main` at `0857919` on 2026-10-24.
+Owned by the Hygiene lane, with the Choreography lane for show content (its list is folded in below).
+The inventory was taken against `main` at `0857919` on 2026-10-24. **Status updated 2026-11-03**
+against `main` at `8d2104ae` (see "Where it stands"): the engine changes are merged, and the
+private `opendubs-shows` repository holds copies of most of the content. The originals are still on
+`main` until each owner removes them.
 
 **The requirement (the maintainers, 2026-10-22).** Holiday- and show-specific material is a use
 case, not core, and moves out before the repo goes public. Core keeps the engine, the generic
@@ -23,6 +26,31 @@ content would matter, and this sweep found none in any branch or PR head:
   with generated music.
 
 Moving an item therefore needs no history rewrite.
+
+## Where it stands (2026-11-03)
+
+**Done:**
+- **The content repository exists.** `opendubs-shows` is private. It holds the moved shows (rows 4
+  and 5), the Surge tool pack (row 6, under `tools/surge/`), the Halloween theme as a data file
+  (`face/themes/halloween.json`), a content code skin, and the shows, art generators and ENCORE
+  material made since. It contains no audio, video or image media files.
+- **The engine changes (a)–(d) and the code-skin loader are merged:**
+  - #536: one content folder (`software/choreo/content.py`, `$OPENDUBS_SHOWS_DIR`), tool packs
+    loaded from it, and tests on fixtures (`software/choreo/tests/fixtures/`), not on shows that
+    move;
+  - #537: themes and skins are discovered, not listed;
+  - #553: the validator takes its code skins from the head protocol's `looks.py`;
+  - #535 and #558: code skins load from the content folder.
+
+**Still on `main`, to be removed by each owner now that the copies exist:**
+
+| Row | What | Owner | What's left |
+|---|---|---|---|
+| 1 | `skins/monsters.js` and `tests/test_monsters.mjs` | Face & HRI, Tablet | Not yet in `opendubs-shows`. Copy it there as a content skin, then delete it here. `face_looks.py`'s `FALLBACK_CODE_SKINS` still names the `monster_*` skins |
+| 3 | The Halloween theme built into the face, the protocol and the validator | Face & HRI, Tablet, Choreography | The data file is in `opendubs-shows`. `cue.py:326` `FACE_THEMES` and the built-in palette in `vocab.js` still name it, and so do the tests listed in row 3 |
+| 4, 5 | `halloween`, `christmas`, `reach`, `celebrate`, `shrug`, `robotic-smile` and `agent-written` under `software/choreo/shows/` | Choreography | Copied, and the tests use fixtures. Delete the originals |
+| 6 | `effectors/surge_*`, `drivers/surge_at.py`, and `NOTICE.md` | Choreography | Copied as `tools/surge/`. Delete the originals. `pneumatic_gripper.yaml` and `suction_cup.yaml` are not in the content repo: keep them as core examples, or move them. `hand_output.py` and `sim/hand.py` still hard-code the Surge types |
+| 8 | The stage page's `?bpm` default of 99.4 (`frontend/stage/stage.js:41`) | Choreography | Change (d), the neutral tempo, is not done yet |
 
 ## Inventory
 
@@ -46,7 +74,8 @@ Moving an item therefore needs no history rewrite.
 
 ## The engine changes the moves depend on
 
-Each one is small, and each belongs to its owner. Choreography's smallest set is (a)–(d).
+Each one is small, and each belongs to its owner. Choreography's smallest set is (a)–(d). Changes
+1, 2, 3, 4 and 6 are merged; change 5 is open (see "Where it stands").
 
 1. **(a) Shows folder.** A setting for the composer's built-in shows folder, so it can point at the
    content folder. The repo keeps just `hello`, `beat-demo` and `wave-and-nod` (the maintainers'
@@ -66,8 +95,9 @@ Each one is small, and each belongs to its owner. Choreography's smallest set is
 
 ## Order
 
-1. Choreography's list is in: rows 4–10 and 14 reflect it.
-2. Make the engine changes 1–6. These are behaviour-neutral, because everything still loads from
-   the same places.
-3. Create `opendubs-shows` (private at first) and move the content.
-4. Re-run the Hygiene sweep against `main` and the new repo.
+1. **Done:** Choreography's list is in; rows 4–10 and 14 reflect it.
+2. **Done, except change 5 (the neutral stage tempo):** the engine changes 1–6.
+3. **Copies made:** `opendubs-shows` exists (private) and holds the content. Next, each owner
+   removes its originals from `main` (the table in "Where it stands").
+4. Re-run the Hygiene sweep against `main` and the new repo. The 2026-11-03 baseline is in
+   `notes/hygiene-findings.md`; the final scan follows the removals.
