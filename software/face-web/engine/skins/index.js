@@ -56,7 +56,6 @@ export class Skins {
     this.library = new Map();          // id -> library entry (kind: skin)
     this.content = new Map();          // id -> {url} for a content code skin the dashboard lists
     this.code = new Map();             // id -> an imported code skin, once it has loaded
-    this.looksUrl = null;              // /api/head/looks, re-read once when a name is unknown
     this.baseUrl = null;
     this.current = CODE_SKINS.default;
     this.chosen = "default";           // what was asked for
@@ -78,16 +77,22 @@ export class Skins {
   /**
    * The content folder's code skins, from the dashboard's `/api/head/looks`.
    *
+   * TAKES THE PARSED DOCUMENT, OR A URL TO READ IT FROM. The themes and the skins are two halves
+   * of ONE document, so the page reads it once and hands the same object to both loaders
+   * (main.js); a caller holding only the URL — a test, a harness, an offline render — passes that
+   * instead and this fetches it. It used to fetch unconditionally, which meant the page asked the
+   * dashboard the same `no-store` question twice on every load AND every reconnect, and could end
+   * up with themes from one answer and skins from the next.
+   *
    * SEPARATE FROM THE LIBRARY ON PURPOSE (see the header): the library is media, this is code, and
    * they arrive on the robot by different routes. Failing is not fatal — a robot with no content,
    * or a dashboard too old to answer, simply has the built-ins.
    */
-  async loadLooks(looksUrl, contentBase) {
-    this.looksUrl = looksUrl;
+  async loadLooks(looks, contentBase) {
     this.contentBase = contentBase;
     try {
-      const r = await fetch(looksUrl, { cache: "no-store" });
-      const doc = await r.json();
+      const isUrl = typeof looks === "string" || looks instanceof URL;
+      const doc = isUrl ? await (await fetch(looks, { cache: "no-store" })).json() : looks;
       this.content.clear();
       for (const s of (doc && doc.skins) || []) {
         if (s.kind !== "code" || s.source === "builtin") continue;
