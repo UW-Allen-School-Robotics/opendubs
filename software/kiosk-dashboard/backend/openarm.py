@@ -156,8 +156,8 @@ def effector_status():
     """Each arm and gripper as the show runner's preflight reads them (choreo_proxy `effectors`): {part: {state, why, pose_deg?, excluded?}}.
 
     An arm is `ok` when its arm service answers AND a person has said they are at the e-stop (supervised): the service refuses every moving command without that, and the runner sends
-    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. Under the ROS stack this returns None (the runner reads that stack's motors itself); with no stack, both, or no way to tell, every part is `down` with the reason. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
-    on and calibrated in its hardware config, and nothing here reports that yet. A part is never reported `ok` without an answer."""
+    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. Under the ROS stack this returns None (the runner reads that stack's motors itself); with no stack, both, or no way to tell, every part is `down` with the reason. A gripper is `ok` when its arm is `ok` and its finger is live on /joint_states (`_grip_state`),
+    and otherwise `down` and `excluded`. A part is never reported `ok` without an answer."""
     stack, why = active_stack()
     if stack == "ros":
         return None                      # the runner's own fallback: the motor summary of the ROS stack (choreo_proxy._probe_now)
@@ -179,8 +179,29 @@ def effector_status():
                 # so a skipped arm can still be checked to be at rest. Activating (`ready`) is not needed: a show moves each arm to zero from where it is.
                 letter = side[0].upper()
                 out[f"arm_{side}"] = {"state": "degraded", **pose, "why": f"the {side} arm service is up but nobody is supervising it, so it refuses every moving command (PREPARE {letter}, or SUPERVISE {letter})"}
-        out[f"grip_{side}"] = {"state": "down", "excluded": True, "why": f"the {side} gripper is not enabled in the arm service (use_gripper, and its calibration)"}
+        out[f"grip_{side}"] = _grip_state(side, out[f"arm_{side}"])
     return out
+
+
+#: How old a gripper's finger reading on /joint_states may be and still count as live. The merge drops a joint after 1 s (joint_states_merge.py), and the dashboard reads the topic
+#: throttled to 5 a second (arm_clearance.py).
+GRIP_STALE_S = 2.0
+
+
+def _grip_state(side, arm):
+    """A gripper as the runner reads it. `ok` only when its arm is `ok` (the service gates a gripper command as it gates the arm's, so an unsupervised arm's gripper is refused too)
+    AND its finger is live on /joint_states: the service publishes the finger only while its driver has that side's gripper (`use_gripper`, calibrated) and reads it. A config file
+    saying use_gripper is not an answer; the finger reading is. Otherwise `down` and `excluded`, with the reason."""
+    if arm.get("state") != "ok":
+        why = f"the {side} gripper moves only with its arm, and the {side} arm is {arm.get('state')}" + (f": {arm['why']}" if arm.get("why") else "")
+    else:
+        import arm_clearance
+        age = arm_clearance.finger_age(side)
+        if age is not None and age <= GRIP_STALE_S:
+            return {"state": "ok"}
+        why = (f"the {side} gripper's finger is not on /joint_states " + ("at all" if age is None else f"(none for {age:.0f} s)")
+               + f": the {side} arm service has no gripper (use_gripper, and its calibration), or its driver does not read it")
+    return {"state": "down", "excluded": True, "why": why}
 
 
 #: Operations that only take capability away. They do not wait for, or count as, "the" running operation: a HOLD refused as "busy" while a move runs would be the one

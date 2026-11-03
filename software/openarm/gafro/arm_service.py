@@ -162,6 +162,8 @@ class ArmService:
                 self.limits = trajectory.Limits(max_speed=speed)
         if getattr(args, "max_error", None) is not None:
             self.limits = dataclasses.replace(self.limits, max_error=args.max_error)
+        if getattr(args, "max_torque", None) is not None:
+            self.limits = dataclasses.replace(self.limits, max_torque=args.max_torque)
         self.paths = None              # the collision check of the model (reach_pose.path_check), built when first asked
         self.source = None             # the pose reference `<side>/target` feeds (set by `run` when ROS is up)
         self.reach = None              # the arm's reach (reach.py), where ssik and self_motion_charts are installed: a target outside it is not followed
@@ -251,6 +253,7 @@ class ArmService:
                     controllers = yaml.safe_load(stream)["controllers"]
                 self.behaviour = ""
                 self.last = "following: " + pose_follow.follow(self.robot, side, controllers, self.source, self.permit.lease(), self.cancel, lambda: self.permit.withheld,
+                                                               limits=dataclasses.replace(pose_follow.LIMITS, max_torque=self.limits.max_torque),
                                                                log=self._log, reach=self.reach, status=self._behaviour)
                 return
             self._move(name, known, tolerance, move_seconds, allow_large)
@@ -488,6 +491,8 @@ def main() -> int:
                        "If the start is not clean on the arm, 0.1 and 0.2 give back the old 0.3 s")
         p.add_argument("--move-seconds", type=float, default=MOVE_SECONDS, help="how long `activate` and `park` take, whatever the distance (default 5 s from stow to ready; under about 3.4 s the arm cannot follow and the move is refused)")
         p.add_argument("--max-error", type=float, default=None, help="rad: stop a move when a joint is this far from its path (default 0.2)")
+        p.add_argument("--max-torque", type=float, default=None, help="N m: stop a move, or following, when a joint's measured torque reaches this (default 12); "
+                       "the unit takes it from OPENDUBS_ARM_MAX_TORQUE")
         p.add_argument("--record-dir", default=None, help="write each move's samples (activate, park, a trajectory) there as a CSV, to see how it tracked")
         p.add_argument("--reach-clearance", type=float, default=reach.CLEARANCE, help="m: the least gap between any two balls of the collision cover for a target to count as reachable (default %(default)s: the cover "
                        "must not interpenetrate; negative tolerates an overlap of that depth)")
