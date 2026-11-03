@@ -404,11 +404,12 @@ Ranked; each item names its owner and a fix:
    - Move the holiday content with the content split.
    - Give `software/architect/` an owner. Arms reviews the robot-side arm service it adds.
    The owner is the orchestrator, until `software/architect/` has a lane.
-2. **15 tags and their contributor branches are off `main`.** They sit on four contributor-named
-   branches. Each adds 83–149 files, about 100 lines naming people, and one personal home path. They
-   hold no media, models or large files. Tags and branches go public with the repo. **Fix:** the
-   maintainers decide whether to delete them, rename them or keep them. Nine contributor-prefixed
-   branches remain on origin in all.
+2. **The contents of 15 tags off `main`.** Each tag adds 83–149 files, with about 100 lines naming
+   people and one personal home path. They hold no media, models or large files. Tags go public with
+   the repo. **Fix:** the maintainers decide whether to delete the tags, or keep them as they are.
+   Branch names that students chose for themselves are kept, by the user's decision (2026-11-03),
+   and are not a finding. The no-personal-names rule still covers file contents, commit messages
+   and PR text.
 3. **Names and paths on `main`:**
    - `software/openarm/interfaces/opendubs_arm_interfaces/package.xml:7`: a maintainer's name and
      a personal university email (Arms; fixed by #611, a draft).
