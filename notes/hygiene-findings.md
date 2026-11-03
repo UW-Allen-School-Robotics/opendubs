@@ -31,6 +31,8 @@ history.
 | 6 | **`access/`: move the roster to the git-ignored `ops/access/`**, with role handles in the repo. | Hygiene does it (the path is unowned): branch `hygiene/access-roster`. **Merges only after the maintainer copies the current roster and keys into `ops/access/`.** |
 | 7 | **Dependabot alerts: on. Required checks on `main`: approved.** | Config approved as proposed: require `Hygiene checks` (GitHub Actions, app 15368), not strict, admins included, 0 approvals, other settings unchanged. **Applied by the orchestrator only after the `hygiene/ci` PR merges**, then read back to confirm. |
 | 9 | **No name deny-list in CI** (2026-10-14). The `HYGIENE_NAME_DENYLIST` secret will not be set. | The PR name check and the bundle gate's name check report "skipped: no deny-list configured" and pass. Personal names are caught by review and by the no-personal-names rule, not by CI. |
+| 10 | **Commit metadata: no history rewrite** (2026-11-03). The personal emails already in author and committer fields go public with the repo. | Contributors commit with their GitHub noreply address from now on (`CONTRIBUTING.md`). |
+| 11 | **Secret scanning and push protection: on at the flip** (2026-11-03). | The orchestrator turns them on in the repo settings when it goes public. |
 
 ### Still open
 
@@ -333,10 +335,9 @@ through the project rule. To cover what scanners miss, the audit also did these:
 
 **Decide before publishing.** Each of these becomes irreversible once public, because of clones,
 forks, public-archive crawlers, and PR refs that GitHub keeps.
-1. **Commit metadata.** 7 personal email addresses from 6 contributors are in author and
-   committer fields, and 71 commit messages name people. Only a history rewrite plus GitHub Support
-   could remove them. Recommendation: no rewrite. Tell the contributors and get their agreement, and
-   use noreply addresses from now on.
+1. **Commit metadata.** **Decided 2026-11-03: no rewrite** (decision 10). 7 personal email
+   addresses from 6 contributors are in author and committer fields, and 71 commit messages name
+   people. Contributors use noreply addresses from now on.
 2. **`access/`** (N1): **resolved in the tree** (#194, #421). The roster is the private repo
    `opendubs-access`. The old roster and key emails remain in history (same class as 1).
 3. **Names in the current tree** (24 files) and in 15 PR or issue texts. Most are the personal
@@ -446,8 +447,60 @@ Ranked; each item names its owner and a fix:
 - No audio, video, recordings, maps or logs.
 - No GPS image on `main`. Only the D1 originals remain in history.
 
-**Order now:** the content move (after the ENCORE rethink), then the definitive final scan, then
-the user's word to flip visibility.
+**Final pre-public scan, 2026-11-03** (read-only, against `main` at `5dbe4fd9`, after the content
+split and the lanes move). Scope:
+- every ref: 59 branches, 614 PR heads and 15 tags, so 2,421 commits and 6,523 blobs;
+- the 5 open PRs;
+- all 815 PR, issue and review texts, now including issue bodies;
+- artifacts and releases.
+
+Out of scope, by the user's decision: the PR and issue texts that name people, the names in #576,
+and the 15 tags, which stay.
+
+**Blockers: none.** The one decision that could not wait is made:
+- **Commit metadata: no history rewrite** (decision 10). Twelve personal email addresses are in
+  author and committer fields across all refs, seven of them on `main`, and they go public.
+  Contributors use GitHub noreply addresses from now on (`CONTRIBUTING.md`).
+
+**Should fix (none blocks the flip):**
+1. **L1, vendor product images on the docs site** (Docs & BOM). These are already public through
+   Pages, so the flip changes nothing for them:
+   - `docs/assets/diagrams/rc-control-mapping.png` is built on the transmitter maker's render;
+   - `rc-rcvr-wiring.png` embeds the receiver maker's labelled render;
+   - `otos-wiring-harness.png` uses the level converter's product photo.
+   **Fix:** redraw them as outlines, as was done for the StamPLC and OTOS in October.
+2. **`description/opendubs/meshes/chest_cover.stl` has no recorded provenance** (Thor stack,
+   robot description). **Fix:** add a note in `dimensions.yaml` like the Femto Bolt note.
+3. **The arm stack installs from two private repositories**
+   (`software/openarm/gafro/env.sh`, `README.md:3`; Arms). **Fix:** make them public, or say in the
+   README that they are not available yet.
+4. **Secret scanning and push protection** are off now, and free on a public repository. The
+   orchestrator turns them on at the flip (decision 11).
+5. **Dependabot: still 48 alerts**, all in the arm-image lock and accepted. #445 (a draft) closes
+   them.
+
+**Nice to have:**
+- The stage page's `?bpm` default is still one show's tempo (99.4,
+  `frontend/stage/stage.js:49`; Choreography).
+- The camera and rail vendor meshes (L3) left `main` on 2026-10-22, but stay in history. Removing
+  them from history would need a rewrite; it is the maintainers' decision, and the risk is low.
+- The copyright holder is still a TODO in `CITATION.cff` (decision 5).
+
+**Clean:**
+- **Secrets.** Gitleaks (default and project rules) and trufflehog over every ref found only S1,
+  which is cleared. The private `ops/` values appear nowhere in `main`'s tree. In history they
+  appear only in the S1 file and in the old `access/` roster, which holds public keys. No secret is in any PR, issue or review text.
+- **Names on `main`.** Only `AUTHORS` and licence copyright lines name anyone. There are no
+  personal home paths or emails. `notes/workplan-network.md` is fixed, and so are the arm-service
+  names (#611).
+- **Content.** The split is done: `main` keeps `hello`, `beat-demo` and `wave-and-nod`, and the
+  Surge pack is a test fixture with its MIT notice. `software/architect/` is not on `main`.
+- **Files.** Nothing added since the baseline scan is media or over 1 MB, and no tracked file
+  matches an ignore rule. No `main` image carries GPS. There are no releases, and the only artifact is the Pages
+  build.
+- **Open PRs.** #445, #613, #621 and #624 are clean. #576 is out of scope.
+
+**Order now:** the user's word to change visibility, then secret scanning and push protection on.
 
 ## Workplan
 
