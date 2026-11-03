@@ -6,6 +6,7 @@ name: Halloween — the zombie greeting
 # The palette gave up orange — too close to DEGRADED's amber — so purple and toxic green carry it,
 # exactly as the Halloween face theme had to (workplan-tab5-idf.md 1.2f).
 slots: [ARM_L, ARM_R, GRIP_L, GRIP_R, HEAD, LIFT, SOUND, FACE, LIGHT]
+themes: [halloween]      # content now (face/themes in the content folder), no longer built into the face
 requires:
   arms: active
   head: true
@@ -29,7 +30,7 @@ clearance: { min_mm: 38.9, at_s: 0.0, between: "oa_openarm_left_hand_collision /
 cues:
   # lights down, eyes narrow, a falling two-note "refuse" as the hello
   - { t: 0.0, slot: LIGHT, do: color, rgb: [60, 255, 40], br: 40 }
-  - { t: 0.0, slot: FACE, do: theme, name: halloween }      # built into the face; stays after the show
+  - { t: 0.0, slot: FACE, do: theme, name: halloween }      # a content theme; stays after the show
   - { t: 0.0, slot: FACE, do: emote, name: SQUINT }
   - { t: 0.5, slot: SOUND, do: play, sound: refuse }
   - { t: 0.5, slot: HEAD, pan: 90, tilt: 72 }

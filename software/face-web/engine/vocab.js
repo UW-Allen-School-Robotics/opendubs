@@ -61,17 +61,19 @@ export const SHAPES = {
 
 export const CUES = ["heard", "attend", "refuse", "fault", "mode", "boot"];
 
-// Built-in themes: per-state colours for the states a theme may touch. Reserved states are absent
-// by construction, and the engine refuses them anyway.
+// Built-in themes: per-state colours for the states a theme may touch. `plain` is the absence of
+// a theme, and is the only one built in -- HALLOWEEN NOW LIVES IN THE CONTENT FOLDER, as
+// `face/themes/halloween.json`, and is discovered through /api/head/looks like any other.
+//
+// WHAT A THEME MAY NOT TOUCH, and where that is enforced now. Reserved states (DEGRADED, E_STOP)
+// are refused by `stateColour` below, whatever a theme says. CHARGING is refused by the theme
+// loader (engine/themes.js), and has to be, because it is deliberately NOT reserved: a reserved
+// state replaces the skin with the default eyes and suppresses the charge gauge, which would take
+// the charging face apart. The rule being protected is the one the colour note above sets out --
+// charging is purple in every theme, a person learns it once, and a theme that made it green
+// again would unteach it.
 export const THEMES = {
   plain: {},
-  // HALLOWEEN NO LONGER RECOLOURS CHARGING, and that is a choice rather than an omission. Charging
-  // is purple in every theme now, which is a rule a person can learn once; a theme that made it
-  // green again would unteach it. The theme's own AUTONOMOUS is a deep purple and therefore sits
-  // near it -- they are told apart by FORM, as ARMED is: only charging carries the perimeter gauge
-  // and the word. If that proves too close in the room, the one to move is halloween's AUTONOMOUS,
-  // not charging.
-  halloween: { INIT: 0xe8e2d0, SAFE_IDLE: 0x8ac926, MANUAL: 0xd9c2e9, AUTONOMOUS: 0x7b2d8e },
 };
 
 export const NO_LINK_COLOUR = 0x606c7c;    // slate: matches no state, and is not FAULT

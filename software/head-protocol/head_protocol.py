@@ -24,7 +24,10 @@ FADE_MAX_S = 30.0
 ARMED_LEASE_MS = 3000          # READY WAIT (ARMED WAIT) clears itself unless re-sent
 ARMED_COUNT_MAX_S = 60
 MOVES = ("wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle", "side_eye_l", "side_eye_r", "to_camera", "double_take", "startle")
-THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
+# The core's only theme (plus the alias NONE). Every other theme is DISCOVERED from the robot's content
+# folder (looks.py; head-protocol.md "Discovering the looks"): halloween moved to the content repository
+# with the go-public content split (the user's decision, 2026-10-24).
+THEMES_BUILT_IN = ("plain",)
 # Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
 # other name is a library skin's id. `default` is the standard eyes.
 CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",

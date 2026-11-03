@@ -98,9 +98,10 @@ class Neck:
 
 
 class FakeHead:
-    def __init__(self, kind="tab5", port=hp.PORT, audio=False, clock=None):
+    def __init__(self, kind="tab5", port=hp.PORT, audio=False, clock=None, themes=()):
         assert kind in ("tab5", "legacy-tab5", "tablet-face", "neck")
         self.kind, self.audio = kind, audio
+        self.themes = tuple(themes)         # discovered themes this head has (its content folder's)
         self.clock = clock or (lambda: time.monotonic() * 1000.0)
         self.state, self.emote, self.theme, self.skin = "", "AUTO", "plain", "default"
         self.neck = Neck()
@@ -177,7 +178,7 @@ class FakeHead:
         if a.upper() == "IDLE" and self.kind == "tablet-face":     # v5, tablet face only
             self.theme = "plain"
             return "OK theme idle plain"
-        if a.lower() in hp.THEMES_BUILT_IN or a.upper() == "NONE":
+        if a.lower() in hp.THEMES_BUILT_IN + self.themes or a.upper() == "NONE":
             self.theme = a
             return f"OK theme {a}"
         return "ERR unknown theme"

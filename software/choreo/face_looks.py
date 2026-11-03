@@ -31,6 +31,16 @@ def builtin_code_skins() -> tuple:
         return FALLBACK_CODE_SKINS
 
 
+def face_themes() -> tuple:
+    """Every theme the face can show on this machine: the core's and the content folder's face/themes/
+    (looks.theme_ids()), plus "none", the old name for "plain". Without the head protocol, "plain" only."""
+    try:
+        found = {t.lower() for t in _import("looks").theme_ids()}
+    except Exception:  # noqa: BLE001  no head protocol here: the core's own theme
+        found = set()
+    return tuple(sorted(found | {"plain", "none"}))
+
+
 def code_skins() -> set:
     """Every code skin the face can show on this machine: the engine's plus the content folder's
     face/skins/ (looks.code_skin_ids())."""

@@ -319,11 +319,11 @@ LIFT_MAX_S = 8.0               # a single continuous lift command
 # in firmware/tab5_idf/app_face/app_face.cpp (feat/tab5-idf-subtractive, 12f5845). Five, not the
 # six or seven the notes describe. The head takes them as `EMOTE <name>`, case-insensitively.
 FACE_EMOTES = ("NEUTRAL", "ALERT", "SQUINT", "SOFT", "SLEEPY")
-# Themes compiled into the face (theme::name() in the same file; "none" is the enum's own name for
-# "plain", and the head accepts both). Others are AUTHORED: installed on a head at run time by its
-# `CFG <url>` verb, so the validator cannot know them — a show lists the ones it uses under
-# `themes:` (plan 1.10), exactly as it lists local sound files under `sounds:`.
-FACE_THEMES = ("plain", "none", "halloween")
+# Themes the face KNOWS: the core's own and the content folder's face/themes/ (face_looks.face_themes(),
+# through the head protocol's looks.py; the content split moved the seasonal themes out of the core).
+# "none" is the old name for "plain", and the head accepts both. Others are AUTHORED: installed on a
+# head at run time by its `CFG <url>` verb, so the validator cannot know them — a show lists the ones
+# it uses under `themes:` (plan 1.10), exactly as it lists local sound files under `sounds:`.
 # Eye skins (plan 4.6, head protocol v2 `SKIN <name>`). CODE skins are drawn by code — one name each;
 # `default` is the standard eyes and an ordinary SKIN argument. CODE_SKINS are the face ENGINE's own
 # (head_protocol.CODE_SKINS, kept in step with software/face-web/engine/skins/index.js by a test);
@@ -334,6 +334,7 @@ FACE_THEMES = ("plain", "none", "halloween")
 import face_looks  # noqa: E402
 CODE_SKINS = face_looks.builtin_code_skins()
 code_skins = face_looks.code_skins
+face_themes = face_looks.face_themes
 # `IDLE` is the head's own word for "the robot's idle skin / theme" (head protocol v5: every show end
 # sends SKIN IDLE and THEME IDLE), so no skin or theme may be called `idle`, and a show never names it.
 IDLE_NAME = "idle"
@@ -1010,11 +1011,12 @@ class Show:
                 if any(x.lower() == IDLE_NAME for x in themes):
                     P(Problem("themes: `idle` is reserved (THEME IDLE is the robot's idle theme) — no "
                               "theme may be called idle"))
-                built_in = sorted(x for x in themes if x.lower() in FACE_THEMES)
+                known = face_themes()
+                built_in = sorted(x for x in themes if x.lower() in known)
                 if built_in:
-                    P(Problem(f"themes: {', '.join(built_in)} is built into the face — list only "
-                              "authored themes here"))
-                authored = sorted(x for x in themes if x.lower() not in FACE_THEMES)
+                    P(Problem(f"themes: {', '.join(built_in)} is known to the face (built in, or in the "
+                              "content folder's face/themes) — list only authored themes here"))
+                authored = sorted(x for x in themes if x.lower() not in known)
                 if authored:
                     notices.append(f"authored face theme(s) {', '.join(authored)}: install them on the "
                                    "head (CFG) before the show, or THEME answers 'unknown theme' and the "
@@ -2140,10 +2142,11 @@ class Show:
             if name.lower() == IDLE_NAME:
                 return [f"{where}: `idle` is reserved — every show end sends THEME IDLE itself, the robot's "
                         "idle theme back; name the theme the show wants"]
-            if name.lower() not in FACE_THEMES and name.lower() not in declared:
-                return [f"{where}: face theme {name!r} is neither built into the face "
-                        f"({', '.join(FACE_THEMES)}) nor listed under the show's themes: "
-                        "(authored themes, installed on the head by CFG)"]
+            known = face_themes()
+            if name.lower() not in known and name.lower() not in declared:
+                return [f"{where}: face theme {name!r} is neither known to the face "
+                        f"({', '.join(known)}: built in, or in the content folder's face/themes) nor "
+                        "listed under the show's themes: (authored themes, installed on the head by CFG)"]
             return []
         if do == "move":
             if name not in FACE_MOVES:
@@ -2407,7 +2410,7 @@ def describe(limits: dict) -> str:
     w(f"SOUND: do play, sound: a head earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
-    w(f"FACE: do skin, name {tuple(sorted(code_skins()))} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {FACE_THEMES} or an authored theme listed "
+    w(f"FACE: do skin, name {tuple(sorted(code_skins()))} or a library skin; do emote, name {FACE_EMOTES}; or do theme, name {face_themes()} or an authored theme listed "
       "under themes: (installed on the head by CFG). A skin and a theme last until the show ends: every end sends SKIN IDLE, THEME IDLE and EMOTE AUTO; `idle` is reserved")
     w(f"FACE: do move, name {tuple(FACE_MOVES)} — a one-shot gesture over the held emote; the cue's time is "
       "its PEAK (sent early by the face's measured offset); sparkle may not show on a picture skin")
