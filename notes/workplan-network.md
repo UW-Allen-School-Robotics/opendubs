@@ -311,12 +311,13 @@ set, its resolver should send `*.opendubs2.internal` to the wired link's DNS. Co
 **1. Back up (from the Mac on Opendubs2), outside the repository:**
 
 ```sh
-ssh opendubs2-router '/export terse' > /Users/emmaromig/Documents/dev/opendubs-router-backups/opendubs2-router-$(date +%F)-before-names.rsc
+ssh opendubs2-router '/export terse' > "$HOME/Documents/dev/opendubs-router-backups/opendubs2-router-$(date +%F)-before-names.rsc"
 ```
 
 **2. Apply.** One RouterOS script, run over `ssh opendubs2-router`.
-- Fill `HEAD_MAC`/`HEAD_IP` and `PROJ_MAC`/`PROJ_IP` first, at their current addresses, or delete
-  those two lines.
+- Fill `NECK_MAC`, `STAGE_MAC` and `TAB5_MAC` (the stale Tab5 reservation) from
+  `/ip dhcp-server lease print` on the router. Fill `HEAD_MAC`/`HEAD_IP` and `PROJ_MAC`/`PROJ_IP`
+  at their current addresses, or delete those two lines.
 - Every new entry is tagged `opendubs-names`, so the rollback finds exactly these.
 - The Thor's and the StamPLC's existing reservations are not touched.
 
@@ -330,11 +331,11 @@ ssh opendubs2-router '/export terse' > /Users/emmaromig/Documents/dev/opendubs-r
     /ip dhcp-server lease add server=defconf mac-address=$mac address=$ip comment=("$c opendubs-names")
   }
 }
-$res mac=B0:81:84:97:7D:F0 ip=10.42.2.16 c="neck"
-$res mac=DC:A6:32:CD:30:68 ip=10.42.2.19 c="stage-pi"
+$res mac=NECK_MAC ip=10.42.2.16 c="neck"
+$res mac=STAGE_MAC ip=10.42.2.19 c="stage-pi"
 $res mac=HEAD_MAC ip=HEAD_IP c="head-tablet"
 $res mac=PROJ_MAC ip=PROJ_IP c="projector"
-/ip dhcp-server lease remove [find where mac-address=B4:3A:45:90:BF:94]
+/ip dhcp-server lease remove [find where mac-address=TAB5_MAC]
 /ip dns static set [find where name=router.lan] address=10.42.2.1
 :foreach n,ip in={"router"="10.42.2.1";"thor"="10.42.2.10";"stamplc"="10.42.2.20";"neck"="10.42.2.16";"stage"="10.42.2.19";"head"="HEAD_IP";"projector"="PROJ_IP"} do={
   /ip dns static add name=("$n.opendubs2.internal") address=$ip comment=opendubs-names

@@ -101,7 +101,7 @@ built from 2026-10-19's readings. The fields:
   "say": "Uplink weak: -83 dBm on UW MPSK", // one operator line; show it as is
   "via": "wifi",                     // wifi | wired | none
   "network": "UW MPSK",              // the SSID, "wired", or null if unknown
-  "ap": "AC:23:16:ED:A5:91",         // the campus access point, while on Wi-Fi
+  "ap": "02:00:00:00:00:01",         // the campus access point, while on Wi-Fi
   "associated": true,
   "signal_dbm": -83, "snr_db": 25, "ccq_pct": null,   // null on a wired uplink, or when not reported
   "rate_mbps": 52.0,                 // the radio's receive rate (PHY); real throughput is ~50–65 % of it
