@@ -32,6 +32,18 @@ Signed-off-by: Your Name <your.email@example.com>
 The sign-off must match the commit's author email. By signing off you certify the DCO for that
 commit, and agree it is licensed under the project's licences (below).
 
+**Use your GitHub noreply address.** The author email is published in every commit you push, and
+it can't be removed afterwards. Commit with GitHub's private address instead. Find your account's
+numeric ID and login under *Settings → Emails*, then set it for this repository:
+
+```bash
+git config user.email <id>+<login>@users.noreply.github.com
+```
+
+`git commit -s` then signs off with the same address, so the sign-off still matches the author.
+Turn on *Block command line pushes that expose my email* on the same settings page, and GitHub
+refuses a push that would publish your personal address.
+
 A coding assistant or agent working for a maintainer commits under that maintainer's git identity,
 so its commits are signed off in the maintainer's name, matching the author field. The maintainer
 certifies those commits. Like `AUTHORS`, this is a deliberate exception to the rule that the repo

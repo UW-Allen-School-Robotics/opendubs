@@ -31,6 +31,8 @@ history.
 | 6 | **`access/`: move the roster to the git-ignored `ops/access/`**, with role handles in the repo. | Hygiene does it (the path is unowned): branch `hygiene/access-roster`. **Merges only after the maintainer copies the current roster and keys into `ops/access/`.** |
 | 7 | **Dependabot alerts: on. Required checks on `main`: approved.** | Config approved as proposed: require `Hygiene checks` (GitHub Actions, app 15368), not strict, admins included, 0 approvals, other settings unchanged. **Applied by the orchestrator only after the `hygiene/ci` PR merges**, then read back to confirm. |
 | 9 | **No name deny-list in CI** (2026-10-14). The `HYGIENE_NAME_DENYLIST` secret will not be set. | The PR name check and the bundle gate's name check report "skipped: no deny-list configured" and pass. Personal names are caught by review and by the no-personal-names rule, not by CI. |
+| 10 | **Commit metadata: no history rewrite** (2026-11-03). The personal emails already in author and committer fields go public with the repo. | Contributors commit with their GitHub noreply address from now on (`CONTRIBUTING.md`). |
+| 11 | **Secret scanning and push protection: on at the flip** (2026-11-03). | The orchestrator turns them on in the repo settings when it goes public. |
 
 ### Still open
 
@@ -333,10 +335,9 @@ through the project rule. To cover what scanners miss, the audit also did these:
 
 **Decide before publishing.** Each of these becomes irreversible once public, because of clones,
 forks, public-archive crawlers, and PR refs that GitHub keeps.
-1. **Commit metadata.** 7 personal email addresses from 6 contributors are in author and
-   committer fields, and 71 commit messages name people. Only a history rewrite plus GitHub Support
-   could remove them. Recommendation: no rewrite. Tell the contributors and get their agreement, and
-   use noreply addresses from now on.
+1. **Commit metadata.** **Decided 2026-11-03: no rewrite** (decision 10). 7 personal email
+   addresses from 6 contributors are in author and committer fields, and 71 commit messages name
+   people. Contributors use noreply addresses from now on.
 2. **`access/`** (N1): **resolved in the tree** (#194, #421). The roster is the private repo
    `opendubs-access`. The old roster and key emails remain in history (same class as 1).
 3. **Names in the current tree** (24 files) and in 15 PR or issue texts. Most are the personal
@@ -456,10 +457,10 @@ split and the lanes move). Scope:
 Out of scope, by the user's decision: the PR and issue texts that name people, the names in #576,
 and the 15 tags, which stay.
 
-**Blockers: none.** One decision is needed before the flip, because it cannot be undone after:
-- **Commit metadata** (maintainers). Twelve personal email addresses are in author and committer
-  fields across all refs, seven of them on `main`. Only a history rewrite could remove them.
-  Recommendation: no rewrite. Tell the contributors, and use noreply addresses from now on.
+**Blockers: none.** The one decision that could not wait is made:
+- **Commit metadata: no history rewrite** (decision 10). Twelve personal email addresses are in
+  author and committer fields across all refs, seven of them on `main`, and they go public.
+  Contributors use GitHub noreply addresses from now on (`CONTRIBUTING.md`).
 
 **Should fix (none blocks the flip):**
 1. **L1, vendor product images on the docs site** (Docs & BOM). These are already public through
@@ -473,8 +474,8 @@ and the 15 tags, which stay.
 3. **The arm stack installs from two private repositories**
    (`software/openarm/gafro/env.sh`, `README.md:3`; Arms). **Fix:** make them public, or say in the
    README that they are not available yet.
-4. **Turn on secret scanning and push protection at the flip** (the maintainers, in repo
-   settings). They are off now and free on a public repository.
+4. **Secret scanning and push protection** are off now, and free on a public repository. The
+   orchestrator turns them on at the flip (decision 11).
 5. **Dependabot: still 48 alerts**, all in the arm-image lock and accepted. #445 (a draft) closes
    them.
 
@@ -499,7 +500,7 @@ and the 15 tags, which stay.
   build.
 - **Open PRs.** #445, #613, #621 and #624 are clean. #576 is out of scope.
 
-**Order now:** the user's word on commit metadata, then their word to change visibility.
+**Order now:** the user's word to change visibility, then secret scanning and push protection on.
 
 ## Workplan
 
