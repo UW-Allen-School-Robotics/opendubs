@@ -1,6 +1,6 @@
 # The content repository and ENCORE: layout and steps
 
-Owned by the Choreography lane. **A plan: nothing has moved.** It builds on the Hygiene lane's
+Owned by the Choreography lane. **Under way: see the status below the steps.** It builds on the Hygiene lane's
 inventory (`notes/hygiene-content-split.md`, which decides *what* leaves the core) and says *where*
 it goes and *in what order*, now that ENCORE (`UW-Allen-School-Robotics/encore`) is the standard
 choreography tool. Taken against `main` at `6c5ccf9f` on 2026-10-26.
@@ -108,10 +108,14 @@ the core still has `monsters.js`, the content copies are refused as "a built-in 
 page lists seven such problems, which is expected) and the built-ins keep working. They take over at
 the deploy. Steps 8 to 10 follow the split.
 
-**Blocked today:**
+## Status (2026-11-03)
 
-- #539 is a draft and conflicts with `main`. #537, which it built on, merged 2026-10-24, so #539
-  needs a rebase.
-- The content repository has no commits.
-- `~/opendubs-shows` on the maintainer's workstation is not a git checkout. It mixes finished
-  shows with work in progress, and holds media (`art/`, `audio/`) that must not be committed.
+| # | State |
+|---|---|
+| 1 | Done: the marker as agreed with ENCORE (above). |
+| 2 | #580 ready for review: `cue.py` accepts `generated`, the composer opens a marked sheet read-only, `--shows` defaults to the content folder. |
+| 3 | Mostly done in the content repository's first commit (`129b7cab`): the seven shows, the Halloween shows and their generators, `face/themes/halloween.json`, `face/skins/jack_o_lantern.js`, `tools/surge/`. **Still to add:** the monster skins (Face & HRI). |
+| 4 | Decided by the user: the finished shows go into the content repository, without work in progress or media. Two more things go in with them: the video-only sheets (`video-*.yaml`, the stage box playing a show's video with no motion), and a copy of the show library's `index.yaml` (ids, hashes, sources, licences, never the media), which until now existed only on a workstation and on the robot. |
+| 5 | Waiting for the user's word. Most shows are already on the robot from earlier pushes; the themes, skins and the check are not. |
+| 6 | Prepared as drafts after step 5. #539 (open since 2026-10-24) needs a rebase onto `main` by its three owners, then a squash-merge with `Signed-off-by:`. |
+| 7–10 | Not started. Step 10 also waits on an install of ENCORE that needs no developer set-up, since opendubs2 goes to students who won't have a checkout. |
