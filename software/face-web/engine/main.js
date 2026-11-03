@@ -173,15 +173,31 @@ requestAnimationFrame(frame);
 // ---- the door ---------------------------------------------------------------------------------
 const doorUrl = q.get("door");
 let door = null;                                   // the open door, for the tracker's target below
-// THE CONTENT FOLDER'S CODE SKINS (head-protocol.md "Discovering the looks"; Face & HRI's skins.loadLooks):
-// the robot's discovered looks, read BEFORE the door opens, so a SKIN naming a content skin finds it; and
-// again at every reconnect, so a redeployed content folder is picked up. A twin with no dashboard, or an
-// older robot, has the built-ins only. Never holds the door for more than 3 s.
+// THE CONTENT FOLDER'S LOOKS (head-protocol.md "Discovering the looks"): the robot's discovered themes and
+// code skins, read from the dashboard BEFORE the door opens, so a THEME or SKIN naming a content look finds
+// it loaded; and again at every reconnect, so a redeployed content folder is picked up. Face & HRI's loaders
+// read and check each one (face.loadContentThemes, skins.loadLooks); a refused theme is kept for the
+// settings page. A twin with no dashboard, or an older robot, has the built-ins only. Never holds the door
+// for more than 3 s.
 const LOOKS_URL = new URL("/api/head/looks", location.href).href;
+const CONTENT_THEMES = new URL("/face/content/themes/", location.href).href;
 const CONTENT_SKINS = new URL("/face/content/skins/", location.href).href;
-function loadLooks() {
+window.faceLooks = null; window.faceThemeProblems = [];        // read by a harness through devtools
+async function loadThemes() {
+  try {
+    const r = await fetch(LOOKS_URL, { cache: "no-store" });
+    if (!r.ok) return;
+    const doc = await r.json();
+    window.faceLooks = doc;
+    window.faceThemeProblems = await face.loadContentThemes(doc, CONTENT_THEMES);
+  } catch (e) { /* no dashboard here: the built-ins only */ }
+}
+function loadSkins() {
   if (typeof skins.loadLooks !== "function") return Promise.resolve();   // a face from before content skins
-  return Promise.race([skins.loadLooks(LOOKS_URL, CONTENT_SKINS), new Promise((r) => setTimeout(r, 3000))]);
+  return skins.loadLooks(LOOKS_URL, CONTENT_SKINS);
+}
+function loadLooks() {
+  return Promise.race([Promise.allSettled([loadThemes(), loadSkins()]), new Promise((r) => setTimeout(r, 3000))]);
 }
 function connect() {
   loadLooks().finally(openDoor);
@@ -519,7 +535,10 @@ addEventListener("keydown", (k) => {
   else if (k.key === "e") face.setEmote(names[ei++ % names.length], now);
   else if (k.key === "a") face.setEmote("AUTO", now);
   else if (k.key === "s") { const n = skins.names(); skins.select(n[(n.indexOf(skins.chosen) + 1) % n.length]); }
-  else if (k.key === "t") face.setTheme(face.theme === "plain" ? "halloween" : "plain");
+  else if (k.key === "t") {                  // the next theme: plain, then the content folder's, round again
+    const ids = ["plain", ...((face.contentThemes && face.contentThemes.keys()) || [])];
+    face.setTheme(ids[(ids.indexOf(face.theme) + 1) % ids.length]);
+  }
   else if (k.key === "v") cut(video.style.visibility === "visible" ? "face" : "media");
 });
 // A twin with no door has no robot: say so on the face, as the head does (NO LINK), and keep the

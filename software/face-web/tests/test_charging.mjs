@@ -63,7 +63,14 @@ for (const other of ["SAFE_IDLE", "AUTONOMOUS", "DEGRADED", "E_STOP", "INIT", "M
   const dl = hsl(ARMED_VIOLET).l - hsl(CHARGING).l;
   ok(dl >= 0.14, "CHARGING is clearly DEEPER than the ARMED overlay's violet", `${dl.toFixed(2)} lighter`);
 }
-ok(!("CHARGING" in THEMES.halloween), "no theme recolours CHARGING: charging is purple everywhere");
+// NO THEME RECOLOURS CHARGING: charging is purple everywhere, a rule a person learns once.
+// This used to read `!("CHARGING" in THEMES.halloween)`, naming the one theme that existed. That
+// is now a theme in the content folder, and a check that names a theme cannot survive a theme
+// moving -- so it asks the question of EVERY built-in instead. The same rule for themes outside
+// this repository is enforced by the loader and checked in test_themes.mjs, which is the half
+// this one cannot see.
+ok(Object.values(THEMES).every((t) => !("CHARGING" in t)),
+   "no built-in theme recolours CHARGING: charging is purple everywhere");
 
 // ---- 2. the engine's battery state ---------------------------------------------------------------
 function charging(soc, isCharging = true, at = 1000, now = 1000) {
