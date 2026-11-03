@@ -62,7 +62,7 @@ depth camera → tracker (ROS 2 topic) → relay (#451): adapt(msg, received_mon
 - **The hand-over:** a person in a fresh frame (< 0.5 s old) fades in over ~0.4 s while the dancer fades
   out; 1.5 s after they leave, the dancer fades back.
 - **The dancer** (the fallback figure, and Them Bones' base layer): the same cartoon skeleton on the beat
-  — the running show's beat grid, else `?bpm=`. The offline renders use the richer per-section dance (`.generator/bones_dancer.py`).
+  — the running show's beat grid, else `?bpm=` (default 120). The offline renders use the richer per-section dance (`.generator/bones_dancer.py`).
 - **The kiosk:** `window.OpenDubsKiosk?.alive?.()` every 5 s from the draw loop, so a page that stops
   drawing stops checking in and the app reloads it; it reconnects its WebSocket itself, with back-off.
 - **Deploys:** the page polls `/api/frontend-version` every 15 s, as the dashboard does, and reloads
