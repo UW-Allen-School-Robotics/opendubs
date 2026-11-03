@@ -24,6 +24,9 @@ Environment=OPENDUBS_MAVLINK_DEV=udpin:127.0.0.1:14550
 # Per-robot settings, kept on the robot and never in the repo — OPENDUBS_ROBOT_NAME="OpenDubs 2" is the
 # name every dashboard shows. Optional ("-"): without it the name is the Thor's hostname.
 EnvironmentFile=-/etc/opendubs/robot.env
+# Where the arm services (opendubs-arm@.service, also user kiosk) keep their command sockets: the dashboard's park, hold, activate and down buttons send to them.
+# It must be the directory the unit's RuntimeDirectory makes. Without it the dashboard looks in its own runtime directory and reports "no arm service".
+Environment=OPENDUBS_ARM_SOCKET_DIR=/run/opendubs-arm
 
 [Install]
 WantedBy=multi-user.target

@@ -289,7 +289,12 @@ SOUND_SECS_SANITY = (0.05, 600.0)
 # Where sound plays (workplan DEC-5 / DEC-11, item 1.5). A show may say, for its music and for each
 # sound; the operator may override at run time (Show.audio_override), and the show is re-checked
 # against the override — a sound an output cannot play is an ERROR, never silence.
-AUDIO_OUTPUTS = ("tablet", "tab5", "thor")
+AUDIO_OUTPUTS = ("tablet", "tab5", "thor", "speakerphone", "stage")
+# The devices a show's music can be CHOSEN to play on at play time (notes/design/choreo-audio-output.md):
+# the operator's choice, else the show's music output, else the stage box when the show's video plays
+# there, else the tablet. tablet and speakerphone are show-audio outputs on the dashboard's hub; stage is
+# the stage box's speaker, through the stage page. A chosen device that isn't ready refuses the run.
+MUSIC_DEVICES = ("tablet", "speakerphone", "stage")
 # What a sound IS (notes/design/choreo-audio.md, the user's decision 2026-10-20): MUSIC (the soundtrack,
 # background, effects) plays from the projector's speaker when a projector is ready; DIALOGUE (scripted
 # lines, the voice assistant) always from the tablet. Unmarked is dialogue, so speech never reaches the
@@ -299,7 +304,8 @@ DEFAULT_AUDIO_ROLE = "dialogue"
 DEFAULT_AUDIO_OUTPUT = "tablet"          # DEC-5: the tablet, unless the show or operator says otherwise
 # What each output can play TODAY. The Tab5 has its six built-in earcons and no path for files yet;
 # the tablet and a Thor speaker play files. No Thor speaker is fitted yet (a notice says so).
-CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",)}
+CAN_PLAY = {"tablet": ("file",), "tab5": ("earcon",), "thor": ("file",), "speakerphone": ("file",),
+            "stage": ("file",)}
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's own
 # slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can override.
 # Used to WARN when a head cue arrives before the previous move can have finished; sim_preview.py

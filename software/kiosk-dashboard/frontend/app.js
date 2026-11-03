@@ -1038,7 +1038,7 @@ function renderMast(st) {
   const STREAMS = {
     "/scan":         { type: "sensor_msgs/msg/LaserScan",  views: ["lidar"] },
     "/scan_rear":    { type: "sensor_msgs/msg/LaserScan",  views: ["lidar"] },
-    "/joint_states": { type: "sensor_msgs/msg/JointState", views: ["teleop"] },   // teleop.js's arm view
+    "/joint_states": { type: "sensor_msgs/msg/JointState", views: ["teleop", "architect"] },   // teleop.js's and architect.js's arm views
   };
   const subscribed = new Set();
   const shown = (name) => { const v = $("view-" + name); return !!v && v.classList.contains("active"); };
@@ -1073,7 +1073,10 @@ function renderMast(st) {
       else if (m.op === "publish" && m.topic === "/scan_rear") onRearScan(m.msg);
       // Handed to the teleop page's module, which may not be loaded yet — hence the optional call
       // rather than a hard reference.
-      else if (m.op === "publish" && m.topic === "/joint_states") window.onJointStates?.(m.msg);
+      else if (m.op === "publish" && m.topic === "/joint_states") {
+        window.onJointStates?.(m.msg);                       // teleop.js
+        window.dispatchEvent(new CustomEvent("opendubs-joint-states", { detail: m.msg }));   // any other view
+      }
     };
   }
 
