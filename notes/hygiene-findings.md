@@ -324,8 +324,8 @@ through the project rule. To cover what scanners miss, the audit also did these:
 - **S1:** cleared by the user (rotated; see S1 above).
 - **Dependabot, 42 alerts** in the arm-image lock: **accepted for now** by the user (not
   reachable from outside the arm container). #445 closes them after the bench build.
-- **Hat vendor models:** the four branches were deleted by the user on 2026-10-26. The GitHub
-  Support request to purge `refs/pull/39`, `57` and `184` is the user's, and is not yet confirmed.
+- **Hat vendor models:** **cleared.** The user deleted the four branches on 2026-10-26, and GitHub
+  Support has confirmed the purge of `refs/pull/39`, `57` and `184`.
 - **Content split:** on hold while the maintainers rethink its structure around the ENCORE tool.
   #542 stays a draft. The content is still on `main` until then.
 - **Copyright holder** (whether UW is also one): to be added later; not a blocker.
@@ -388,8 +388,65 @@ PR, issue and review text; 60 run logs since 10-15; artifacts; releases):
   holiday content (a content-split item), a robot-side arm service outside the Arms lane, and a
   public arXiv link for ARCHITECT. Reported to the orchestrator.
 
-**Order now:** the content move (after the ENCORE rethink), GitHub Support's confirmation for the
-hat PR refs, then the definitive final scan, then the user's word to flip visibility.
+**Baseline scan, 2026-11-03** (read-only, against `main` at `8d2104ae`, before the content split).
+Scope: every ref (72 branches, 599 PR heads, 15 tags), 2,382 commits, every image blob, and all PR,
+issue and review text (784 items). There are no Actions artifacts and no releases.
+
+Ranked; each item names its owner and a fix:
+
+1. **Open PR #576 (`software/architect/`, unowned): names, home paths and holiday content.** The
+   PR head becomes public even unmerged. It holds about 270 lines naming people, systemd units
+   prefixed with a contributor's name, a people table and two personal home directories in its
+   README, and holiday-show content (a content-split item). **Fix:**
+   - Name the units `opendubs-architect-*`.
+   - List roles, not people.
+   - Read paths from config, not home directories.
+   - Move the holiday content with the content split.
+   - Give `software/architect/` an owner. Arms reviews the robot-side arm service it adds.
+   The owner is the orchestrator, until `software/architect/` has a lane.
+2. **15 tags and their contributor branches are off `main`.** They sit on four contributor-named
+   branches. Each adds 83–149 files, about 100 lines naming people, and one personal home path. They
+   hold no media, models or large files. Tags and branches go public with the repo. **Fix:** the
+   maintainers decide whether to delete them, rename them or keep them. Nine contributor-prefixed
+   branches remain on origin in all.
+3. **Names and paths on `main`:**
+   - `software/openarm/interfaces/opendubs_arm_interfaces/package.xml:7`: a maintainer's name and
+     a personal university email (Arms; fixed by #611, a draft).
+   - `docs/openarm-arm-service.md:15`: a personal home path (Arms; fixed by #611).
+   - `software/kiosk-dashboard/backend/architect_proxy.py:1,22` and
+     `software/kiosk-dashboard/backend/tests/test_architect_proxy.py:84`: branch names carrying a contributor's name (Tablet;
+     fixed by #612, a draft).
+   - **New:** `notes/workplan-network.md:314` holds the maintainer's Mac home path (Network; write
+     `~` or `$HOME`).
+4. **Dependabot: 48 alerts, all in `software/openarm/image/workspace/uv.lock`** (Arms). This is the
+   same class the user accepted on 2026-10-26, and none of it is reachable from outside the arm
+   container. Six are advisories published since then. #445 (a draft) closes all 48. Triage
+   detail is held privately.
+5. **Licences and provenance** (no must-fix; nothing new is third-party without its licence):
+   - `description/openarm/gafro/openarm_bimanual.xml` has no provenance or "modified" header, and
+     `description/openarm/PROVENANCE.json` does not list its source commit. Apache-2.0 §4(b) asks
+     a modified file to say so (Arms). **Fix:** have `tools/arm_gafro_model.py` write a header
+     naming the source, the change and the licence files. Add the commit to `PROVENANCE.json`.
+   - `description/opendubs/meshes/chest_cover.stl`: its origin is not recorded. It is a Fusion
+     export with a plain-cylinder stand-in for the M5Dial. **Fix:** add a provenance note to
+     `description/opendubs/dimensions.yaml`, worded like the Femto Bolt note (owner: whoever owns
+     `description/`; ask the orchestrator).
+   - `software/openarm/gafro/env.sh:8,86,127,132` installs from three private repos, so an outside
+     replicator cannot build the arm stack. This is replicability, not a licence breach (Arms).
+     **Fix:** make them public, point to a public upstream, or say so in the README.
+   - Clean: the Femto Bolt 30° mount and the candy bucket meshes are the project's own; the stage
+     box public key is safe to publish; no ENCORE or other-repo files are vendored.
+6. **PR and issue text naming a person: 22, up from 15.** These can be edited before publishing.
+
+**Clean:**
+- No new secret anywhere. Gitleaks (default and project rules) and trufflehog found only S1, which
+  is cleared. None of the private `ops/` values appears outside expected `access/` manifest fields.
+- No file over 1 MB was added. The only new binaries are four STL meshes, all under 1 MB.
+- No audio, video, recordings, maps or logs.
+- No GPS image on `main`. Only the D1 originals remain in history.
+
+**Order now:** the content move (after the ENCORE rethink), then the definitive final scan, then
+the user's word to flip visibility.
 
 ## Workplan
 
