@@ -15,6 +15,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
+# the Surge pack is content (the content repository's tools/surge/): the tests use a fixture copy of it
+os.environ["OPENDUBS_SHOWS_DIR"] = os.path.join(HERE, "fixtures", "content")
 
 import arm_output as AO  # noqa: E402
 import cue  # noqa: E402
