@@ -110,7 +110,10 @@ def item_bytes(path: str) -> int:
 
 
 def _yaml():
-    import yaml
+    try:
+        import yaml
+    except ImportError:
+        raise SystemExit("library.py needs PyYAML: pip install pyyaml, or uv run --with pyyaml") from None
     return yaml
 
 
@@ -549,7 +552,7 @@ def remove(item_id: str, lib_root: str | None = None, used_by=()) -> dict:
     r = lib_root or root()
     idx = load_index(r) or {}
     if item_id not in idx:
-        raise ValueError(f"{item_id!r} is not in the library")
+        raise ValueError(f"{item_id!r} is not in the library at {r} (set OPENDUBS_LIBRARY to use another)")
     if used_by:
         raise ValueError(f"{item_id!r} is still used by {', '.join(sorted(used_by))} — "
                          "take it out of those shows first")
@@ -562,7 +565,10 @@ def remove(item_id: str, lib_root: str | None = None, used_by=()) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+                                 epilog=f"The library root is OPENDUBS_LIBRARY, else {DEFAULT_ROOT}: on a "
+                                        "workstation, set it (e.g. OPENDUBS_LIBRARY=~/opendubs-library). "
+                                        "Needs PyYAML.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check")
     sub.add_parser("migrate")
