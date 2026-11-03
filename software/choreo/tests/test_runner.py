@@ -1042,8 +1042,9 @@ class LateFaceDoor:
         line = data.decode().strip()
         self.sent.append((self.clock(), line))
         up = self.appear_at is not None and self.clock() >= self.appear_at
-        if line.startswith("ARMED"):
-            self.out.append(f"OK armed {line.split()[1].lower()}" if up else "ERR face not showing")
+        if line.startswith(("READY", "ARMED")):              # v10's READY, and ARMED, its alias
+            word, what = line.split()[:2]
+            self.out.append(f"OK {word.lower()} {what.lower()}" if up else "ERR face not showing")
 
     def recv(self, n):
         if not self.out:
@@ -1068,8 +1069,8 @@ r.face.note = lambda kind, **kw: r._log(kind, **kw)
 sc.r = r
 end = r.run()
 lines = [json.loads(x) for x in log.getvalue().splitlines()]
-waits_after = [t for t, ln in sc.door.sent if ln == "ARMED WAIT" and t >= sc.door.appear_at]
-check("a face that appears 2 s after the run arms is sent ARMED WAIT within about a second (re-sent "
+waits_after = [t for t, ln in sc.door.sent if ln == "READY WAIT" and t >= sc.door.appear_at]
+check("a face that appears 2 s after the run arms is sent READY WAIT within about a second (re-sent "
       "every second while armed; found on the robot 2026-10-13: the tablet switches to its face AS the run arms)",
       end[0] == "COMPLETED" and waits_after and waits_after[0] - sc.door.appear_at <= R.ARMED_RESEND_S + 0.05,
       (end, sc.door.appear_at, waits_after[:2]))
@@ -1084,8 +1085,8 @@ sock = FakeSock()
 lf = FB.LiveFace("127.0.0.1", sock=sock)
 for w in ("WAIT", "5", "OFF"):
     lf.armed(w)
-check("the real face is sent ARMED WAIT / ARMED <seconds> / ARMED OFF (head protocol v5)",
-      sock.lines == ["ARMED WAIT", "ARMED 5", "ARMED OFF"], sock.lines)
+check("the real face is sent READY WAIT / READY <seconds> / READY OFF (head protocol v10; ARMED is its alias)",
+      sock.lines == ["READY WAIT", "READY 5", "READY OFF"], sock.lines)
 srv = R.serve(R.TwinFeed(), R.FakeRobotState(deadman=False), {}, "127.0.0.1", 0,
               R.Palette(SHOWS, LIMITS, R.FakeRobotState(deadman=False), R.TwinFeed(), io.StringIO()))
 port = srv.server_address[1]
