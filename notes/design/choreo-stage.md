@@ -129,7 +129,7 @@ song alone when a show has no video. The tablet keeps dialogue.
   - the clock to the Thor;
   - an under-voltage warning (now, or since boot).
 
-  Once a show is **armed** (loaded) the screen goes black, and stays black until the show starts. `?card=0`
+  Once a show is **READY** (loaded, waiting for the deadman) the screen goes black, and stays black until the show starts. `?card=0`
   hides the card.
 - **The clock.** The page measures its own offset to the Thor's show clock over its WebSocket (ping/pong,
   the best of the last 40 round trips, refreshed every 10 s), as show audio does. No chrony is needed on the
@@ -151,10 +151,10 @@ song alone when a show has no video. The tablet keeps dialogue.
   room, usually fine at 10–25 m in line of sight, and marginal through walls.
   1. **The box's own copy first.** The stage box keeps copies of the library's videos and songs on its
      media stick, synced while idle from the robot's existing library routes (`GET /api/library/index`,
-     `GET /api/library/item/<sha256>`, checksum-verified), never while a show is armed or running. The page
+     `GET /api/library/item/<sha256>`, checksum-verified), never while a show is loaded (READY) or running. The page
      asks `http://127.0.0.1:8095/media/<sha256>?id=<library id>` and, given a copy, plays it from there:
      instant, no Wi-Fi involved.
-  2. **Otherwise stream, with a head start.** When the show is armed the page points its video at the robot
+  2. **Otherwise stream, with a head start.** When the show is loaded (READY) the page points its video at the robot
      and lets it buffer from where the show starts. The GO waits until the buffer reaches `stage_buffer_s`
      (projector.json, 25 s, 5–120). There is one exception: a paused video buffers only so far. Chromium
      caps it in bytes (about 14 MB measured, which is 14 s of an 8 Mbit/s file and about a minute of a

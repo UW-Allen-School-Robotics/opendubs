@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-VERSION = 9                 # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT, v8 CAPTION (tablet face only); v7 CHEST, v9 HOLD/BADGE (neck)
+VERSION = 10                # v2 SKIN, v3 SPIN, v4 MOVE, v5 VOLUME/BRIGHT/ARMED, v6 BATT, v8 CAPTION, v10 READY (tablet face only); v7 CHEST, v9 HOLD/BADGE (neck)
 PORT = 4242
 
 # ---- vocabulary (head-protocol.md §3, §4) -------------------------------------------------------
@@ -21,14 +21,16 @@ CUES = ("heard", "attend", "refuse", "fault", "mode", "boot")
 BRIGHT_MIN_DEFAULT = 0.15      # a show can never black the face out by mistake
 VOL_MAX_DEFAULT = 1.0
 FADE_MAX_S = 30.0
-ARMED_LEASE_MS = 3000          # ARMED WAIT clears itself unless re-sent
+ARMED_LEASE_MS = 3000          # READY WAIT (ARMED WAIT) clears itself unless re-sent
 ARMED_COUNT_MAX_S = 60
 MOVES = ("wink_l", "wink_r", "blink2", "look_l", "look_r", "roll", "bob", "sparkle", "side_eye_l", "side_eye_r", "to_camera", "double_take", "startle")
-THEMES_BUILT_IN = ("plain", "halloween")          # plus the alias NONE for plain
+# The core's only theme (plus the alias NONE). Every other theme is DISCOVERED from the robot's content
+# folder (looks.py; head-protocol.md "Discovering the looks"): halloween moved to the content repository
+# with the go-public content split (the user's decision, 2026-10-24).
+THEMES_BUILT_IN = ("plain",)
 # Skins drawn by the face engine's code (software/face-web/engine/skins/index.js CODE_SKINS); any
 # other name is a library skin's id. `default` is the standard eyes.
-CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
-              "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
+CODE_SKINS = ("default", "ring", "fireworks")
 OWNERS = ("touch", "rc", "gaze", "thor", "local", "park", "hold", "none")
 TRACK_SOURCES = ("thor", "local")
 
@@ -62,7 +64,8 @@ MESSAGES = {
     "MOVE":    (FACE, "agreed"),        # v4, tablet face only
     "VOLUME":  (FACE, "agreed"),        # v5, tablet face only
     "BRIGHT":  (FACE, "agreed"),        # v5, tablet face only
-    "ARMED":   (FACE, "agreed"),        # v5, tablet face only
+    "ARMED":   (FACE, "agreed"),        # v5, tablet face only; from v10 an alias of READY, kept for a release
+    "READY":   (FACE, "agreed"),        # v10: ARMED's name, "armed" being unclear (Choreography, 2026-10-26)
     "BATT":    (FACE, "agreed"),        # v6, tablet face only (agreed with Face & HRI, 2026-10-15)
     "CAPTION": (FACE, "agreed"),        # v8, the state in plain words (agreed with Face & HRI, 2026-10-16)
     "VOICE":   (FACE, "tab5-only"),
@@ -88,7 +91,7 @@ KINDS = {
     "tab5": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "VOICE", "GAZE", "TRACK", "NECK",
              "TOF", "I2CSCAN", "REBOOT", "OTA"},
     "tablet-face": {"PING", "STATE", "EMOTE", "THEME", "CUE", "CFG", "SKIN", "SPIN", "MOVE", "VOLUME",
-                    "BRIGHT", "ARMED", "BATT", "CAPTION", "REBOOT", "OTA"},
+                    "BRIGHT", "ARMED", "READY", "BATT", "CAPTION", "REBOOT", "OTA"},
     "neck": {"PING", "GAZE", "TRACK", "NECK", "TOUCH", "PARK", "CHEST", "HOLD", "BADGE", "TOF", "I2CSCAN", "REBOOT", "OTA"},
 }
 # The Tab5's own camera tracker IS its local tracker, so it refuses TRACK local from the network.
@@ -150,6 +153,7 @@ REPLY = {
     "volume_err": re.compile(r"^ERR volume "),
     "bright_err": re.compile(r"^ERR bright "),
     "armed_err": re.compile(r"^ERR armed "),
+    "ready_err": re.compile(r"^ERR ready "),
     "batt_ok": re.compile(r"^OK batt (-|\d{1,3}) [01]$"),
     "batt_err": re.compile(r"^ERR batt "),
     "caption_err": re.compile(r"^ERR caption "),

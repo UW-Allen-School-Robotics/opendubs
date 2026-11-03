@@ -47,6 +47,16 @@ def test_the_tablet_head_face_and_neck_apart_passes_everything():
     assert r.kind == {"face": "tablet-face", "neck": "neck"}
 
 
+def test_a_discovered_theme_is_exercised_and_a_face_without_it_fails():
+    """After the content split the core has one theme (plain): THEME is still exercised, and a theme from
+    the content folder (here a fixture) is checked like a built-in, so discovery is tested end to end."""
+    r = _run("tablet-face", "neck", face_head=FakeHead("tablet-face", port=0, themes=("fixture_dusk",)),
+             themes=("fixture_dusk",))
+    assert _by(r, "FAIL") == [] and any(c == "THEME fixture_dusk" for _, c, _ in _by(r, "PASS")), r.results
+    r = _run("tablet-face", "neck", themes=("fixture_dusk",))       # a face that never discovered it
+    assert any(c == "THEME fixture_dusk" for _, c, _ in _by(r, "FAIL")), r.results
+
+
 def test_todays_tab5_passes_with_only_the_new_messages_pending():
     """The ESP-IDF head as it ships: no kind=, no TRACK or NECK. Nothing it does is wrong."""
     r = _run("legacy-tab5")

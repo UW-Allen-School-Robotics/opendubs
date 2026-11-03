@@ -18,14 +18,14 @@
 
    THE VIDEO, like a streaming service: the stage box's OWN copy when it has one (its media partition,
    synced while idle: no Wi-Fi at all), else streamed from the robot with a HEAD START — when a show is
-   armed the page buffers `buffer_s` (25 s) ahead, reports it, and the runner's GO waits for that; it keeps
+   loaded (READY) the page buffers `buffer_s` (25 s) ahead, reports it, and the runner's GO waits for that; it keeps
    reading ahead as it plays. A page that runs dry mid-show reports a stall: the tablet takes the music from
    the same point, the page goes silent, and it catches up on the show's clock when the data returns.
 
    BETWEEN SHOWS a STAGE READY card says what this screen is: the robot connected or not, the resolution,
    the sound output, the clock to the Thor, and an under-voltage warning — the last three from the device
    this page runs on, when it reports itself (a stage Pi's http://127.0.0.1:8095/device.json, or the
-   kiosk app's OpenDubsKiosk.device()). Once a show is ARMED the screen goes black until it starts.
+   kiosk app's OpenDubsKiosk.device()). Once a show is loaded (READY) the screen goes black until it starts.
 
    Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
    &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
@@ -432,7 +432,7 @@
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }   // only when the screen changes
     const st = keepVideo(now);                     // first: the show's video kept to the show's clock
     showCard(now);
-    if (show && show.state === "loaded" && !manual) {   // armed: black until the show starts
+    if (show && show.state === "loaded" && !manual) {   // READY: black until the show starts
       g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
       return finish(now, st, null);
     }

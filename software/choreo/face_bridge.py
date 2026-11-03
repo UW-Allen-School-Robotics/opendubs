@@ -15,7 +15,7 @@ show's FACE and SOUND cues into the head's own command lines (`face-twin.md`, FT
 
     FACE  { do: emote, name: SOFT }        ->  EMOTE SOFT
     (no FACE emote yet at this time)       ->  EMOTE AUTO      (the face's own cycling)
-    FACE  { do: theme, name: halloween }   ->  THEME halloween (until the show ends)
+    FACE  { do: theme, name: <theme> }    ->  THEME <theme> (until the show ends)
     FACE  { do: move, name: wink_l }       ->  MOVE wink_l, sent at the event's `send_t` (its peak
                                                offset early, so the wink is shut ON the beat); one-shot,
                                                so a seek or a resync never replays it
@@ -370,13 +370,14 @@ class LiveFace(_HeadLink):
         return True
 
     def armed(self, what):
-        """The ARMED indication (head protocol v5, agreed with the Tablet lane 2026-10-13): `WAIT`
+        """The READY indication (head protocol v10's name for v5's ARMED, which a head still accepts as an
+        alias for one release; agreed with the Tablet lane 2026-10-13, renamed 2026-10-26): `WAIT`
         while a run waits for the deadman (the head holds it 3 s; the runner re-sends it every
         second), the countdown's seconds at the GO, `OFF` when the run starts or ends. A refusal is
         not final: `ERR face not showing` is the tablet still switching to its face (it does so when
         a run arms), and the next WAIT, a second later, reaches it. The log says each CHANGE — the
         first refusal, then the first OK after it — not every re-send."""
-        self._send(f"ARMED {what}", log=what != "WAIT")
+        self._send(f"READY {what}", log=what != "WAIT")
         for r in self._replies():
             if self._idle_refusal(r):
                 continue
@@ -384,11 +385,11 @@ class LiveFace(_HeadLink):
                 if self._armed_ok is not False:
                     self._armed_ok = False
                     self.note(kind="face_warning", reply=r,
-                              note=f"the head did not take ARMED ({r}) — re-sent every second while armed")
-            elif r.upper().startswith("OK ARMED"):
+                              note=f"the head did not take READY ({r}) — re-sent every second while ready")
+            elif r.upper().startswith(("OK READY", "OK ARMED")):
                 if self._armed_ok is not True:
                     self._armed_ok = True
-                    self.note(kind="face_armed", reply=r, note="the face shows the armed sign")
+                    self.note(kind="face_armed", reply=r, note="the face shows the READY sign")
 
     def show(self, tl):
         self.rev, self.tl, self.started = self.rev + 1, tl, False
