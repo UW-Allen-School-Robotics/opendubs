@@ -12,7 +12,7 @@ inverted in firmware). You make a short **Grove-to-servo pigtail** to bridge the
 <figure markdown="span">
   ![RC receiver (RadioLink R8EF) wiring — StamPLC blue Grove port to the SBUS servo pins](../assets/diagrams/rc-rcvr-wiring.png)
   <figcaption>The pigtail: StamPLC blue-port Grove (G4 unused · G5 signal · 5 V · GND) → servo
-  cable → the receiver's SBUS pins (Signal / VCC+ / GND−). Receiver shown: RadioLink R8EF.<br><small>Product images: RadioLink R8EF receiver, with its pin labels, © RadioLink, all rights reserved, used to identify the part. They are not covered by this site's CC BY 4.0 licence.</small></figcaption>
+  cable → the receiver's SBUS pins (Signal / VCC+ / GND−). Receiver shown: RadioLink R8EF.</figcaption>
 </figure>
 
 - **Diagram source (Figma):** [OpenDubs board — RC controls](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=2-83) — anyone with the link can view and export it.

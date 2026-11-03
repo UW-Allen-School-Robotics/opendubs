@@ -2,7 +2,7 @@
 
 <figure markdown="span">
   ![RC transmitter control mapping](assets/diagrams/rc-control-mapping.png)
-  <figcaption>Which stick / switch drives which robot function.<br><small>Product images: RadioLink T8S transmitter, © RadioLink, all rights reserved, used to identify the part. They are not covered by this site's CC BY 4.0 licence.</small></figcaption>
+  <figcaption>Which stick / switch drives which robot function.</figcaption>
 </figure>
 
 - **Diagram source (Figma):** [OpenDubs board — RC controls](https://www.figma.com/board/LVbgJwMKO65TARF3m6v7I6/OpenDubs?node-id=2-83) — anyone with the link can view and export it.
