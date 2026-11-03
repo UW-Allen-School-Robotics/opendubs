@@ -43,12 +43,10 @@ history.
 
 ### Urgent / high
 
-**S1 · Live secret: robot Wi-Fi password hard-coded.** · literal **removed from `main` (PR #126,
-merged)**. **NOT ROTATED as of 2026-10-15:** the password in the maintainers' current
-`ops/wifi.env` still matches the leaked one. It remains in history, and at the tip of 193 refs
-(82 branches, 111 PR heads, which GitHub keeps), so rotation is the only fix · owner: the
-**user** (router key, then re-provision the Wi-Fi devices and update `ops/wifi.env`); the literal
-was the Face & HRI lane's.
+**S1 · Live secret: robot Wi-Fi password hard-coded.** · **CLEARED 2026-10-26 by the user**: the
+pre-shared key was rotated at the router, and the old one works nowhere ("the leaked password is
+dead"). The literal was removed from `main` in PR #126. It stays in history and in PR refs, where it
+is now harmless. The old-against-new comparison with `ops/wifi.env` is dropped by decision.
 - `firmware/tab5_face/src/main.cpp:316` passes the robot network's SSID and pre-shared key as
   string literals to `WiFi.begin()` (value redacted).
 - It was added in `4d64282` (2026-09-03) and is the only copy in the tree or in history.
@@ -322,8 +320,16 @@ through the project rule. To cover what scanners miss, the audit also did these:
 - **File types:** inventoried every path ever committed for media, fonts, models, archives and
   keys.
 
-**Blocker:**
-- **S1.** Not rotated (see S1 above). This is the user's action.
+**Blockers (2026-10-26):**
+- **S1:** cleared by the user (rotated; see S1 above).
+- **Dependabot, 42 alerts** in the arm-image lock: **accepted for now** by the user (not
+  reachable from outside the arm container). #445 closes them after the bench build.
+- **Hat vendor models:** **cleared.** The user deleted the four branches on 2026-10-26, and GitHub
+  Support has confirmed the purge of `refs/pull/39`, `57` and `184`.
+- **Content split:** on hold while the maintainers rethink its structure around the ENCORE tool.
+  #542 stays a draft. The content is still on `main` until then.
+- **Copyright holder** (whether UW is also one): to be added later; not a blocker.
+- **Names in `notes/punch-list.md`:** fixed in #573.
 
 **Decide before publishing.** Each of these becomes irreversible once public, because of clones,
 forks, public-archive crawlers, and PR refs that GitHub keeps.
@@ -365,13 +371,83 @@ forks, public-archive crawlers, and PR refs that GitHub keeps.
 - `main` has no GPS-tagged images. Four older versions with the lab's location remain at the tips
   of stale refs, which is low risk.
 
-**Suggested order:**
-1. Rotate S1, and Hygiene re-verifies.
-2. Decide 1 and 6.
-3. Merge #194.
-4. Lanes clear 3 and 4, and the maintainers edit the PR texts and optionally delete stale branches.
-5. Licence texts.
-6. Flip the visibility.
+**Early scan, 2026-10-26** (read-only, every ref: 56 branches, 571 PR heads, 2,085 commits; all
+PR, issue and review text; 60 run logs since 10-15; artifacts; releases):
+- No new secret. Gitleaks and trufflehog found only S1 (cleared) and one false positive: a model
+  file's SHA-256 checksum flagged as an API key, on an unmerged branch.
+- None of the private `ops/` values appears anywhere outside the recorded S1 file.
+- No new media, model, font or large file. Only the known hat models (in PR refs) and the
+  synthetic wake WAV.
+- No new GPS image (only the known D1 originals in history).
+- No secrets, personal emails or home paths in run logs or PR text. PR or issue texts naming a
+  person: still 15, unchanged.
+- On `main`, apart from `AUTHORS` and licence-required copyright lines, only `notes/punch-list.md`
+  names anyone (#573). The email addresses in `notes/design/network-uplinks.md` are institutional
+  help-desk addresses, not personal.
+- New: an unmerged contributor branch adds `software/architect/`, which is unowned. It holds
+  holiday content (a content-split item), a robot-side arm service outside the Arms lane, and a
+  public arXiv link for ARCHITECT. Reported to the orchestrator.
+
+**Baseline scan, 2026-11-03** (read-only, against `main` at `8d2104ae`, before the content split).
+Scope: every ref (72 branches, 599 PR heads, 15 tags), 2,382 commits, every image blob, and all PR,
+issue and review text (784 items). There are no Actions artifacts and no releases.
+
+Ranked; each item names its owner and a fix:
+
+1. **Open PR #576 (`software/architect/`, unowned): names, home paths and holiday content.** The
+   PR head becomes public even unmerged. It holds about 270 lines naming people, systemd units
+   prefixed with a contributor's name, a people table and two personal home directories in its
+   README, and holiday-show content (a content-split item). **Fix:**
+   - Name the units `opendubs-architect-*`.
+   - List roles, not people.
+   - Read paths from config, not home directories.
+   - Move the holiday content with the content split.
+   - Give `software/architect/` an owner. Arms reviews the robot-side arm service it adds.
+   The owner is the orchestrator, until `software/architect/` has a lane.
+2. **The contents of 15 tags off `main`.** Each tag adds 83–149 files, with about 100 lines naming
+   people and one personal home path. They hold no media, models or large files. Tags go public with
+   the repo. **Fix:** the maintainers decide whether to delete the tags, or keep them as they are.
+   Branch names that students chose for themselves are kept, by the user's decision (2026-11-03),
+   and are not a finding. The no-personal-names rule still covers file contents, commit messages
+   and PR text.
+3. **Names and paths on `main`:**
+   - `software/openarm/interfaces/opendubs_arm_interfaces/package.xml:7`: a maintainer's name and
+     a personal university email (Arms; fixed by #611, a draft).
+   - `docs/openarm-arm-service.md:15`: a personal home path (Arms; fixed by #611).
+   - `software/kiosk-dashboard/backend/architect_proxy.py:1,22` and
+     `software/kiosk-dashboard/backend/tests/test_architect_proxy.py:84`: branch names carrying a contributor's name (Tablet;
+     fixed by #612, a draft).
+   - **New:** `notes/workplan-network.md:314` holds the maintainer's Mac home path (Network; write
+     `~` or `$HOME`).
+4. **Dependabot: 48 alerts, all in `software/openarm/image/workspace/uv.lock`** (Arms). This is the
+   same class the user accepted on 2026-10-26, and none of it is reachable from outside the arm
+   container. Six are advisories published since then. #445 (a draft) closes all 48. Triage
+   detail is held privately.
+5. **Licences and provenance** (no must-fix; nothing new is third-party without its licence):
+   - `description/openarm/gafro/openarm_bimanual.xml` has no provenance or "modified" header, and
+     `description/openarm/PROVENANCE.json` does not list its source commit. Apache-2.0 §4(b) asks
+     a modified file to say so (Arms). **Fix:** have `tools/arm_gafro_model.py` write a header
+     naming the source, the change and the licence files. Add the commit to `PROVENANCE.json`.
+   - `description/opendubs/meshes/chest_cover.stl`: its origin is not recorded. It is a Fusion
+     export with a plain-cylinder stand-in for the M5Dial. **Fix:** add a provenance note to
+     `description/opendubs/dimensions.yaml`, worded like the Femto Bolt note (owner: whoever owns
+     `description/`; ask the orchestrator).
+   - `software/openarm/gafro/env.sh:8,86,127,132` installs from three private repos, so an outside
+     replicator cannot build the arm stack. This is replicability, not a licence breach (Arms).
+     **Fix:** make them public, point to a public upstream, or say so in the README.
+   - Clean: the Femto Bolt 30° mount and the candy bucket meshes are the project's own; the stage
+     box public key is safe to publish; no ENCORE or other-repo files are vendored.
+6. **PR and issue text naming a person: 22, up from 15.** These can be edited before publishing.
+
+**Clean:**
+- No new secret anywhere. Gitleaks (default and project rules) and trufflehog found only S1, which
+  is cleared. None of the private `ops/` values appears outside expected `access/` manifest fields.
+- No file over 1 MB was added. The only new binaries are four STL meshes, all under 1 MB.
+- No audio, video, recordings, maps or logs.
+- No GPS image on `main`. Only the D1 originals remain in history.
+
+**Order now:** the content move (after the ENCORE rethink), then the definitive final scan, then
+the user's word to flip visibility.
 
 ## Workplan
 

@@ -1,0 +1,48 @@
+name: arms-gafro
+
+# The arms' gafro model is generated, and a stale one puts the head cap (or the ready pose, or the bimanual task space) on the wrong side of what
+# the controllers read. tools/arm_gafro_model.py --check rebuilds it from openarm_assets and compares what MuJoCo compiles from each. It needs
+# mujoco and openarm_assets, not gafro: software/openarm/gafro/check.py (the controllers against the model) needs the published gafro, which is
+# a C++ build, so it is run by hand: see software/openarm/gafro/README.md.
+#
+# The guards the first runs go through (software/openarm/tests/test_gafro_guards.py) are tested here too: they decide whether a script may
+# command an arm, and need nothing but numpy, PyYAML and the loopback. So are the checks a motion step makes before it moves
+# (software/openarm/tests/test_gafro_bringup.py): a signed step, a lapse test that can pass, the clearance, the confirmation.
+#
+# openarm_assets, mujoco and numpy are pinned: a new release of any would turn this red for a change that is not in this repository. Bump
+# the pins together with the model.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "tools/arm_gafro_model.py"
+      - "description/openarm/**"
+      - "software/openarm/gafro/**"
+      - "software/openarm/tests/test_gafro_guards.py"
+      - "software/openarm/tests/test_gafro_bringup.py"
+      - "software/choreo/cue.py"
+      - ".github/workflows/arms-gafro.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  model:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mujoco==3.16.0 numpy==2.5.3 pyyaml==6.0.3 "openarm_assets @ git+https://github.com/personalrobotics/openarm_assets@79afb4ed8af4c5873c88387867665e55539afd09"
+      - name: The committed model is what the generator builds
+        run: python3 tools/arm_gafro_model.py --check
+      - name: The controllers file parses
+        run: python3 -c "import yaml; print(sorted(yaml.safe_load(open('software/openarm/gafro/controllers.yaml'))['controllers']))"
+      - name: The guards refuse what they should
+        run: python3 software/openarm/tests/test_gafro_guards.py
+      - name: A bringup step refuses what it should before it moves
+        run: python3 software/openarm/tests/test_gafro_bringup.py

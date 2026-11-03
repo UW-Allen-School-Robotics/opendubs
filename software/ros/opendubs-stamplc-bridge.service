@@ -8,6 +8,9 @@ StartLimitIntervalSec=0
 Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
+# The robot's DDS settings (ros-dds.env, installed by provision-ros.sh): UDP over loopback only, so
+# no shared memory (a long-lived subscriber on it can go deaf, workplan L.10) and no multicast.
+EnvironmentFile=/etc/opendubs/ros-dds.env
 Environment=OPENDUBS_DASH_URL=http://127.0.0.1:8080
 ExecStart=/opt/opendubs/ros/stamplc-bridge.sh
 Restart=always

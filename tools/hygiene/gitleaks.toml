@@ -38,3 +38,13 @@ regexTarget = "secret"
 regexes = [
   '''(?i)^(?:changeme|change-me|my-pass|my-password|password|placeholder|example|x+|\*+)$''',
 ]
+
+# A checksum table: a file name mapped to its SHA-256, e.g. `"tokens.txt": "fd2d…"` in a model
+# manifest. The generic API-key rule reads the file name as a key name. A bare 64-hex string is NOT
+# allowlisted, because a real 256-bit key looks the same: only a hex value keyed by a file name.
+[[allowlists]]
+description = "SHA-256 checksums keyed by a file name"
+regexTarget = "line"
+regexes = [
+  '''["'][\w.{}$/-]+\.[A-Za-z0-9]{1,8}["']\s*[:=]\s*["'][0-9a-f]{64}["']''',
+]

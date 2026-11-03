@@ -71,6 +71,17 @@ cues:
     assert len(probs_spline) == 0, f"Unexpected validation problems in spline: {probs_spline}"
     print("  ok    plan_arm_move succeeds with spline and produces valid show")
 
+    # 1b. Spline planner on pose: rest cue preserves pose: rest and does not clamp rest
+    res_rest = arm_planner_bridge.plan_arm_move(doc, raw_text, 1, planner_choice="spline")
+    assert res_rest["ok"] is True
+    assert "clamped to usable joint range" not in res_rest["message"]
+    new_doc_rest = yaml.safe_load(res_rest["text"])
+    assert new_doc_rest["cues"][1].get("pose") == "rest"
+    assert "joints" not in new_doc_rest["cues"][1]
+    probs_rest = cue.Show(new_doc_rest, "").validate(LIMITS)
+    assert len(probs_rest) == 0, f"Unexpected validation problems in rest move: {probs_rest}"
+    print("  ok    plan_arm_move to pose: rest cue preserves pose: rest without clamping")
+
     # 2. CBiRRT planner if dependencies available
     planners = arm_planner_bridge.get_available_planners()
     try:

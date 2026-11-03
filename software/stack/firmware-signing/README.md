@@ -16,9 +16,10 @@ The check the boards run: [firmware/common/ota_verify](../../../firmware/common/
 | script | runs | does |
 |---|---|---|
 | `provision-firmware-signing.sh` | once per project, as root | creates the signing key, or `--import`s it from its backup; `--next` / `--promote` rotate it; `--show` prints key ids |
-| `sign-firmware.sh <board> <image>` | every update, as root | **the one signing step**: signs `<image>` for `stamplc` or `neck`, checks the signature, writes `<image>.sig` |
+| `sign-firmware.sh <board> <image>` | every update, as root | **the one signing step**: signs `<image>` for `stamplc`, `neck` or `stage`, checks the signature, writes `<image>.sig` |
 | `firmware/rc_serial_probe/ota-from-thor.sh` | every StamPLC update, with `sudo` | builds, signs (with `sign-firmware.sh stamplc`), serves the image and its `.sig`, sends `OTA` |
 | the neck Dial's OTA recipe (`firmware/neck_dial/README.md`) | every Dial update | the same, with `sign-firmware.sh neck` |
+| `software/stage-pi/release/publish-bundle.sh` | every deploy that changes `software/stage-pi`, from `deploy-all.sh` | signs the stage box's bundle manifest with `sign-firmware.sh stage`; the box verifies it against the same committed public keys |
 
 ## Where the key lives
 
