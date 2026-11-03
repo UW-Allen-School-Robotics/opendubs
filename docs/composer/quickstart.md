@@ -151,8 +151,8 @@ The robot dashboard's **Shows — routines** page only lists shows registered wi
    If the head moved, it must end centred (`pan 90, tilt 90`), and any state light must be released (`do: release`).
 
 On the dashboard, open **Shows — routines** and tap the routine. Shows need **CH5 in AUTO**. **Start**
-sets how a run begins: **wait for the deadman** arms the run, then counts down when you press the
-deadman; **count down now** needs the deadman already held; **now** starts at once. On the
+sets how a run begins: **wait for the deadman** makes the run **READY**, then counts down when you
+press the deadman; **count down now** needs the deadman already held; **now** starts at once. On the
 robot the default is to wait for the deadman. Once started, letting go of the
 deadman stops the show, and the arms hold where they are.
 

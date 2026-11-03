@@ -371,6 +371,11 @@ function width() {
 function render() {
   const d = S.data;
   $("save").classList.toggle("dirty", S.text !== S.savedText);
+  /* a generated sheet is made again from its source at every push: saving over it is refused (api.py) */
+  const gen = d && d.generated;
+  $("genBar").hidden = !gen;
+  $("save").disabled = !!gen;
+  if (gen) $("genMsg").textContent = `Made by ${gen.by} from ${gen.source}: read-only here. Edit it there, or Save As a new show.`;
   $("undo").disabled = !S.undo.length;
   $("fixture").hidden = !(d && d.info && d.info.limits_are_test_fixture);
   $("limitsName").textContent = d && d.info ? "· limits: " + d.info.limits : "";

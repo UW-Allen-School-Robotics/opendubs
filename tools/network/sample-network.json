@@ -9,7 +9,7 @@
  "uplink": {
   "via": "wifi",
   "network": "UW MPSK",
-  "ap": "AC:23:16:ED:A5:91",
+  "ap": "02:00:00:00:00:01",
   "associated": true,
   "signal_dbm": -83,
   "snr_db": 25,
@@ -30,7 +30,7 @@
  },
  "robot_wifi": [
   {
-   "name": "esp32s3-977DF0",
+   "name": "esp32s3-000016",
    "ip": "10.42.2.16",
    "signal_dbm": -39,
    "ccq_pct": 88,

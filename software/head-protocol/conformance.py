@@ -59,8 +59,9 @@ class Link:
 
 
 class Run:
-    def __init__(self, link: Link, face: str, neck: str):
+    def __init__(self, link: Link, face: str, neck: str, themes=()):
         self.link, self.face, self.neck = link, face, neck
+        self.themes = tuple(themes)         # discovered themes the face should have (--theme)
         self.results: list[tuple[str, str, str, str]] = []   # (status, half, check, detail)
         self.kind = {}
 
@@ -165,7 +166,9 @@ class Run:
         for e in hp.EMOTES:
             self.expect(F, f"EMOTE {e}", f"EMOTE {e}", "EMOTE", lambda r, e=e: r == f"OK emote {e}")
         self.expect(F, "EMOTE AUTO", "EMOTE AUTO", "EMOTE", lambda r: r == "OK emote AUTO")
-        for t in hp.THEMES_BUILT_IN + ("NONE",):
+        # The core's theme, its alias, and any discovered theme the face should have (looks.py): THEME is
+        # exercised whatever the content folder holds, and a discovered one proves discovery reached it.
+        for t in hp.THEMES_BUILT_IN + ("NONE",) + self.themes:
             self.expect(F, f"THEME {t}", f"THEME {t}", "THEME", lambda r, t=t: r == f"OK theme {t}")
         self.expect(F, "THEME plain (put back)", "THEME plain", "THEME", lambda r: r == "OK theme plain")
         for c in hp.CUES:
@@ -203,6 +206,10 @@ class Run:
         for line, want in (("ARMED WAIT", "OK armed wait"), ("ARMED 5", "OK armed 5"), ("ARMED OFF", "OK armed off")):
             self.expect(F, line, line, "ARMED", lambda r, w=want: r == w)
         self.expect(F, "ARMED <malformed>", "ARMED SOON", "ARMED", lambda r: bool(hp.REPLY["armed_err"].match(r)))
+        # v10: READY is ARMED's name now (ARMED stays, as its alias, for a release).
+        for line, want in (("READY WAIT", "OK ready wait"), ("READY 5", "OK ready 5"), ("READY OFF", "OK ready off")):
+            self.expect(F, line, line, "READY", lambda r, w=want: r == w)
+        self.expect(F, "READY <malformed>", "READY SOON", "READY", lambda r: bool(hp.REPLY["ready_err"].match(r)))
         # v6: the pack's charge for the gauge; out of range is an ERR, never clamped.
         self.expect(F, "BATT 64 1", "BATT 64 1", "BATT", lambda r: r == "OK batt 64 1")
         self.expect(F, "BATT - 0 (no BMS reading)", "BATT - 0", "BATT", lambda r: r == "OK batt - 0")
@@ -411,8 +418,8 @@ class Run:
 
 
 def run(face: str, neck: str | None = None, port: int = hp.PORT, active=False, motion=False,
-        timeout: float = 0.5, sampled: bool = True) -> Run:
-    r = Run(Link(port, timeout), face, neck or face)
+        timeout: float = 0.5, sampled: bool = True, themes=()) -> Run:
+    r = Run(Link(port, timeout), face, neck or face, themes)
     r.ping()
     if not r.answered():
         return r
@@ -438,6 +445,8 @@ def main(argv=None) -> int:
     ap.add_argument("face", help="the face's host (the whole head, for the Tab5)")
     ap.add_argument("--neck", help="the neck's host, if it is a separate box")
     ap.add_argument("--port", type=int, default=hp.PORT)
+    ap.add_argument("--theme", action="append", default=[], metavar="ID",
+                    help="a discovered theme the face should have (its content folder's); repeatable")
     ap.add_argument("--active", action="store_true")
     ap.add_argument("--motion", action="store_true")
     ap.add_argument("--at-the-robot", action="store_true")
@@ -448,7 +457,7 @@ def main(argv=None) -> int:
         print("refused: --active and --motion change the face or move the head. Against a robot,\n"
               "add --at-the-robot, and only with a person there watching.", file=sys.stderr)
         return 2
-    r = run(a.face, a.neck, a.port, a.active, a.motion)
+    r = run(a.face, a.neck, a.port, a.active, a.motion, themes=a.theme)
     for status, half, check, detail in r.results:
         print(f"{status:<8}{half:<6}{check:<40}{detail}")
     counts = {s: sum(1 for x in r.results if x[0] == s) for s in (PASS, FAIL, PENDING, SKIP)}

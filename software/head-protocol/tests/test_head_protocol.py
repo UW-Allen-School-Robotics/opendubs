@@ -47,6 +47,16 @@ def test_the_tablet_head_face_and_neck_apart_passes_everything():
     assert r.kind == {"face": "tablet-face", "neck": "neck"}
 
 
+def test_a_discovered_theme_is_exercised_and_a_face_without_it_fails():
+    """After the content split the core has one theme (plain): THEME is still exercised, and a theme from
+    the content folder (here a fixture) is checked like a built-in, so discovery is tested end to end."""
+    r = _run("tablet-face", "neck", face_head=FakeHead("tablet-face", port=0, themes=("fixture_dusk",)),
+             themes=("fixture_dusk",))
+    assert _by(r, "FAIL") == [] and any(c == "THEME fixture_dusk" for _, c, _ in _by(r, "PASS")), r.results
+    r = _run("tablet-face", "neck", themes=("fixture_dusk",))       # a face that never discovered it
+    assert any(c == "THEME fixture_dusk" for _, c, _ in _by(r, "FAIL")), r.results
+
+
 def test_todays_tab5_passes_with_only_the_new_messages_pending():
     """The ESP-IDF head as it ships: no kind=, no TRACK or NECK. Nothing it does is wrong."""
     r = _run("legacy-tab5")
@@ -317,6 +327,8 @@ def test_looks_are_the_built_ins_plus_the_content_folders_and_a_bad_file_is_name
         put("themes/green.json", json.dumps({"colors": {"CHARGING": "#00ff00"}}))         # charging stays purple
         put("themes/plain.json", json.dumps({"colors": {"INIT": "#ffffff"}}))             # a built-in name
         put("skins/snowman.js", "export function draw() {}")
+        put("skins/_monsters.js", "export const shell = {};")                      # shared code, not a skin
+        put("themes/_palette.json", json.dumps({"colors": {"INIT": "#ffffff"}}))  # shared, not a theme
         put("skins/snowman.json", json.dumps({"label": "Snowman"}))
         found = looks.discover(d)
         themes = {t["id"]: t for t in found["themes"]}
@@ -327,6 +339,8 @@ def test_looks_are_the_built_ins_plus_the_content_folders_and_a_bad_file_is_name
         assert any("plain.json" in p for p in found["problems"])
         assert {"id": "snowman", "label": "Snowman", "kind": "code", "source": "content"} in found["skins"]
         assert looks.theme_ids(d) >= {"plain", "winter"} and "snowman" in looks.code_skin_ids(d)
+        assert "_monsters" not in looks.code_skin_ids(d) and "_palette" not in looks.theme_ids(d)
+        assert not any("_monsters" in p or "_palette" in p for p in found["problems"])
     assert looks.content_dir(env={"OPENDUBS_SHOWS_DIR": "/x/shows", "OPENDUBS_LOCAL_SHOWS": "/y"}).as_posix() == "/x/shows"
 
 

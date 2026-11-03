@@ -1,4 +1,5 @@
-"""The ARCHITECT tab's view of the robot's ARCHITECT services (software/architect on daphne/halloween).
+"""The ARCHITECT tab's view of the robot's ARCHITECT services (software/architect on the ARCHITECT
+project's Halloween branch).
 
 Four loopback services, each optional, each forwarded READ-ONLY under /api/architect/, so the page
 talks to one origin (standing rule 12) and nothing here can start, approve or stop anything:
@@ -19,7 +20,8 @@ talks to one origin (standing rule 12) and nothing here can start, approve or st
 A service that is not running answers 503 with {"error": ...}, and the page says so.
 
 THE GHOST'S STATE comes from whichever drives the demo. With the demo runner up (ARCHITECT's own program,
-`--agent program`), it is the runner's state, summarised by `summarise` (from suzy/halloween, unchanged).
+`--agent program`), it is the runner's state, summarised by `summarise` (from the ARCHITECT
+project's first Halloween branch, unchanged).
 In show mode (`listener --show`, what the Halloween demo runs) the demo runner is not running: the listener
 starts a show-palette routine, and the show runner plays it. Then `summarise_show` builds the same shape
 from the listener's feed and the show runner's palette: RUNNING from the listener's `show_started` while

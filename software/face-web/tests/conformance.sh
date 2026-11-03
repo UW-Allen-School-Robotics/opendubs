@@ -18,6 +18,7 @@ node software/face-web/tests/test_caption.mjs        # the plain-English state l
 node software/face-web/tests/test_camera_sign.mjs    # a camera is on: shown when one is, never when none is
 node software/face-web/tests/test_caption_call.mjs   # CAPTION: kept, renewed or dropped, refused if long, drawn first
 node software/face-web/tests/test_charging.mjs       # CHARGING: the purple, the edge gauge, and no invented level
+node software/face-web/tests/test_themes.mjs         # a theme loaded from the content folder, and what it may not recolour
 node software/face-web/tests/test_reticle.mjs        # the tracking reticle: legible, on screen, and never invented
 node software/face-web/tests/test_skin_refresh.mjs   # a skin added after the page loaded
 node software/face-web/tests/test_content_skins.mjs  # a code skin loaded from the content folder

@@ -21,6 +21,9 @@ Face looks are under its face/ folder:
                            skin-api.js), never an engine file by path
     face/skins/<id>.json   optional: {"label": "..."}
 An id is ^[a-z0-9_]{1,40}$. A built-in name always wins: content cannot replace a core look.
+A file whose name begins with `_` is SHARED CODE, not a look (e.g. face/skins/_monsters.js, which the
+seven monster skins import): never listed, so no picker offers it and no show can name it, but the
+dashboard still serves it, so the looks can import it.
 
 The head protocol is unchanged: THEME <id> and SKIN <id> take a built-in or a discovered id. Nothing
 moves yet: the built-ins still hold every look until the content repository takes them.
@@ -91,6 +94,8 @@ def discover(path: str | os.PathLike | None = None) -> dict:
     seen_t, seen_s = {t["id"] for t in themes}, {s["id"] for s in skins}
     face = root / "face"
     for f in sorted((face / "themes").glob("*.json")) if (face / "themes").is_dir() else ():
+        if f.stem.startswith("_"):
+            continue                                       # a shared file the looks import, never a look
         if not ID_RE.match(f.stem) or f.stem in seen_t:
             problems.append(f"face/themes/{f.name}: " + ("a built-in name" if f.stem in seen_t else "not an id"))
             continue
@@ -100,6 +105,8 @@ def discover(path: str | os.PathLike | None = None) -> dict:
         except ValueError as e:
             problems.append(f"face/themes/{f.name}: {e}")
     for f in sorted((face / "skins").glob("*.js")) if (face / "skins").is_dir() else ():
+        if f.stem.startswith("_"):
+            continue                                       # a shared file the skins import, never a skin
         if not ID_RE.match(f.stem) or f.stem in seen_s:
             problems.append(f"face/skins/{f.name}: " + ("a built-in name" if f.stem in seen_s else "not an id"))
             continue

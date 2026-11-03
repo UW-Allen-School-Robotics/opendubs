@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import threading
@@ -59,6 +60,34 @@ VALIDATING, PREFLIGHT, PREPPING, WAITING, RUNNING = (
     "VALIDATING", "PREFLIGHT", "PREPPING", "WAITING_FOR_START", "RUNNING")
 ARMED, COUNTDOWN = "ARMED_WAITING", "COUNTDOWN"
 COMPLETED, ABORTED, ESTOPPED, REFUSED = "COMPLETED", "ABORTED", "ESTOPPED", "REFUSED"
+# THE WORDS A PERSON SEES for each state: one vocabulary for the Shows page, the face, the composer and
+# any other front end (the status's `phase`). The ids above are wire names, renamed on their own schedule;
+# these words are what an operator or a bystander reads. READY, never "armed": nothing moves until the
+# deadman is pressed and held, and the words say so.
+PHASE_WORDS = {
+    VALIDATING: ("CHECKING", "checking the show; nothing moves"),
+    PREFLIGHT: ("CHECKING", "checking the robot; nothing moves"),
+    ARMED: ("READY", "nothing moves until you press and hold the deadman"),
+    COUNTDOWN: ("STARTING", "the robot will move; keep the deadman held"),
+    PREPPING: ("STARTING", "the robot is moving to its first pose; keep the deadman held"),
+    WAITING: ("STARTING", "about to begin; keep the deadman held"),
+    RUNNING: ("SHOW RUNNING", "letting go of the deadman stops it"),
+    COMPLETED: ("SHOW FINISHED", ""),
+    ABORTED: ("SHOW STOPPED", ""),
+    ESTOPPED: ("SHOW STOPPED", "the e-stop stopped it"),
+    REFUSED: ("DIDN'T START", "nothing moved"),
+}
+
+
+def phase(status, left_s=None) -> dict | None:
+    """{word, say} for a run state, as a person reads it; a countdown's word carries its seconds
+    ("STARTING in 5")."""
+    if status not in PHASE_WORDS:
+        return None
+    word, say = PHASE_WORDS[status]
+    if status == COUNTDOWN and left_s is not None:
+        word = f"STARTING in {math.ceil(left_s)}"
+    return {"word": word, "say": say}
 # An arm show runs only with a current self-collision stamp (sweep.py; cue.py _check_sweep). Tests
 # of other things turn it off for their throwaway shows; nothing on the robot does.
 REQUIRE_SWEEP = True
@@ -522,10 +551,13 @@ def music_device_status(name, audio, video_outputs) -> dict:
             return {"name": name, "ready": False, "label": None,
                     "why": "this robot has no stage output (the runner's --video)"}
         st = be.status() or {}
-        page = st.get("page") or {}
+        page = st.get("page") or {}          # the page that answers for the stage's sound (video_out.StageOutput)
         if not st.get("ready"):
             return {"name": name, "ready": False, "label": page.get("name"),
                     "why": st.get("why") or "the stage box isn't ready"}
+        if st.get("sound_pages") == 0:
+            return {"name": name, "ready": False, "label": None,
+                    "why": "every stage page is picture-only (role=video): none plays the sound"}
         if page.get("audio_output") in (None, "", "none"):
             return {"name": name, "ready": False, "label": page.get("name"),
                     "why": page.get("audio_why") or "the stage box has no sound output"}
@@ -1480,14 +1512,14 @@ class Runner:
         while True:
             self.feed.heartbeat()
             if self.stop_requested:
-                return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator while armed")
+                return self._end(ABORTED, "OPERATOR_STOP", "stopped by the operator before it started (nothing had moved)")
             self._state = st = self.robot.read()
             for k, v in probed.items():
                 if st.get(k) is None:
                     st[k] = v
             end = armed_monitor(requires, st)
             if end:
-                return self._end(end[0], end[1], f"disarmed while waiting for the deadman: {end[2]}")
+                return self._end(end[0], end[1], f"stopped before it started, nothing had moved: {end[2]}")
             if self.audio_waiting and not self._media_ready(load_id, media):
                 late = self._media_late(load_id, media)          # what the Shows page says while it waits
                 note = "getting the show's audio and video ready: " + ", ".join(late) + " — then press the deadman"
@@ -1503,6 +1535,9 @@ class Runner:
                           "catches up on the show's clock")
                 for sv in [sv for sv in media if hasattr(sv, "drop") and not sv.ready()]:
                     why = f"{sv.waiting_for()} after {wait_s:g} s"
+                    if hasattr(sv, "start_with_ready") and sv.start_with_ready(why):
+                        self.video_note = f"video on stage: {sv.late}"   # the ready pages play; the late join
+                        continue
                     if isinstance(show.doc.get("video"), dict) and show.doc["video"].get("required") is True:
                         # @fault SHOW_VIDEO_NOT_READY
                         return self._end(REFUSED, "SHOW_VIDEO_NOT_READY", f"video on stage: {why}")
@@ -1526,7 +1561,7 @@ class Runner:
                 prev = dm
             if self.clock() >= self.deadline[1]:
                 return self._end(REFUSED, "START_TIMEOUT",
-                                 f"armed for {ARM_TIMEOUT_S:g} s and the deadman was never pressed")
+                                 f"ready for {ARM_TIMEOUT_S:g} s and the deadman was never pressed")
             if self.clock() >= resend:
                 self._armed("WAIT")
                 waits += 1
@@ -1646,9 +1681,13 @@ class Palette:
         with self.lock:
             cur = self.current
             running = bool(cur and cur[2].is_alive())
+            info = cur[1].start_info() if running else {}
             return {"running": cur[0] if running else None,
                     "status": cur[1].status if cur else None, "last": self.last,
-                    **({"start_info": cur[1].start_info()} if running else {}),
+                    # the words for the state, now and for the last run (PHASE_WORDS)
+                    "phase": phase(cur[1].status, info.get("left_s")) if running else None,
+                    "last_phase": phase(self.last["status"]) if self.last else None,
+                    **({"start_info": info} if running else {}),
                     "default_start": self.default_start(),
                     "skipped": sorted(cur[1].skip) if running else [],
                     "audio_note": cur[1].audio_note if cur else None,

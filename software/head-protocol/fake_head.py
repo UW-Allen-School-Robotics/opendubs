@@ -98,9 +98,10 @@ class Neck:
 
 
 class FakeHead:
-    def __init__(self, kind="tab5", port=hp.PORT, audio=False, clock=None):
+    def __init__(self, kind="tab5", port=hp.PORT, audio=False, clock=None, themes=()):
         assert kind in ("tab5", "legacy-tab5", "tablet-face", "neck")
         self.kind, self.audio = kind, audio
+        self.themes = tuple(themes)         # discovered themes this head has (its content folder's)
         self.clock = clock or (lambda: time.monotonic() * 1000.0)
         self.state, self.emote, self.theme, self.skin = "", "AUTO", "plain", "default"
         self.neck = Neck()
@@ -177,7 +178,7 @@ class FakeHead:
         if a.upper() == "IDLE" and self.kind == "tablet-face":     # v5, tablet face only
             self.theme = "plain"
             return "OK theme idle plain"
-        if a.lower() in hp.THEMES_BUILT_IN or a.upper() == "NONE":
+        if a.lower() in hp.THEMES_BUILT_IN + self.themes or a.upper() == "NONE":
             self.theme = a
             return f"OK theme {a}"
         return "ERR unknown theme"
@@ -243,13 +244,16 @@ class FakeHead:
     def do_bright(self, a, _):
         return self._level("bright", a)
 
-    def do_armed(self, a, _):
+    def do_ready(self, a, _, word="ready"):
         x = a.strip().upper()
         if x in ("WAIT", "OFF"):
-            return f"OK armed {x.lower()}"
+            return f"OK {word} {x.lower()}"
         if x.isdigit() and 1 <= int(x) <= hp.ARMED_COUNT_MAX_S:
-            return f"OK armed {int(x)}"
-        return f"ERR armed WAIT | <1..{hp.ARMED_COUNT_MAX_S} seconds> | OFF"
+            return f"OK {word} {int(x)}"
+        return f"ERR {word} WAIT | <1..{hp.ARMED_COUNT_MAX_S} seconds> | OFF"
+
+    def do_armed(self, a, _):                       # v5's name; READY's alias from v10
+        return self.do_ready(a, _, "armed")
 
     def do_batt(self, a, _):
         # v6: the pack's charge. Out of range is refused, never clamped: a 150 % reading is a bug
