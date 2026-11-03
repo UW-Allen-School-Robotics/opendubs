@@ -28,7 +28,7 @@
    kiosk app's OpenDubsKiosk.device()). Once a show is loaded (READY) the screen goes black until it starts.
 
    Query (for testing, without a show): ?video=<url> loops a video under the skeletons (muted unless
-   &sound=1); ?bpm=99.4 the dancer's tempo; ?hud=1 shows the feed, the show, the frame rate and the latency;
+   &sound=1); ?bpm=<n> the dancer's tempo (default 120); ?hud=1 shows the feed, the show, the frame rate and the latency;
    ?card=0 hides the ready card.
 
    A ROLE, for a show split across pages (?role=, default both): `video` plays the picture, always muted,
@@ -46,7 +46,7 @@
   const q = new URLSearchParams(location.search);
   const cv = document.getElementById("stage"), g = cv.getContext("2d");
   const hud = document.getElementById("hud"), video = document.getElementById("video");
-  const BPM = Number(q.get("bpm")) || 99.4, BEAT_MS = 60000 / BPM;
+  const BPM = Number(q.get("bpm")) || 120, BEAT_MS = 60000 / BPM;
   let show = null;                                  // the show's timing, from the Thor
   const SEEK_S = 0.15, NUDGE = 0.03;                // a silent video: past 150 ms, seek; inside, a small rate change
   // a video heard (it carries the music): the rate stays 1, because any change time-stretches the sound,
