@@ -13,8 +13,7 @@ import sys
 
 HEAD_PROTOCOL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "head-protocol")
 # Used only without the head protocol: its CODE_SKINS as of the content split (head_protocol.py).
-FALLBACK_CODE_SKINS = ("default", "ring", "fireworks", "monster_stitched", "monster_vampire", "monster_wolf",
-                       "monster_mummy", "monster_zombie", "monster_ghoul", "monster_lab")
+FALLBACK_CODE_SKINS = ("default", "ring", "fireworks")
 
 
 def _import(name):
