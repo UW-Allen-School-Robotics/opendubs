@@ -11,7 +11,7 @@ node software/face-web/tests/test_moves.mjs          # MOVE: each gesture lands 
 node software/face-web/tests/test_layout_full.mjs   # layout: full -- a still across the whole face
 node software/face-web/tests/test_lids_and_gaze.mjs  # lid-shape expression, and the gaze break
 node software/face-web/tests/test_mouth.mjs          # the optional mouth; OFF must change nothing
-node software/face-web/tests/test_monsters.mjs       # the monster skins: lids, gaze, brow, and no clip left behind
+node software/face-web/tests/test_skin_contract.mjs  # the skin contract: what the engine hands a skin, and no clip left behind
 node software/face-web/tests/test_render_hooks.mjs   # offline render: no hidden clock, a seeded source, skinsReady
 node software/face-web/tests/test_armed.mjs          # the ARMED overlay, and its lease
 node software/face-web/tests/test_caption.mjs        # the plain-English state label: white, in its band, never overflowing
