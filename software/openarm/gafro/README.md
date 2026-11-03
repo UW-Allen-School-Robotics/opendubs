@@ -4,6 +4,12 @@ The arm layer that runs the OpenArm through [gafro_robot_interface](https://gith
 its own CAN driver, with no ROS. The design, the layering and what is and is not verified are in
 [`notes/design/arm-gafro.md`](../../../notes/design/arm-gafro.md). This folder is the **config** of that layer:
 
+> **Not buildable from public sources yet.** Three repositories this layer installs (`env.sh`) are not public:
+> [gafro](https://github.com/personalrobotics/gafro), [gafro-robot-interface](https://github.com/personalrobotics/gafro-robot-interface)
+> and the CAN driver [openarm-driver](https://github.com/personalrobotics/openarm-driver). Until they are, you cannot build this arm stack
+> yourself. The other stack for the same arms is the ROS 2 one (`openarm-up`, [docs/openarm-setup.md](../../../docs/openarm-setup.md)); its
+> image (`../image/`) also clones one repository that is not public, the teleop bridge (`../image/repos.lock`).
+
 | File | What |
 |---|---|
 | `hardware.example.yaml` | the RI hardware config: one `openarm` driver per control group. A **template** — the robot's own copy lives on the robot and is never overwritten by a deploy |
