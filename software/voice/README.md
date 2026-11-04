@@ -3,12 +3,29 @@
 Push-to-talk conversation for the robot: the face page's microphone in, the robot's voice out, and a
 language model in between that can change **the face, and nothing else**.
 
-**Status: phase 1, desk-tested only.** The wire protocol, turn state, brain router, safe tools,
-the speech backends (Parakeet and Kokoro) and the container definition are here and tested with
-fake audio and fake backends; the pinned speech packages are installed and smoke-tested in CI.
-Nothing here has run on a Thor or a tablet, and the speech models' real latency is gate L-4. The
-plan, with the measurements that gate each step, is [`notes/workplan-voice.md`](../../notes/workplan-voice.md);
-the research behind it is `notes/design/voice-llm-research.md`.
+**Status: running on a robot (opendubs2), by Talk.** A visitor holds Talk on the face and asks;
+the robot answers from the tablet's speaker, with no internet needed:
+
+- **On the robot:** this service (`opendubs-voice`) and the local model (`opendubs-llm`, vLLM), both
+  deployed by `deploy-all.sh` on a robot that opts in, with the weights fetched once into
+  `/var/lib/opendubs/models`.
+- **Measured there:** first audio p90 844 ms after release (gate L-4, Kokoro on the GPU); the
+  model's first text about 0.3 s after release in normal turns; speech-to-text about 0.2 s for a
+  3 s question.
+- **What it can say about itself:** whatever the dashboard shows (state, battery, faults, arms, the
+  show, the network uplink, uptime), from the dashboard's own snapshot, and nothing it can do
+  ([`robot_facts.py`](robot_facts.py)).
+
+**Parked:**
+
+- **The wake word ("Hey OpenDubs") is off by default** (`OPENDUBS_VOICE_WAKE`, `1` to offer it). A
+  live phrase at a normal visitor distance was not caught through the tablet's microphone.
+- **Voice input in a crowd** waits for a USB microphone array on the robot (a ReSpeaker XVF3800).
+
+The plan, its measurements and what is parked, with the reasons, are in
+[`notes/workplan-voice.md`](../../notes/workplan-voice.md); what the wake word taught us is in
+[`notes/design/voice-wake-findings.md`](../../notes/design/voice-wake-findings.md); the research
+behind the design is [`notes/design/voice-llm-research.md`](../../notes/design/voice-llm-research.md).
 
 ## How a turn flows
 
@@ -57,6 +74,7 @@ place the cloud brain's API key may live: never the repository, the image, or th
 | `VOICE_STT` / `VOICE_TTS` | `parakeet` / `kokoro` in the image; `fake` for tests and a desk demo |
 | `VOICE_LLM` | `local` (the vLLM container) or `fake` |
 | `OPENDUBS_VOICE` | `0` keeps voice off without stopping the service |
+| `OPENDUBS_VOICE_WAKE` | `1` offers the wake word to the face page; off by default while it is parked |
 
 In cloud and auto mode **text leaves the robot**: the transcript and the persona, never audio. Check
 your institution's policy before turning it on in a public space.
@@ -64,8 +82,9 @@ your institution's policy before turning it on in a public space.
 ## Speech: English only, no GPL
 
 **STT:** Parakeet-TDT-0.6B-v2 (NVIDIA, CC BY 4.0), as the k2-fsa project's int8 ONNX conversion,
-on sherpa-onnx (Apache-2.0). **TTS:** Kokoro-82M (Apache-2.0) on kokoro and misaki (Apache-2.0).
-Both run on the CPU until gate L-4 says otherwise.
+on sherpa-onnx (Apache-2.0), on the CPU. **TTS:** Kokoro-82M (Apache-2.0) on kokoro and misaki
+(Apache-2.0), on the GPU in the default image, since on the CPU it missed gate L-4 (1 to 2 s a
+sentence).
 
 The project team decided on 2026-10-14 that the voice is **English only and ships no GPL code**.
 Kokoro's default install brings in espeak-ng and phonemizer (both GPL-3.0-or-later) through
@@ -98,7 +117,7 @@ runs in its own container (`opendubs-llm`, vLLM), so it can be swapped without t
 
 - **Which build:** the 30B as Red Hat AI's 4-bit W4A16 quantisation (16.7 GB). The BF16 weights
   are about 61 GB and the FP8 build 31 GB, and neither fits the ≤ 24 GiB share the voice note
-  budgets for it. Whether the 4-bit build's speed and quality hold is gate L-1.
+  budgets for it. On the robot it runs at a GPU memory share of 0.20.
 - **One profile, both sides** ([`llm_profile.py`](llm_profile.py), from `models.lock.json`): the
   served name, vLLM's tool-call parser (`hermes`: the models' own chat template uses Hermes-style
   tool calls), an 8,192-token context, two sequences at once, and the sampling the model cards
@@ -146,9 +165,11 @@ installs them as the image does).
 ## The container
 
 `image/` follows the Thor stack's pinning rules: the base comes from `software/stack/versions.env`
-by digest, and `build.sh` refuses a tag. It builds on `ROS_BASE_IMAGE` with CPU PyTorch; if gate
-L-4 needs the GPU, `build.sh --gpu` builds on the Isaac ROS base with its PyTorch. Provision the
-weights once per robot (`sudo mkdir -p /var/lib/opendubs/models`, then run `fetch_models.py` in the
-image with that directory mounted; `run.sh` prints the exact command). `run-llm.sh` starts the local
-model (vLLM) and refuses on a robot until the measurement gates have passed. Deployment through
-`deploy-all.sh` belongs to the Thor stack lane.
+by digest, and `build.sh` refuses a tag. By default it builds the GPU variant, on the pinned vLLM
+image (`VOICE_LLM_IMAGE`), whose CUDA PyTorch Kokoro uses; `build.sh --cpu` builds on
+`ROS_BASE_IMAGE` with CPU PyTorch instead. Provision the weights once per robot (`sudo mkdir -p
+/var/lib/opendubs/models`, then run `fetch_models.py` in the image with that directory mounted;
+`run.sh` prints the exact command), and `run.sh` checks every pinned file before it replaces a
+running container. `run-llm.sh` starts the local model (vLLM) and refuses on a robot unless
+`--robot` is passed, which the deploy's provisioning does on a robot that opts in. Deployment
+through `deploy-all.sh` belongs to the Thor stack lane.
