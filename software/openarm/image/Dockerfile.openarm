@@ -44,14 +44,20 @@ RUN apt-get update && apt-get install -y \
   clangd \
   && rm -rf /var/lib/apt/lists/*
 
-# The OpenArm CAN library, from its PPA, at the pinned version.
-ARG OPENARM_CAN_VERSION
-RUN test -n "${OPENARM_CAN_VERSION}" \
-  && add-apt-repository -y ppa:openarm/main \
-  && apt-get update && apt-get install -y \
-     libopenarm-can-dev="${OPENARM_CAN_VERSION}" \
-     openarm-can-utils="${OPENARM_CAN_VERSION}" \
-  && rm -rf /var/lib/apt/lists/*
+# The OpenArm CAN library and its tools, built from source at the pinned commit (pins.env), into
+# /usr with the multiarch library directory -- where the PPA's package put them, so the config shim
+# below and everything that links the library are unchanged. CLI11 is the tools' one extra dependency.
+ARG OPENARM_CAN_COMMIT
+RUN test -n "${OPENARM_CAN_COMMIT}" \
+  && apt-get update && apt-get install -y libcli11-dev && rm -rf /var/lib/apt/lists/* \
+  && git init -q /tmp/openarm_can \
+  && git -C /tmp/openarm_can fetch -q --depth 1 https://github.com/enactic/openarm_can "${OPENARM_CAN_COMMIT}" \
+  && git -C /tmp/openarm_can checkout -q FETCH_HEAD \
+  && cmake -S /tmp/openarm_can -B /tmp/openarm_can/build -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_INSTALL_LIBDIR=lib/aarch64-linux-gnu \
+  && cmake --build /tmp/openarm_can/build -j"$(nproc)" \
+  && cmake --install /tmp/openarm_can/build \
+  && rm -rf /tmp/openarm_can
 RUN mkdir -p /usr/local/lib/cmake/openarm_can && \
     echo 'include("/usr/lib/aarch64-linux-gnu/cmake/OpenArmCAN/OpenArmCANConfig.cmake")' \
     > /usr/local/lib/cmake/openarm_can/openarm_canConfig.cmake
