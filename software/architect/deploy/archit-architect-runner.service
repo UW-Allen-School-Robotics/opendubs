@@ -1,0 +1,26 @@
+# A TEST UNIT for the Halloween ARCHITECT demo, MODE=gafro (software/architect/README.md): the ARCHITECT runner on
+# tobi's arm service through Archit's services (dev.sh gafro, TREAT_DOMAIN=0), with candy_treat.py (Archit's treat_sequence.py) offered for any
+# instruction. ARM_AT_START=1 (2026-10-30): it arms that program itself at start, through the same offer, check and
+# approval as a spoken "hand out candy" and "yes", so a reboot comes back ready for "trick or treat". The arm still
+# moves only with CH5, the e-stop, the deadman, a supervised arm service, and the coordinator's grant.
+# Not part of the robot's stack; filled in and installed by `dev.sh install`.
+[Unit]
+Description=ARCHITECT test: the runner on the arm service through the trick-or-treat services, on 127.0.0.1:8098
+After=docker.service archit-architect-treat.service
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1 LISTEN=1 TREAT_DOMAIN=0 TREAT_REPO=@TREAT_REPO@ PROGRAM=software/architect/examples/candy_treat.py ARM_AT_START=1
+ExecStartPre=-/usr/bin/sudo -n /usr/bin/docker rm -f archit-architect-server
+ExecStart=@REPO@/software/architect/tools/dev.sh gafro
+ExecStop=/usr/bin/sudo -n /usr/bin/docker stop -t 5 archit-architect-server
+# The arm service or the treat services not up yet (the arms are brought up by a person, `sudo arm up --supervise`):
+# the runner exits naming what it lacks, and is tried again.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

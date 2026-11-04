@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""The live arm service's gates: what must stop a move before it is sent, or while it runs.
+
+    python3 software/architect/tests/test_live_arms.py
+
+Needs numpy and PyYAML; the twin tests also need mujoco, and skip without it.
+"""
+import math
+import os
+import sys
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, ".."))
+
+from opendubs_architect import live_arms as la  # noqa: E402
+import cue  # noqa: E402  (on the path once live_arms is imported)
+import runner  # noqa: E402
+
+LIMITS_PATH = os.path.join(la._REPO, "software", "choreo", "tests", "joint_limits_fixture.yaml")
+ZERO = {"ARM_L": [0.0] * 7, "ARM_R": [0.0] * 7}
+try:
+    import mujoco  # noqa: F401
+    HAVE_MUJOCO = True
+except ImportError:
+    HAVE_MUJOCO = False
+
+
+class StubPlanner:
+    """Plans every request as a 1 s move to a fixed pose: the gates, not the twin, are under test."""
+
+    def plan(self, side, pose, point=None, goal_signed=None, margin_deg=0.0):
+        return la.Move(side, list(pose[la.ARM_SLOT[side]]), [0.0, 10.0, 0.0, 30.0, 0.0, 0.0, 0.0], 1.0, 50.0)
+
+    def tool(self, side, pose):
+        return [0.4, 0.0, 0.9], {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
+
+
+class FlipState:
+    """The robot state, with the deadman released from the `after`-th read on."""
+
+    def __init__(self, after):
+        self.reads, self.after = 0, after
+
+    def read(self):
+        self.reads += 1
+        return runner.FakeRobotState(deadman=self.reads < self.after).read()
+
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += s
+
+
+def live(state, arms=None, planner=None, config=None):
+    clock = Clock()
+    limits = cue.load_limits(LIMITS_PATH)
+    config = config or la.ArmConfig(workspace={"right": {"x": [0.2, 0.6], "y": [-0.4, 0.0], "z": [0.6, 1.2]}})
+    return la.LiveArms(arms or la.FollowingFakeArms(), state, planner or StubPlanner(), config, limits,
+                       grip_cal={"left": (0.0, 0.04), "right": (0.0, 0.04)}, clock=clock, sleep=clock.sleep)
+
+
+class Gates(unittest.TestCase):
+    def test_deadman_released_refuses_before_anything_is_sent(self):
+        a = live(runner.FakeRobotState(deadman=False))
+        with self.assertRaises(la.Refused):
+            a.move_to_named("right", "stow")
+        with self.assertRaises(la.Refused):
+            a.set_gripper("right", 0.0)
+        self.assertEqual((a.arms.sent, a.arms.grips), ([], []))
+
+    def test_every_request_that_moves_refuses_without_the_deadman(self):
+        """Every path to an arm or gripper goal honours the deadman, not only the ones above."""
+        for name, request in (("move_to_point", lambda a: a.move_to_point("right", [0.4, -0.2, 0.9])),
+                              ("move_by", lambda a: a.move_by("right", [0.0, 0.0, -0.05])),
+                              ("move_to_named", lambda a: a.move_to_named("right", "stow")),
+                              ("stow", lambda a: a.stow()),
+                              ("set_gripper", lambda a: a.set_gripper("left", 1.0))):
+            a = live(runner.FakeRobotState(deadman=False))
+            with self.assertRaises(la.Refused, msg=name):
+                request(a)
+            self.assertEqual((a.arms.sent, a.arms.grips), ([], []), name)
+
+    def test_deadman_released_mid_grip_cancels_it(self):
+        class SilentGrip(la.FollowingFakeArms):
+            def send_grip(self, slot, metres):
+                gid = super().send_grip(slot, metres)
+                del self.goal_status[gid]               # the grip is still closing
+                return gid
+        arms = SilentGrip()
+        a = live(FlipState(after=3), arms=arms)
+        with self.assertRaises(la.Refused) as e:
+            a.set_gripper("right", 0.0)
+        self.assertEqual(e.exception.code, "DEADMAN")
+        self.assertEqual((len(arms.grips), arms.cancelled), (1, 1))
+
+    def test_deadman_released_mid_move_cancels_it(self):
+        arms = la.FollowingFakeArms()
+        arms.silent.add("ARM_R")                # the goal never reports: it is still running
+        a = live(FlipState(after=5), arms=arms)
+        with self.assertRaises(la.Refused) as e:
+            a.move_to_named("right", "stow")
+        self.assertEqual(e.exception.code, "DEADMAN")
+        self.assertEqual((len(arms.sent), arms.cancelled), (1, 1))
+
+    def test_unknown_state_refuses(self):
+        a = live(runner.FakeRobotState(ch5=None))
+        with self.assertRaises(la.Refused):
+            a.move_to_named("right", "stow")
+        self.assertEqual(a.arms.sent, [])
+
+    def test_target_outside_the_workspace_is_never_planned(self):
+        a = live(runner.FakeRobotState())
+        with self.assertRaises(la.Refused) as e:
+            a.move_to_point("right", [0.4, -0.2, 1.5])
+        self.assertEqual(e.exception.code, "WORKSPACE")
+        with self.assertRaises(la.Refused) as e:
+            a.move_to_point("left", [0.4, 0.2, 0.9])  # no box for the left arm: named poses only
+        self.assertEqual(e.exception.code, "NO_WORKSPACE")
+        self.assertEqual(a.arms.sent, [])
+
+    def test_the_node_answers_a_refusal_as_refused(self):
+        from opendubs_architect import api, robot_node
+        table = robot_node.handlers(live(runner.FakeRobotState()))
+        pose = {"position": {"x": 0.4, "y": -0.2, "z": 1.5}, "orientation": {"x": 0, "y": 0, "z": 0, "w": 1}}
+        self.assertEqual(robot_node.answer(table["move_ee_to_pose"], {"arm": "right", "target_pose": pose})[0],
+                         api.REFUSED)
+        self.assertEqual(robot_node.answer(table["move_ee_to_pose"], {"arm": "middle", "target_pose": pose})[0],
+                         api.INVALID_INPUT)
+        self.assertEqual(robot_node.answer(table["move_arm_to_named_pose"], {"arm": "right", "name": "stow"})[0],
+                         api.SUCCESS)
+
+    def test_an_arm_that_stops_short_fails(self):
+        class Short(la.FollowingFakeArms):
+            def send(self, slot, points):
+                gid = super().send(slot, points)
+                self._measured[slot] = [v - 10.0 for v in self._measured[slot]]
+                return gid
+        a = live(runner.FakeRobotState(), arms=Short())
+        with self.assertRaises(la.MoveFailed):
+            a.move_to_named("right", "stow")
+
+
+# A reach BEHIND the shoulder line (x 0.3 against the arms' x 0.423: on the robot the hand went
+# behind the chest) that a straight move takes through the arm column (17.5 mm, and worse with the
+# test limits), and the route CBiRRT found around it on the twin (2026-10-24, routing.Router("cbirrt")):
+# four waypoints and the goal, right arm, signed degrees. A test of routing, not a target to use.
+CHEST = [0.3, -0.05, 1.1]
+CHEST_ROUTE = [[-1.2, 4.5, -1.3, 12.7, -1.6, 1.7, 0.6], [-28.6, 33.1, -31.8, 60.9, -14.2, 17.5, 26.5],
+               [-47.1, 52.1, -52.6, 92.7, -22.5, 28.1, 44.1], [-60.4, 60.9, -66.6, 112.6, -26.1, 34.8, 58.4]]
+CHEST_GOAL = [-71.2, 62.9, -77.0, 128.3, -26.4, 39.5, 72.2]
+CHEST_BACK = [[-62.8, 55.3, -73.5, 122.8, -21.1, 35.7, 61.7], [-46.5, 44.4, -49.1, 87.2, -8.1, 26.6, 40.0],
+              [-35.8, 36.0, -34.9, 65.2, -2.5, 20.5, 28.0], [-9.2, 9.3, -8.9, 18.9, -0.6, 5.3, 7.2]]  # and back to rest
+
+
+class Timing(unittest.TestCase):
+    def test_no_joint_is_timed_over_the_arm_services_speed_limit(self):
+        """The arm service on gafro refuses a path over 1.0 rad/s; the bucket show reached 1.04 on joint 3."""
+        for j in range(1, 8):
+            goal = [0.0] * 7
+            goal[j - 1] = 90.0
+            peak = cue.PEAK_FACTOR * 90.0 / la.Planner._leg_seconds([0.0] * 7, goal)
+            self.assertLessEqual(peak, la.MAX_DEG_S + 1e-6, f"joint {j}")
+            self.assertLess(math.radians(peak), 1.0, f"joint {j}")
+
+
+class FixedRouter:
+    def __init__(self, via):
+        self.via, self.calls = via, 0
+
+    def __call__(self, side, start, goal):
+        self.calls += 1
+        return self.via
+
+
+@unittest.skipUnless(HAVE_MUJOCO, "needs mujoco (the twin)")
+class Routing(unittest.TestCase):
+    """A move refused as too close may be routed around the body, for a recorded show only, and the
+    route is held to the same clearance check as a straight move."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.limits = cue.load_limits(LIMITS_PATH)
+        cls.config = la.ArmConfig(workspace={"right": {"x": [0.25, 0.8], "y": [-0.45, 0.15], "z": [0.75, 1.2]}})
+
+    def test_a_route_around_the_body_where_a_straight_move_is_refused(self):
+        with self.assertRaises(la.Refused):
+            la.Planner(self.limits, self.config).plan("right", ZERO, goal_signed=CHEST_GOAL, margin_deg=0)
+        move = la.Planner(self.limits, self.config, FixedRouter(CHEST_ROUTE)).plan(
+            "right", ZERO, goal_signed=CHEST_GOAL, margin_deg=0)
+        self.assertEqual(len(move.via), 4)
+        self.assertGreaterEqual(move.clearance_mm, 30.0)
+        with self.assertRaises(RuntimeError):
+            move.points()                       # never sent live: the live service gets no router
+
+    def test_a_route_that_is_itself_too_close_is_refused(self):
+        midway = [(a + b) / 2 for a, b in zip([0.0] * 7, CHEST_GOAL)]       # where the straight move hits
+        with self.assertRaises(la.Refused) as e:
+            la.Planner(self.limits, self.config, FixedRouter([midway])).plan(
+                "right", ZERO, goal_signed=CHEST_GOAL, margin_deg=0)
+        self.assertIn("route also comes within", e.exception.reason)
+
+    def test_a_waypoint_is_kept_inside_the_validators_margin_on_the_way_to_rest(self):
+        """On the twin a route back to rest passed J4 at +7.4 deg; the validator wants +7.9 for a cue."""
+        lo = math.degrees(self.limits["openarm_right_joint4"][0])
+        back = [w[:] for w in CHEST_BACK]
+        back[-1][3] = lo + 0.5                                              # the last waypoint at the limit
+        pose = dict(ZERO, ARM_R=CHEST_GOAL)
+        rest = cue.rest_pose(self.limits, "right")
+        move = la.Planner(self.limits, self.config, FixedRouter(back)).plan(   # to rest, which takes no margin
+            "right", pose, goal_signed=la.to_signed("right", [rest[j] for j in range(1, 8)]), margin_deg=0)
+        self.assertGreaterEqual(move.via[-1][3], lo + cue.MARGIN_DEG - 1e-6)
+
+    def test_the_route_is_recorded_as_cues_of_a_valid_show(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "architect.yaml")
+            r = la.ShowRecorder(la.Planner(self.limits, self.config, FixedRouter(CHEST_ROUTE)),
+                                self.config, self.limits, path)
+            r.move_to_point("right", CHEST)
+            arm_cues = [c for c in r.cues if c["slot"] == "ARM_R"]
+            tl = cue.load_show(path).export(self.limits, LIMITS_PATH)
+        self.assertEqual(len(arm_cues), 5)                                   # four waypoints, then the goal
+        self.assertEqual([c["t"] for c in arm_cues], sorted(c["t"] for c in arm_cues))
+        self.assertTrue(tl["valid"], tl["problems"])
+
+
+@unittest.skipUnless(HAVE_MUJOCO, "needs mujoco (the twin)")
+class Twin(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.limits = cue.load_limits(LIMITS_PATH)
+        cls.config = la.ArmConfig(workspace={"right": {"x": [0.0, 0.7], "y": [-0.5, 0.1], "z": [0.3, 1.6]}},
+                                  named={"offer": {"right": [20, 10, 0, 60, 0, 10, 0]}})
+        cls.planner = la.Planner(cls.limits, cls.config)
+
+    def test_a_reach_into_the_head_is_refused(self):
+        with self.assertRaises(la.Refused) as e:
+            self.planner.plan("right", ZERO, point=[0.3, 0.0, 1.3])
+        self.assertEqual(e.exception.code, "TOO_CLOSE")
+
+    def test_a_reach_runs_on_the_fake_arms(self):
+        a = live(runner.FakeRobotState(), planner=self.planner, config=self.config)
+        move = a.move_to_point("right", [0.45, -0.25, 0.85])
+        self.assertGreaterEqual(move.clearance_mm, 30.0)
+        here, _ = self.planner.tool("right", a.arms.measured())
+        self.assertLess(max(abs(h - t) for h, t in zip(here, [0.45, -0.25, 0.85])), 0.012)
+
+    def test_a_recorded_program_is_a_valid_show(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "architect.yaml")
+            r = la.ShowRecorder(self.planner, self.config, self.limits, path)
+            r.set_gripper("right", 1.0)
+            r.move_to_point("right", [0.45, -0.25, 0.85])
+            r.move_by("right", [0, 0, -0.08])
+            r.set_gripper("right", 0.0)
+            r.move_to_named("right", "offer")
+            r.stow()
+            tl = cue.load_show(path).export(self.limits, LIMITS_PATH)
+        self.assertTrue(tl["valid"], tl["problems"])
+
+
+@unittest.skipUnless(HAVE_MUJOCO, "needs mujoco (the twin)")
+class Publish(unittest.TestCase):
+    def test_an_approved_program_becomes_a_stamped_listed_show(self):
+        import tempfile
+        from opendubs_architect import api, show_backend
+        from opendubs_architect.demo_runner import Program
+        code = open(os.path.join(HERE, "..", "examples", "arms_wave.py")).read()
+        with tempfile.TemporaryDirectory() as d:
+            arms = os.path.join(d, "arms.yaml")
+            with open(arms, "w") as fh:
+                fh.write('workspace:\n  right: {x: [0.25, 0.6], y: [-0.45, 0.1], z: [0.6, 1.1]}\n')
+            os.environ["OPENDUBS_ARCHITECT_ARMS"] = arms
+            try:
+                out = show_backend.Publisher(os.path.join(d, "shows"), api.PROFILES["arms"], LIMITS_PATH)(Program(code, "wave"))
+            finally:
+                del os.environ["OPENDUBS_ARCHITECT_ARMS"]
+            show = cue.load_show(out["path"])
+            self.assertIn("label", show.doc["palette"])           # the Shows page lists it
+            self.assertGreaterEqual(show.doc["clearance"]["min_mm"], 30.0)
+            self.assertEqual(os.listdir(os.path.join(d, "shows")), [os.path.basename(out["path"])])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
