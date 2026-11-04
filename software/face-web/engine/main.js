@@ -183,21 +183,25 @@ const LOOKS_URL = new URL("/api/head/looks", location.href).href;
 const CONTENT_THEMES = new URL("/face/content/themes/", location.href).href;
 const CONTENT_SKINS = new URL("/face/content/skins/", location.href).href;
 window.faceLooks = null; window.faceThemeProblems = [];        // read by a harness through devtools
-async function loadThemes() {
+// ONE READ, BOTH HALVES. The themes and the code skins are two halves of the SAME document, and
+// this is the only place that reads it: `skins.loadLooks` takes the parsed document (it will still
+// fetch a URL for a caller that has only one). Each loader used to fetch its own copy, so the page
+// asked the dashboard the same `no-store` question twice on every load and every reconnect, and
+// could end up with themes from one answer and skins from the next.
+async function readLooks() {
+  let doc = null;
   try {
     const r = await fetch(LOOKS_URL, { cache: "no-store" });
-    if (!r.ok) return;
-    const doc = await r.json();
-    window.faceLooks = doc;
-    window.faceThemeProblems = await face.loadContentThemes(doc, CONTENT_THEMES);
+    if (r.ok) doc = await r.json();
   } catch (e) { /* no dashboard here: the built-ins only */ }
-}
-function loadSkins() {
-  if (typeof skins.loadLooks !== "function") return Promise.resolve();   // a face from before content skins
-  return skins.loadLooks(LOOKS_URL, CONTENT_SKINS);
+  if (!doc) return;                                  // no content, or no dashboard: the built-ins
+  window.faceLooks = doc;
+  const jobs = [face.loadContentThemes(doc, CONTENT_THEMES).then((p) => { window.faceThemeProblems = p; })];
+  if (typeof skins.loadLooks === "function") jobs.push(skins.loadLooks(doc, CONTENT_SKINS));  // a face from before content skins
+  await Promise.allSettled(jobs);                    // one half failing must not take the other
 }
 function loadLooks() {
-  return Promise.race([Promise.allSettled([loadThemes(), loadSkins()]), new Promise((r) => setTimeout(r, 3000))]);
+  return Promise.race([readLooks(), new Promise((r) => setTimeout(r, 3000))]);
 }
 function connect() {
   loadLooks().finally(openDoor);

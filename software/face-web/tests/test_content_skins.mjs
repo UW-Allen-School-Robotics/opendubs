@@ -26,8 +26,10 @@ const CONTENT = pathToFileURL(join(here, "fixtures", "content") + "/");
 
 // The looks list comes over HTTP on the robot; here it is read from disk. ONLY the list: the
 // modules themselves are imported for real, through the real dynamic import.
+let looksFetches = 0;                            // counted: the page must read the document ONCE
 globalThis.fetch = async (url) => {
   const u = String(url);
+  looksFetches++;                                // counted BEFORE the check, so a bad URL still counts
   if (!u.endsWith(".json")) throw new Error(`unexpected fetch ${u}`);
   return { json: async () => JSON.parse(readFileSync(fileURLToPath(u), "utf8")) };
 };
@@ -135,6 +137,33 @@ ok(!skins.content.has("ring"), "a builtin-sourced row in the list is not treated
      `${api.DESIGN_W}x${api.DESIGN_H}`);
   ok(Number.isInteger(api.SKIN_API_VERSION), "and a version content can refuse politely against",
      String(api.SKIN_API_VERSION));
+}
+
+// ---- 7. the looks document is read ONCE, by the page ---------------------------------------------
+// The themes and the code skins are two halves of the SAME document, so main.js reads it once and
+// hands the parsed object to both loaders. This check earns its place because the failure is
+// INVISIBLE: a loader that fetches its own copy still works perfectly, and merely asks the
+// dashboard the same `no-store` question twice on every load and every reconnect -- and can leave
+// the face wearing themes from one answer and skins from the next. Nothing at the robot shows that.
+{
+  const doc = JSON.parse(readFileSync(fileURLToPath(LOOKS), "utf8"));
+  const before = looksFetches;
+  const given = new Skins();
+  await given.loadLooks(doc, CONTENT);
+  ok(looksFetches === before, "a parsed looks document is used as given, with no fetch of its own",
+     `${looksFetches - before} fetch(es)`);
+  ok(given.names().includes("fixture_good") && !given.content.has("default"),
+     "and discovers exactly what the URL form does, shadowing refused and all");
+  const r = given.select("fixture_good");
+  ok(r.ok && (await given.skinsReady()) === true, "and what it found imports and draws");
+
+  // THE URL FORM STAYS, for a caller that holds only the URL: a test, a harness, an offline render.
+  const byUrl = new Skins();
+  await byUrl.loadLooks(LOOKS, CONTENT);
+  ok(looksFetches === before + 1, "a URL is still fetched, once, for a caller that has only one",
+     `${looksFetches - before} fetch(es)`);
+  ok(byUrl.names().join(",") === given.names().join(","), "and finds the same skins either way",
+     byUrl.names().join(","));
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall content-skin checks passed");
