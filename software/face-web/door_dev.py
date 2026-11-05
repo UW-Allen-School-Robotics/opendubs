@@ -144,7 +144,7 @@ class NoCache(http.server.SimpleHTTPRequestHandler):
             entries = []
         rel = path[len("/library/"):]
         if rel == "index.json":
-            body, ctype = json.dumps(entries).encode(), "application/json"
+            body, ctype = json.dumps(entries, default=str).encode(), "application/json"
         else:
             names = {str(e["file"]) for e in entries}
             full = os.path.realpath(os.path.join(self.library, rel))
