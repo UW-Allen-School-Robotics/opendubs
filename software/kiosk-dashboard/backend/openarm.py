@@ -162,8 +162,8 @@ def effector_status():
     """Each arm and gripper as the show runner's preflight reads them (choreo_proxy `effectors`): {part: {state, why, pose_deg?, excluded?}}.
 
     An arm is `ok` when its arm service answers AND a person has said they are at the e-stop (supervised): the service refuses every moving command without that, and the runner sends
-    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. Under the ROS stack this returns None (the runner reads that stack's motors itself); with no stack, both, or no way to tell, every part is `down` with the reason. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
-    on and calibrated in its hardware config, and nothing here reports that yet. A part is never reported `ok` without an answer."""
+    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. Under the ROS stack this returns None (the runner reads that stack's motors itself); with no stack, both, or no way to tell, every part is `down` with the reason. A gripper is `ok` when its arm is `ok` and its finger is live on /joint_states (`_grip_state`),
+    and otherwise `down` and `excluded`. A part is never reported `ok` without an answer."""
     stack, why = active_stack()
     if stack == "ros":
         return None                      # the runner's own fallback: the motor summary of the ROS stack (choreo_proxy._probe_now)
@@ -185,8 +185,29 @@ def effector_status():
                 # so a skipped arm can still be checked to be at rest. Activating (`ready`) is not needed: a show moves each arm to zero from where it is.
                 letter = side[0].upper()
                 out[f"arm_{side}"] = {"state": "degraded", **pose, "why": f"the {side} arm service is up but nobody is supervising it, so it refuses every moving command (PREPARE {letter}, or SUPERVISE {letter})"}
-        out[f"grip_{side}"] = {"state": "down", "excluded": True, "why": f"the {side} gripper is not enabled in the arm service (use_gripper, and its calibration)"}
+        out[f"grip_{side}"] = _grip_state(side, out[f"arm_{side}"])
     return out
+
+
+#: How old a gripper's finger reading on /joint_states may be and still count as live. The merge drops a joint after 1 s (joint_states_merge.py), and the dashboard reads the topic
+#: throttled to 5 a second (arm_clearance.py).
+GRIP_STALE_S = 2.0
+
+
+def _grip_state(side, arm):
+    """A gripper as the runner reads it. `ok` only when its arm is `ok` (the service gates a gripper command as it gates the arm's, so an unsupervised arm's gripper is refused too)
+    AND its finger is live on /joint_states: the service publishes the finger only while its driver has that side's gripper (`use_gripper`, calibrated) and reads it. A config file
+    saying use_gripper is not an answer; the finger reading is. Otherwise `down` and `excluded`, with the reason."""
+    if arm.get("state") != "ok":
+        why = f"the {side} gripper moves only with its arm, and the {side} arm is {arm.get('state')}" + (f": {arm['why']}" if arm.get("why") else "")
+    else:
+        import arm_clearance
+        age = arm_clearance.finger_age(side)
+        if age is not None and age <= GRIP_STALE_S:
+            return {"state": "ok"}
+        why = (f"the {side} gripper's finger is not on /joint_states " + ("at all" if age is None else f"(none for {age:.0f} s)")
+               + f": the {side} arm service has no gripper (use_gripper, and its calibration), or its driver does not read it")
+    return {"state": "down", "excluded": True, "why": why}
 
 
 #: Operations that only take capability away. They do not wait for, or count as, "the" running operation: a HOLD refused as "busy" while a move runs would be the one
@@ -197,7 +218,7 @@ _SERVICE_TIMEOUT = 180.0
 #: Bringing an arm's service up is the unit's job (software/openarm/opendubs-arm@.service). The sudoers rule (opendubs-arm.sudoers) allows exactly these commands, as
 #: written: the full path and the `.service`. Only a change of controller starts or stops a unit, and for both arms (arm_handover.py): there is no per-arm START.
 SYSTEMCTL = "/usr/bin/systemctl"
-_UNIT_TIMEOUT = 60.0
+_UNIT_TIMEOUT = 300.0     # `arm up`: up to 3 starts, then up to 90 s for the service to answer
 
 
 # The viewer (viser, `arm viewer <side> <port>`): the browser view of an arm and its pose target. The dashboard starts it and stops it, and only ever stops one it started: a port that is
@@ -305,26 +326,21 @@ def _unit_state(side):
 
 
 def _start_unit(side):
-    """`systemctl start` the arm's service and wait until it answers on its socket. Returns (output, error)."""
+    """Bring the arm's service up with `arm up <side>` and return (output, error). `arm up` is the one bringup, for a person at a shell and for this button alike: the unit's preflight
+    heals a CAN link in error, a start that failed for a reason a retry can mend is retried, and it waits until the service answers and says what it found when it cannot."""
     if _service_status(side) is not None:
         return f"{side}: the arm service is already running", None
     try:
-        r = _run(_sudo([SYSTEMCTL, "start", _unit(side)]), 30)
+        r = _run([ARM_CLI, "up", side], _UNIT_TIMEOUT)
+    except FileNotFoundError:
+        return "", f"{ARM_CLI} not found: the arm tooling is not installed here (software/openarm/provision-arm-service.sh)"
+    except subprocess.TimeoutExpired:
+        return "", f"{side}: `arm up {side}` did not finish in {int(_UNIT_TIMEOUT)} s: `journalctl -u {_unit(side)}`"
     except Exception as e:                           # noqa: BLE001
-        return "", f"{side}: systemctl start failed: {type(e).__name__}: {e}"
+        return "", f"{side}: arm up failed: {type(e).__name__}: {e}"
     if r.returncode != 0:
-        return "", f"{side}: " + (r.stderr.strip() or f"systemctl start returned {r.returncode}") + f" (sudoers: opendubs-arm.sudoers allows `{SYSTEMCTL} start {_unit(side)}`)"
-    deadline = time.time() + _UNIT_TIMEOUT
-    while time.time() < deadline:
-        status = _service_status(side)
-        if status is not None:
-            return f"{side}: started; " + status.splitlines()[0], None
-        state = _unit_state(side)
-        if state.get("ActiveState") in ("failed", "inactive"):
-            return "", (f"{side}: the unit ended ({state.get('Result', '?')}, exit status {state.get('ExecMainStatus', '?')}) before it answered: "
-                        f"`journalctl -u {_unit(side)}` says why (exit 2 is the old arm stack still running)")
-        time.sleep(0.5)
-    return "", f"{side}: the arm service did not answer in {int(_UNIT_TIMEOUT)} s: `journalctl -u {_unit(side)}`"
+        return "", (r.stderr.strip() or r.stdout.strip() or f"arm up {side} returned {r.returncode}")[-1500:]
+    return f"{side}: started; " + (r.stdout.strip().splitlines() or [""])[-1].removeprefix(f"arm up {side}: "), None
 
 
 def _service_status(side):

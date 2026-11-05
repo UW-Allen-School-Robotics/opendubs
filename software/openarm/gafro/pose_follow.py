@@ -140,7 +140,11 @@ def behave(robot, side: str, controllers: dict, source, follow_controller, reach
         following = wanted
 
 
-def follow(robot, side: str, controllers: dict, source, lease, cancel: threading.Event, withheld, limits: trajectory.Limits = dataclasses.replace(trajectory.Limits(), max_joint_speed=2.5), log=print, reach=None,
+#: Following's limits: the trajectory's, with its own vibration stop. The arm service replaces the force limit with its own (`--max-torque`).
+LIMITS = dataclasses.replace(trajectory.Limits(), max_joint_speed=2.5)
+
+
+def follow(robot, side: str, controllers: dict, source, lease, cancel: threading.Event, withheld, limits: trajectory.Limits = LIMITS, log=print, reach=None,
            status=lambda text: None) -> str:
     """Follow until the run ends; returns why. `lease` is this run's share of the permit (started here, released on every way out); `withheld()` is how many permit renewals the
     gate has refused so far. With a `reach` (reach.py) the target is followed only while it is inside it (`behave`); without one, as far as the joint limits allow."""

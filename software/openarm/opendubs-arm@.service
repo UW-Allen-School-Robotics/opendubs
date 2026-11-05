@@ -3,8 +3,11 @@
 # See software/openarm/gafro/arm_service.py and the README beside this file.
 Description=OpenDubs arm service (%i arm, gafro)
 # This arm's CAN link, raised by openarm-can@.service when udev sees the channel (arm_left / arm_right).
-Requires=openarm-can@arm_%i.service
+# Wants=, not Requires=: the preflight restarts this link when it is in error, and a restart of a Requires= dependency is propagated to this unit, which is mid-start.
+Wants=openarm-can@arm_%i.service
 After=openarm-can@arm_%i.service network.target
+# `/joint_states` of both arms in one message comes from this unit (the arm services publish `/<side>/joint_states`); it is started with the first arm and left running.
+Wants=opendubs-joint-states.service
 
 # NOT enabled at boot, on purpose: there is no [Install] section. Starting the service enables the arm's motors and holds it where it is, and
 # `openarm-up` kept the arms inactive until someone asked ("the arms never power up by themselves"). A start at boot would also meet an arm
@@ -20,6 +23,9 @@ User=kiosk
 # What is per robot, and not overwritten by a deploy: the checkout the service runs from, the driver's config, the stow file. A template is
 # opendubs-arm.env.example.
 EnvironmentFile=-/etc/opendubs/arm-service.env
+# Before the service starts, as root (the `+`): the old stack is not running, the bundle and the DDS profile are there, and this arm's CAN link is ERROR-ACTIVE (a link in
+# ERROR-WARNING / ERROR-PASSIVE / BUS-OFF is restarted, which moves nothing: `openarm-up` did this, and nothing else does). A failure here is one line saying what to fix.
+ExecStartPre=+/usr/local/lib/opendubs/opendubs-arm-preflight %i
 ExecStart=/usr/local/lib/opendubs/opendubs-arm %i
 
 # One directory for both arms' command sockets (the service default is <dir>/opendubs-arm-service-<side>.sock). It is kept when one arm's

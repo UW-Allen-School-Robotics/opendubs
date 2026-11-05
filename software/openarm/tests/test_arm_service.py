@@ -303,6 +303,17 @@ def test_the_tracking_limit_is_the_trajectory_default_unless_the_service_is_give
     assert wider.max_error == 0.5 and wider.max_speed == trajectory.Limits().max_speed, wider
 
 
+def test_the_force_limit_is_the_trajectory_default_unless_the_service_is_given_one():
+    """opendubs2 runs 25 N m (OPENDUBS_ARM_MAX_TORQUE). The service's limits carry it to its trajectories; following takes pose_follow.LIMITS with this force limit."""
+    from types import SimpleNamespace as NS
+
+    base = dict(side="left", backend="mujoco", hardware_config="", dashboard="x")
+    assert arm_service.ArmService(None, NS(**base)).limits.max_torque == trajectory.Limits().max_torque == 12.0
+    service = arm_service.ArmService(None, NS(**base, max_torque=25.0))
+    assert service.limits.max_torque == 25.0 and service.limits.max_error == trajectory.Limits().max_error, service.limits
+    assert pose_follow.LIMITS.max_joint_speed == 2.5 and pose_follow.LIMITS.max_torque == 12.0, pose_follow.LIMITS
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for test in tests:

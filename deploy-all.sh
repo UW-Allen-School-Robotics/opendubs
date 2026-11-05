@@ -59,6 +59,12 @@ deploy_sub software/head-protocol   head-protocol  # the head's protocol and loo
 # installed by provision-all.sh and stays idle until /etc/opendubs/network.env exists on the robot.
 [ -d "$REPO/tools/network" ] && deploy_sub tools/network network
 deploy_sub software/openarm         openarm   # copied only; provision with openarm/provision-openarm.sh
+# The arm service's bundle, /opt/opendubs/arm: this repository's own layout for what opendubs-arm@.service needs, so that the model (description/openarm/gafro) and the
+# clearance twin (sim/) are found by the same relative paths as in a checkout, and no checkout is needed on the robot. software/openarm is the copy above, linked in
+# (python reads __file__ without resolving the link, so the four-directories-up rule still lands on /opt/opendubs/arm).
+ssh "$HOST" "mkdir -p $DEST/arm/software $DEST/arm/description && ln -sfn $DEST/openarm $DEST/arm/software/openarm"
+deploy_sub description/openarm      arm/description/openarm
+deploy_sub sim                      arm/sim
 deploy_sub firmware/common         common    # shared firmware code; rc_serial_probe/lib/ota_verify links here
 # main.cpp used to carry each robot's calibration inline, and deploys skipped it; now it is an
 # ordinary deployed file and the values are in the robot's src/robot_config.h. Before the first such
