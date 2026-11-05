@@ -128,10 +128,11 @@ def arms_status() -> JSONResponse:
 def arms_op(op: str, arm: str = "both") -> JSONResponse:
     """Run one arm operation, in the background, one at a time.
 
-    park, hold, activate and down go to the arm service (software/openarm/gafro/arm_service.py) over
-    its socket; it owns the guards, and refuses what a person at the e-stop, CH5, CH6 or the start
-    pose do not allow. START brings that arm's service up through its systemd unit. There is no
-    fallback to `openarm-up`, and the dashboard has no other way to move an arm.
+    One controller has both arms (openarm.py, arm_handover.py): the ROS 2 stack, the gafro arm
+    service, or none. park, hold, ready and the rest go to that controller only, and a word it
+    cannot do is refused with the reason, never sent to the other stack. use-ros2, use-gafro,
+    to-ros2, to-gafro and release change the controller, both arms together, in steps that each say
+    what the arms do (/api/arms/status `op.steps`).
 
     Returns immediately: `activate` alone waits up to 10 s for the gripper motor, and an HTTP
     request held open that long is a browser timeout waiting to happen. Poll /api/arms/status.
@@ -143,9 +144,8 @@ def arms_op(op: str, arm: str = "both") -> JSONResponse:
         # not a queue -- and 400 for a malformed one.
         code = 409 if "still running" in detail else 400
         return JSONResponse({"ok": False, "error": detail,
-                             "hint": ("arm operations go to the arm service (one per arm, "
-                                      "software/openarm/opendubs-arm@.service): START it first; the START button needs "
-                                      "the opendubs-arm sudoers rule")}, status_code=code)
+                             "hint": ("arm operations go to the controller that has the arms: "
+                                      "choose one first (use-ros2 or use-gafro)")}, status_code=code)
     return JSONResponse({"ok": True, "started": detail, "poll": "/api/arms/status"})
 
 

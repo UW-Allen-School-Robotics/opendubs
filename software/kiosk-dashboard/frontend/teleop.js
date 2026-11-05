@@ -114,31 +114,32 @@ async function boot() {
  * disabled meanwhile (one arm action at a time -- a second would be refused with 409), and a press
  * that is refused anyway says so instead of looking like success. */
 const ARM_BUTTONS = [
-  // One tap for the three steps a show needs, per arm or both: START (enables the motors), SUPERVISE (the person's word that they are at the e-stop) and ACTIVATE (to ready). The
-  // confirmation names all three, because the second is an attestation. The first refusal stops the chain; nothing runs while a show does.
-  { id: "btnArmPrepL",    url: "/api/arms/prepare?arm=left",  op: "prepare left",  confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE L" },
-  { id: "btnArmPrepR",    url: "/api/arms/prepare?arm=right", op: "prepare right", confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE R" },
-  { id: "btnArmPrepBoth", url: "/api/arms/prepare?arm=both",  op: "prepare both",  confirm: "ENERGIZES · I AM AT THE E-STOP · MOVES TO READY", pending: "PREPARING…", label: "PREPARE BOTH" },
-  { id: "btnArmPark",  url: "/api/arms/park?arm=both",      op: "park both",      confirm: "CONFIRM PARK",  pending: "PARKING…",    label: "PARK BOTH" },
-  { id: "btnArmHoldL", url: "/api/arms/hold?arm=left",      op: "hold left",      confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD L", instant: true },
-  { id: "btnArmHoldR", url: "/api/arms/hold?arm=right",     op: "hold right",     confirm: "CONFIRM HOLD",  pending: "HOLDING…",    label: "HOLD R", instant: true },
-  // Brings that arm's service up (systemctl start opendubs-arm@<side>): it ENABLES the arm's motors and holds it where it is, and moves nothing. Every other button here needs it.
-  { id: "btnArmStartL", url: "/api/arms/start?arm=left",   op: "start left",     confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START L" },
-  { id: "btnArmStartR", url: "/api/arms/start?arm=right",  op: "start right",    confirm: "ENERGIZES ARM",  pending: "STARTING…",   label: "START R" },
+  // ONE CONTROLLER FOR BOTH ARMS (backend arm_handover.py). `act` is the action the backend's `stack.unavailable` names: a button whose controller cannot do it is disabled
+  // and its card says why, in words (a tablet has no hover). Every label says what the ARMS do.
+  // Choosing a controller when none has the arms (after a boot): the arms stiffen where they are and do not move.
+  { id: "btnUseRos2",  url: "/api/arms/use-ros2",  op: "use-ros2",  act: "use-ros2",  card: "Ctl", confirm: "ARMS STIFFEN WHERE THEY ARE", pending: "STARTING ROS 2…", label: "USE ROS 2 · arms stiffen where they are" },
+  { id: "btnUseGafro", url: "/api/arms/use-gafro", op: "use-gafro", act: "use-gafro", card: "Ctl", confirm: "ARMS STIFFEN WHERE THEY ARE", pending: "STARTING GAFRO…", label: "USE GAFRO · arms stiffen where they are" },
+  // The handover: the arms move to stow under the old controller (hold the deadman), then rest there while it stops and the new one takes them. Its steps show below as it goes.
+  { id: "btnToRos2",  url: "/api/arms/to-ros2",  op: "to-ros2",  act: "to-ros2",  card: "Ctl", confirm: "ARMS MOVE TO STOW · HOLD THE DEADMAN", pending: "HANDING OVER…", label: "HAND ARMS TO ROS 2 · park, then rest at stow" },
+  { id: "btnToGafro", url: "/api/arms/to-gafro", op: "to-gafro", act: "to-gafro", card: "Ctl", confirm: "ARMS MOVE TO STOW · HOLD THE DEADMAN", pending: "HANDING OVER…", label: "HAND ARMS TO GAFRO · park, then rest at stow" },
+  // To no controller: the arms go limp. Refused unless both read at stow.
+  { id: "btnArmRelease", url: "/api/arms/release", op: "release", act: "release", card: "Ctl", confirm: "ARMS GO LIMP", pending: "RELEASING…", label: "RELEASE · arms go limp at stow" },
+  { id: "btnArmPark", url: "/api/arms/park?arm=both", op: "park both", act: "park", card: "Both", confirm: "ARMS MOVE TO STOW", pending: "PARKING…", label: "PARK · arms move to stow" },
+  // Stiff where they are: under gafro its hold; under ROS 2 an active arm is held at its pose and an inactive one activated in place. Never kept waiting by a running move.
+  { id: "btnArmHold", url: "/api/arms/hold?arm=both", op: "hold both", act: "hold", card: "Both", confirm: "CONFIRM HOLD", pending: "HOLDING…", label: "HOLD · stiff where they are", instant: true },
+  // gafro's alone. PREPARE: the person's word that they are at the e-stop, then each arm to ready; the confirmation names both. Nothing runs while a show does.
+  { id: "btnArmPrepBoth", url: "/api/arms/prepare?arm=both", op: "prepare both", act: "prepare", card: "Gafro", confirm: "I AM AT THE E-STOP · ARMS MOVE TO READY", pending: "PREPARING…", label: "PREPARE FOR A SHOW · I am at the e-stop, arms move to ready" },
   // The attestation the arm service wants before any moving command: a person is at the e-stop, head tracking is off and the neck centred. Shown only while the
   // service answers, and only the one that applies. Ending it only takes capability away, so it never waits for a running move.
-  { id: "btnArmSupL",   url: "/api/arms/supervise?arm=left",    op: "supervise left",    confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE L",       sup: { side: "left",  on: true } },
-  { id: "btnArmSupR",   url: "/api/arms/supervise?arm=right",   op: "supervise right",   confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE R",       sup: { side: "right", on: true } },
-  { id: "btnArmUnsupL", url: "/api/arms/unsupervise?arm=left",  op: "unsupervise left",  confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION L", sup: { side: "left",  on: false }, instant: true },
-  { id: "btnArmUnsupR", url: "/api/arms/unsupervise?arm=right", op: "unsupervise right", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION R", sup: { side: "right", on: false }, instant: true },
-  { id: "btnArmActL",  url: "/api/arms/activate?arm=left",  op: "activate left",  confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE L" },
-  { id: "btnArmActR",  url: "/api/arms/activate?arm=right", op: "activate right", confirm: "MOVES TO READY", pending: "ACTIVATING…", label: "ACTIVATE R" },
+  { id: "btnArmSupL",   url: "/api/arms/supervise?arm=left",    op: "supervise left",    act: "supervise", card: "Gafro", confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE L",       sup: { side: "left",  on: true } },
+  { id: "btnArmSupR",   url: "/api/arms/supervise?arm=right",   op: "supervise right",   act: "supervise", card: "Gafro", confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE R",       sup: { side: "right", on: true } },
+  { id: "btnArmUnsupL", url: "/api/arms/unsupervise?arm=left",  op: "unsupervise left",  act: "supervise", card: "Gafro", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION L", sup: { side: "left",  on: false }, instant: true },
+  { id: "btnArmUnsupR", url: "/api/arms/unsupervise?arm=right", op: "unsupervise right", act: "supervise", card: "Gafro", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION R", sup: { side: "right", on: false }, instant: true },
+  { id: "btnArmActL",  url: "/api/arms/ready?arm=left",  op: "activate left",  act: "ready", card: "Gafro", confirm: "ARM MOVES TO READY", pending: "MOVING…", label: "READY L · moves to ready" },
+  { id: "btnArmActR",  url: "/api/arms/ready?arm=right", op: "activate right", act: "ready", card: "Gafro", confirm: "ARM MOVES TO READY", pending: "MOVING…", label: "READY R · moves to ready" },
   // The hand follows the pose target the viewer (or the ROS bridge) publishes. The service refuses it until SUPERVISE, and `hold`, CH6 or the e-stop ends it.
-  { id: "btnArmFollowL", url: "/api/arms/follow?arm=left",  op: "follow left",  confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW L" },
-  { id: "btnArmFollowR", url: "/api/arms/follow?arm=right", op: "follow right", confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW R" },
-  { id: "btnArmDown",  url: "/api/arms/down",               op: "down both",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE" },
-  { id: "btnArmDownL", url: "/api/arms/down?arm=left",     op: "down left",      confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE L" },
-  { id: "btnArmDownR", url: "/api/arms/down?arm=right",    op: "down right",     confirm: "CONFIRM DROP",  pending: "STOPPING…",   label: "DE-ENERGIZE R" },
+  { id: "btnArmFollowL", url: "/api/arms/follow?arm=left",  op: "follow left",  act: "follow", card: "Gafro", confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW L · hand follows target" },
+  { id: "btnArmFollowR", url: "/api/arms/follow?arm=right", op: "follow right", act: "follow", card: "Gafro", confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW R · hand follows target" },
   // Reads only (`arm doctor`): is the service up, is /joint_states publishing, is a viewer on the graph. It finds things, so its words are shown whatever its status was.
   { id: "btnArmDoctorL", url: "/api/arms/doctor?arm=left",  op: "doctor left",  confirm: "RUN CHECK", pending: "CHECKING…", label: "CHECK L", report: true },
   { id: "btnArmDoctorR", url: "/api/arms/doctor?arm=right", op: "doctor right", confirm: "RUN CHECK", pending: "CHECKING…", label: "CHECK R", report: true },
@@ -148,6 +149,7 @@ const ARM_BUTTONS = [
   { id: "btnArmRelinkR", url: "/api/arms/relink?arm=right", op: "relink right", confirm: "CONFIRM RESTART", pending: "RESTARTING…", label: "RESTART LINK R", side: "right" },
 ];
 let lastService = null;        // /api/arms/status "service": per arm, the arm service's status text (null if it does not answer)
+let lastStack = null;          // /api/arms/status "stack": {name, why, controller: ros2|gafro|none|conflict, label, unavailable: {action: reason|null}}
 let lastLinks = null;          // /api/arms/status "links": per arm, its CAN link and any message
 let lastOp = null;             // the backend's op, from the last status poll
 let lastViewers = null;        // /api/arms/status "viewers": per arm, {state: stopped|starting|running|failed, port, error}
@@ -179,8 +181,9 @@ function paintArmButtons() {
     }
     const f = flash[b.id];
     const mine = running ? lastOp.name === b.op : !!(requested && requested.id === b.id);
+    const off = offReason(b);
     el.classList.toggle("busy", mine);
-    el.disabled = !b.instant && (running || !!requested);          // one arm action at a time, except the ones that only stop
+    el.disabled = !mine && (!!off || (!b.instant && (running || !!requested)));   // one arm action at a time, except the ones that only stop
     if (mine) {
       el.textContent = running ? `${b.pending} ${Math.round(lastOp.elapsed || 0)} s` : b.pending;
       el.title = "";
@@ -188,9 +191,68 @@ function paintArmButtons() {
       el.textContent = f.text;
     } else {
       el.textContent = b.label;
-      el.title = running ? `waits for: ${lastOp.name} (${Math.round(lastOp.elapsed || 0)} s)` : "";
+      el.title = off || (running ? `waits for: ${lastOp.name} (${Math.round(lastOp.elapsed || 0)} s)` : "");
     }
   }
+  paintOffReasons();
+}
+
+/* Why a button is off: the controller that has the arms cannot do it (stack.unavailable), in the backend's words. Unknown until the first poll: everything is off then. */
+function offReason(b) {
+  if (!b.act) return null;
+  if (!lastStack || !lastStack.unavailable) return "waiting for the arm status";
+  return lastStack.unavailable[b.act] || null;
+}
+
+/* Each card says, in words, why its buttons are off: a tablet has no hover. One line when they share a reason, else one per button. */
+function paintOffReasons() {
+  const cards = {};
+  for (const b of ARM_BUTTONS) {
+    const el = $(b.id);
+    if (!b.card || !el || el.hidden) continue;
+    const off = offReason(b);
+    if (off) (cards[b.card] = cards[b.card] || []).push([b.label.split(" · ")[0], off]);
+  }
+  const teleopOff = lastStack && lastStack.unavailable ? lastStack.unavailable.teleop : null;
+  const start = $("btnTeleopStart");
+  if (start && !start.classList.contains("armed")) start.disabled = !!teleopOff && !teleopUp;
+  if (teleopOff && !teleopUp) cards.Teleop = [["START", teleopOff]];
+  const conflict = !!(lastStack && lastStack.controller === "conflict");
+  for (const card of ["Ctl", "Both", "Teleop", "Gafro"]) {
+    const box = $("tpOff" + card);
+    if (!box) continue;
+    const rows = cards[card] || [];
+    const same = rows.length > 0 && rows.every((r) => r[1] === rows[0][1]);
+    // A CONFLICT is said once, on the CONTROLLER card; the others point to it.
+    box.textContent = conflict && card !== "Ctl" && rows.length ? "off: CONFLICT (see CONTROLLER)"
+      : same && rows.length > 1 ? rows[0][1] : rows.map(([label, why]) => `${label}: ${why}`).join("\n");
+    box.className = "sub tp-off" + (conflict && card === "Ctl" ? " badx" : "");
+  }
+}
+
+/* The controller, as a badge, with what it means; and while a change of controller runs (or after it ended), its steps, each with what the arms do. */
+function paintController() {
+  const c = lastStack;
+  const el = $("tpCtl"), why = $("tpCtlWhy");
+  if (el) {
+    el.textContent = c ? c.label : "—";
+    el.className = "badge " + (!c ? "dimbadge" : c.controller === "conflict" ? "bad" : c.controller === "none" ? "dimbadge" : "good");
+  }
+  if (why) why.textContent = c ? (c.controller === "none" ? "no controller has the arms: they are limp. Choose one." : c.why) : "—";
+  const box = $("tpSteps");
+  if (!box) return;
+  const steps = (lastOp && lastOp.steps) || [];
+  box.hidden = steps.length === 0;
+  box.innerHTML = "";
+  const MARK = { pending: "·", running: "▶", done: "✓", skipped: "–", failed: "✗" };
+  const CLS = { running: "warnx", done: "ok", failed: "badx" };
+  steps.forEach((s, i) => {
+    const d = document.createElement("div");
+    d.className = CLS[s.state] || "sub";
+    d.style.whiteSpace = "pre-line";
+    d.textContent = `${MARK[s.state] || "·"} ${i + 1}. ${s.title}\n    ${s.arms}` + (s.note ? `\n    ${s.note}` : "");
+    box.append(d);
+  });
 }
 /* The viewer (viser) is its own thing and not an arm action: it moves nothing, so it takes no confirmation and does not wait for a running move. One button per arm: it starts
  * the viewer, and once that runs it opens it (this host's address, the viewer's port) in a new tab; STOP VIEWER shows only while this dashboard's own viewer runs. */
@@ -237,7 +299,7 @@ function opOf(id) { const b = ARM_BUTTONS.find((x) => x.id === id); return b ? b
 
 function noteArm(text, cls) {
   let n = $("tpArmNote");
-  const anchor = $("btnArmDown");
+  const anchor = $("btnArmHold");
   if (!n && anchor && anchor.parentElement) {
     n = document.createElement("div");
     n.id = "tpArmNote";
@@ -262,7 +324,7 @@ async function onArmResponse(b, r) {
 }
 
 function ensureRelinkButtons() {
-  const anchor = $("btnArmDown");
+  const anchor = $("btnArmHold");
   if (!anchor) return;
   for (const b of ARM_BUTTONS) {
     if (!b.side || $(b.id)) continue;
@@ -399,6 +461,7 @@ async function pollStatus() {
       lastOp = s.op || null;
       lastLinks = s.links || null;
       lastService = s.service || null;
+      lastStack = s.stack || null;
       lastViewers = s.viewers || null;
       paintViewers();
       feedFromService();
@@ -413,8 +476,9 @@ async function pollStatus() {
         }
       }
       if (lastOp && lastOp.running) noteArm(`${lastOp.name} running — ${Math.round(lastOp.elapsed || 0)} s. Other arm buttons wait until it finishes.`, "warnx");
-      paintArmButtons();
       paintStatus(s);
+      paintArmButtons();
+      paintController();
       // Shared, so the Operate page's ARMS tile needs no second poller: every read of this endpoint
       // also queries the motors over the arms' own CAN bus.
       window.dispatchEvent(new CustomEvent("opendubs-arms", { detail: s }));

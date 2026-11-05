@@ -1,5 +1,6 @@
-"""The dashboard's arm operations go to the arm service over its socket, and nowhere else: no `openarm-up` for park, activate, hold or down, and no fallback when there is no
-service. A fake service speaks the real protocol (arm_client.py). No robot, no ROS, no root."""
+"""The dashboard's arm operations go to the controller that has the arms, and nowhere else: under gafro the arm service over its socket, under ROS 2 `openarm-up`, and with no
+controller (or a conflict) nothing, with the reason. A fake service speaks the real protocol (arm_client.py). No robot, no ROS, no root. The changes of controller themselves
+are tested in test_arm_handover.py."""
 import json
 import os
 import socketserver
@@ -107,8 +108,8 @@ def test_no_service_is_a_refusal_and_not_a_fallback(arms):
 
 
 def test_nothing_served_at_all(arms):
-    ok, detail = openarm.start_op("down", "both")
-    assert not ok and "no arm stack is running" in detail, detail
+    ok, detail = openarm.start_op("park", "both")
+    assert not ok and "no controller has the arms" in detail, detail
 
 
 def test_the_services_refusal_reaches_the_operator(arms):
@@ -130,7 +131,7 @@ def test_a_dead_service_with_a_stale_socket(arms):
     arms("right").stop()                      # the socket file stays, nothing answers: that is no arm stack, and nothing is sent
     for word in ("park", "hold"):
         ok, detail = openarm.start_op(word, "right")
-        assert not ok and "no arm stack is running" in detail, (word, ok, detail)
+        assert not ok and "no controller has the arms" in detail, (word, ok, detail)
 
 
 def test_the_snapshot_shows_each_service(arms, monkeypatch):
@@ -164,12 +165,13 @@ class Unit:
         raise AssertionError(f"unexpected command {argv}")
 
 
+# Starting a unit is one step of Use gafro (both arms): `_start_unit` is what that step runs for each arm.
+
 def test_start_runs_exactly_what_the_sudoers_rule_allows_and_waits_for_the_service(arms, monkeypatch):
     unit = Unit(arms, "right")
     monkeypatch.setattr(openarm, "_run", unit)
-    assert openarm.start_op("start", "right")[0]
-    op = wait()
-    assert op["rc"] == 0 and op["error"] is None and "started" in op["out"], op
+    out, error = openarm._start_unit("right")
+    assert error is None and "started" in out, (out, error)
     assert unit.calls[0] == ["sudo", "-n", "/usr/bin/systemctl", "start", "opendubs-arm@right.service"], unit.calls[0]
 
 
@@ -177,36 +179,31 @@ def test_start_does_nothing_for_a_service_already_up(arms, monkeypatch):
     arms("right")
     unit = Unit(arms, "right")
     monkeypatch.setattr(openarm, "_run", unit)
-    assert openarm.start_op("start", "right")[0]
-    op = wait()
-    assert op["rc"] == 0 and "already running" in op["out"] and unit.calls == [], (op, unit.calls)
-
-
-def test_start_is_per_arm(arms, monkeypatch):
-    monkeypatch.setattr(openarm, "_run", Unit(arms, "right"))
-    ok, detail = openarm.start_op("start", "both")
-    assert not ok and "per arm" in detail
+    out, error = openarm._start_unit("right")
+    assert error is None and "already running" in out and unit.calls == [], (out, unit.calls)
 
 
 def test_a_refused_sudo_says_which_rule(arms, monkeypatch):
     monkeypatch.setattr(openarm, "_run", Unit(arms, "right", rc=1, stderr="sudo: a password is required"))
-    assert openarm.start_op("start", "right")[0]
-    op = wait()
-    assert op["rc"] == 1 and "password is required" in op["error"] and "opendubs-arm.sudoers" in op["error"], op
+    out, error = openarm._start_unit("right")
+    assert "password is required" in error and "opendubs-arm.sudoers" in error, error
 
 
 def test_a_unit_that_ends_before_it_answers_is_reported_at_once(arms, monkeypatch):
     unit = Unit(arms, "right", comes_up=False, state={"ActiveState": "failed", "Result": "exit-code", "ExecMainStatus": "2"})
     monkeypatch.setattr(openarm, "_run", unit)
     began = time.time()
-    assert openarm.start_op("start", "right")[0]
-    op = wait()
-    assert op["rc"] == 1 and "exit status 2" in op["error"] and "old arm stack" in op["error"], op
+    out, error = openarm._start_unit("right")
+    assert "exit status 2" in error and "old arm stack" in error, error
     assert time.time() - began < 10, "it waited out the whole timeout for a unit that had already failed"
 
 
-def test_there_is_no_stop(arms):
-    assert not openarm.start_op("stop", "right")[0], "`systemctl stop` would end the service without the not-at-stow refusal that `down` has"
+def test_there_is_no_per_arm_start_or_stop(arms):
+    """One controller for both arms: a unit is started or stopped only by a change of controller, which takes both."""
+    for word in ("start", "stop", "up", "down"):
+        assert not openarm.start_op(word, "right")[0], word
+    ok, detail = openarm.start_op("use-gafro", "right")
+    assert not ok and "both arms" in detail, detail
 
 
 def test_supervise_says_so_to_the_service(arms):
@@ -238,7 +235,7 @@ def test_hold_and_end_supervision_are_not_kept_waiting_by_a_running_move(arms):
 
 def test_a_hold_with_no_service_says_so_at_once(arms):
     ok, detail = openarm.start_op("hold", "right")
-    assert not ok and "no arm stack is running" in detail
+    assert not ok and "no controller has the arms" in detail
 
 
 def test_effector_status_reports_each_arm_from_its_service(arms):
@@ -390,7 +387,7 @@ def test_the_stack_is_named_by_what_runs(arms, monkeypatch):
 
 
 def test_under_the_ros_stack_the_arm_words_go_to_openarm_up(ros):
-    for word, argv in (("park", ["openarm-up", "park", "left"]), ("activate", ["openarm-up", "activate", "left"]), ("hold", ["openarm-up", "hold", "left"])):
+    for word, argv in (("park", ["openarm-up", "park", "left"]), ("hold", ["openarm-up", "hold", "left"])):
         ros.clear()
         ok, detail = openarm.start_op(word, "left")
         assert ok, detail
@@ -401,7 +398,10 @@ def test_under_the_ros_stack_the_arm_words_go_to_openarm_up(ros):
 def test_the_arm_services_own_words_are_refused_under_the_ros_stack(ros):
     for word in ("follow", "supervise", "unsupervise", "prepare"):
         ok, detail = openarm.start_op(word, "right")
-        assert not ok and "arm service's" in detail, (word, detail)
+        assert not ok and "gafro's alone" in detail, (word, detail)
+    for word in ("ready", "activate"):            # READY is gafro's pose; under ROS 2, HOLD stiffens the arms where they are
+        ok, detail = openarm.start_op(word, "right")
+        assert not ok and "no ready pose" in detail, (word, detail)
     assert not ros, "nothing was run"
 
 
@@ -409,15 +409,17 @@ def test_under_the_ros_stack_the_runner_reads_the_motors_itself(ros):
     assert openarm.effector_status() is None
 
 
-def test_start_is_refused_beside_the_ros_stack(ros):
-    ok, detail = openarm.start_op("start", "right")
-    assert not ok and "openarm-up down" in detail and not ros, (detail, ros)
+def test_choosing_a_controller_is_refused_while_one_has_the_arms(ros):
+    ok, detail = openarm.start_op("use-gafro", "both")
+    assert not ok and "ROS 2 has the arms" in detail and not ros, (detail, ros)
+    ok, detail = openarm.start_op("to-ros2", "both")
+    assert not ok and "already has the arms" in detail and not ros, (detail, ros)
 
 
-def test_up_is_refused_beside_an_arm_service(arms):
+def test_the_quest_teleop_is_refused_under_gafro(arms, monkeypatch):
     arms("right")
-    ok, detail = openarm.start_op("up", "right")
-    assert not ok and "ROS stack" in detail, detail
+    ok, detail = openarm.teleop("start")
+    assert not ok and "ROS 2 stack's controllers" in detail, detail
 
 
 def test_both_stacks_up_is_down_with_the_reason_and_nothing_moves(arms, monkeypatch):
@@ -426,18 +428,19 @@ def test_both_stacks_up_is_down_with_the_reason_and_nothing_moves(arms, monkeypa
     eff = openarm.effector_status()
     for part in ("arm_left", "arm_right", "grip_left", "grip_right"):
         assert eff[part]["state"] == "down" and "two senders" in eff[part]["why"], (part, eff[part])
-    for word in ("park", "hold", "activate", "down", "prepare"):
-        ok, detail = openarm.start_op(word, "right")
-        assert not ok and "two senders" in detail, (word, detail)
+    for word in ("park", "hold", "activate", "prepare", "release", "use-ros2", "to-gafro"):
+        ok, detail = openarm.start_op(word, "both")
+        assert not ok and "CONFLICT" in detail and "two senders" in detail, (word, detail)
+    assert openarm.controller_view()["controller"] == "conflict"
 
 
-def test_no_stack_is_down_with_the_reason_but_start_is_allowed(arms, monkeypatch):
+def test_no_controller_is_down_with_the_reason_and_only_choosing_one_is_allowed(arms, monkeypatch):
     eff = openarm.effector_status()
-    assert all(v["state"] == "down" and "no arm stack is running" in v["why"] for v in eff.values()), eff
-    assert not openarm.start_op("park", "right")[0]
-    monkeypatch.setattr(openarm, "_start_unit", lambda side: (f"{side}: started", None))
-    assert openarm.start_op("start", "right")[0]
-    wait()
+    assert all(v["state"] == "down" and "no controller has the arms" in v["why"] for v in eff.values()), eff
+    for word in ("park", "hold", "ready", "release", "to-ros2", "to-gafro"):
+        assert not openarm.start_op(word, "both")[0], word
+    view = openarm.controller_view()
+    assert view["label"] == "none" and view["unavailable"]["use-ros2"] is None and view["unavailable"]["use-gafro"] is None, view
 
 
 def test_a_stack_that_cannot_be_told_moves_nothing(arms, monkeypatch):
@@ -445,3 +448,20 @@ def test_a_stack_that_cannot_be_told_moves_nothing(arms, monkeypatch):
     monkeypatch.setattr(openarm, "_ros_running", lambda: None)
     assert "cannot tell" in openarm.start_op("hold", "right")[1]
     assert all(v["state"] == "down" for v in openarm.effector_status().values())
+
+
+def test_at_stow_reads_the_stow_file_against_openarm_motors(tmp_path, monkeypatch):
+    """What lets RELEASE and the handover rest the arms limp: a wrong read here drops an arm away from stow."""
+    import subprocess
+    stow = tmp_path / "stow.conf"
+    stow.write_text("LEFT_STOW=0,10,0,90,0,0,0\nRIGHT_STOW=0,-10,0,90,0,0,0\n")
+    monkeypatch.setattr(openarm, "STOW_CONF", str(stow))
+    rows = lambda side, j2: "".join(f"  id {i} (joint {i})  ENABLED             pos {v:+8.2f} deg  MOS  30C  rotor  28C\n"
+                                    for i, v in enumerate([0, j2, 0, 90, 0, 0, 0], 1))
+    status = "arm_left\n" + rows("left", 12.0) + "  id 8 (gripper)  ENABLED  pos    +1.00 deg  MOS  30C  rotor  28C\narm_right\n" + rows("right", 40.0)
+    monkeypatch.setattr(openarm, "_run", lambda argv, timeout: subprocess.CompletedProcess(argv, 0, status, ""))
+    io = openarm._HandoverIo()
+    assert io.at_stow("left") is True, "2 degrees off is within the 5 degree tolerance"
+    assert io.at_stow("right") is False, "J2 at +40 is not the right arm's -10"
+    stow.write_text("LEFT_STOW=\n")
+    assert io.at_stow("left") is None, "no stow pose is not 'at stow'"

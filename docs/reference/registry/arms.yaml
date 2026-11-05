@@ -7,14 +7,14 @@
 entries:
   # ---- the arms won't activate ---------------------------------------------------------------
   - code: ARM_POWER_RESTORED
-    title: ACTIVATE recovered the arm after a power loss
+    title: HOLD recovered the arm after a power loss
     symptom: arms-wont-activate
     rank: 5
     kind: info
     seen_on: [dashboard]
     means: >
       After an e-stop, or any loss of the arms' power, the motors come back disabled while the arm
-      stack still has the arm marked active. ACTIVATE recognises that state — every motor
+      stack still has the arm marked active. HOLD recognises that state — every motor
       answering, none enabled, none faulted — resets just that arm, and activates it as usual.
     do:
       - Nothing. The press already recovered the arm; its output says so before the normal activation.
@@ -82,13 +82,34 @@ entries:
     do:
       - Check that arm's CAN cable at both ends, and its power (the e-stop released, the contactor closed).
       - >
-        Press RESTART LINK for that arm, then ACTIVATE. RESTART LINK moves nothing. It's offered
+        Press RESTART LINK for that arm, then HOLD. RESTART LINK moves nothing. It's offered
         only while the link is the problem, and it's refused during a show or while the arm is
         energized.
       - >
         If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged
         or its driver isn't loaded. Check its USB cable at the robot's computer.
     see: [openarm-setup.md#troubleshooting]
+
+  - code: ARM_OTHER_CONTROLLER
+    title: Another arm controller is running on that arm
+    symptom: arms-wont-activate
+    rank: 22
+    kind: fault
+    seen_on: [dashboard]
+    means: >
+      Something other than this arm stack is commanding the arm: the gafro arm service
+      (`opendubs-arm@left` or `@right`), or another program sending motor commands on that arm's CAN
+      bus. Two controllers on one arm fight, so nothing starts the ROS 2 stack until there is only one.
+      This message moves nothing.
+    do:
+      - >
+        To hand both arms from the gafro service to this stack, press **Hand arms to ROS 2** on the
+        dashboard's Arms page, with a person at the e-stop holding the deadman. It parks the arms
+        under gafro, stops the service, and activates the arms here.
+      - >
+        If no gafro service is named, run `openarm-motors senders arm_left` (or `arm_right`). It
+        listens and sends nothing, and says what is commanding the arm. Stop that program first.
+    see: [openarm-setup.md#one-controller-for-both-arms]
 
   - code: ARM_STACK_START_FAILED
     title: The arm stack did not start
@@ -114,7 +135,7 @@ entries:
       gripper is last in each arm's chain.
     do:
       - Check that the e-stop is released and the drive contactor is closed — the arms are on the drive bus.
-      - Press ACTIVATE again.
+      - Press HOLD again (USE ROS 2 if no controller has the arms).
       - If they still do not answer, `openarm-motors status` on the robot's computer lists the silent motors.
     see: [arm-dashboard.md#arm-motors-silent, e-stop.md]
 
@@ -130,7 +151,7 @@ entries:
     do:
       - >
         Press and release the e-stop to power-cycle the arms. Once the contactor is closed again,
-        restart both CAN links (see `ARM_CAN_NOT_READY`), then press ACTIVATE.
+        restart both CAN links (see `ARM_CAN_NOT_READY`), then press HOLD (USE ROS 2 if no controller has the arms).
     see: [arm-dashboard.md#arm-motor-fault]
 
   - code: ARM_MOTORS_DISABLED
@@ -143,7 +164,7 @@ entries:
       The arms lost power and got it back, and the motors restarted disabled under an arm the stack
       still marks active — a case the automatic reset did not cover.
     do:
-      - Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm.
+      - Press **RELEASE** and tap it again to confirm, then **USE ROS 2**.
     see: [arm-dashboard.md#arm-motors-disabled]
 
   - code: ARM_RESET_FAILED
@@ -153,9 +174,9 @@ entries:
     kind: fault
     seen_on: [dashboard]
     means: >
-      ACTIVATE tried to reset the arm after a power loss, and the arm did not go inactive.
+      HOLD tried to reset the arm after a power loss, and the arm did not go inactive.
     do:
-      - Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm.
+      - Press **RELEASE** and tap it again to confirm, then **USE ROS 2**.
     see: [arm-dashboard.md#arm-reset-failed]
 
   - code: ARM_PARTIAL_ENABLE
@@ -167,7 +188,7 @@ entries:
     means: >
       The arm's hardware went active, but not all eight of its motors enabled.
     do:
-      - Press **DE-ENERGIZE**, tap again to confirm, then **ACTIVATE**.
+      - Press **RELEASE**, tap again to confirm, then **USE ROS 2**.
       - If it happens again, power-cycle the arms with the e-stop first.
     see: [arm-dashboard.md#arm-partial-enable]
 
@@ -180,7 +201,7 @@ entries:
     means: >
       The arm energized, but its controller is inactive or not loaded, so it cannot be commanded.
     do:
-      - Press **DE-ENERGIZE**, then **ACTIVATE**.
+      - Press **RELEASE**, then **USE ROS 2**.
       - If it repeats, `openarm-up logs` on the robot's computer says why.
     see: [arm-dashboard.md#arm-controller-inactive]
 
@@ -194,7 +215,7 @@ entries:
       The arm works, but its gripper controller is not running. The teleop bridge needs both
       grippers' controllers and exits about 30 s after START without them.
     do:
-      - Press **DE-ENERGIZE**, then **ACTIVATE** that arm again.
+      - Press **RELEASE**, then **USE ROS 2**.
     see: [arm-dashboard.md#arm-gripper-controller-inactive]
 
   - code: ARM_STACK_DEAD
@@ -206,9 +227,9 @@ entries:
     means: >
       The arm software crashed but did not fully exit, so nothing answers it.
     do:
-      - Press **DE-ENERGIZE**, which clears a dead stack, then **ACTIVATE**.
+      - Press **RELEASE**, which clears a dead stack, then **USE ROS 2**.
       - >
-        If DE-ENERGIZE refuses because motors are still energized with no controller, follow the
+        If RELEASE refuses because motors are still energized with no controller, follow the
         options it prints: the motors hold their last command until something disables them.
     see: [arm-dashboard.md#arm-stack-dead]
 
@@ -247,7 +268,7 @@ entries:
       PARK and HOLD command an energized arm, and this one is not energized — or the arm stack is not
       running at all. A de-energized arm is already limp.
     do:
-      - Press **ACTIVATE** for that arm first, if it should move at all.
+      - Press **HOLD** first, if the arm should move at all.
     see: [arm-dashboard.md#arm-not-active]
 
   - code: ARM_NO_STOW_POSE
@@ -271,7 +292,7 @@ entries:
       An energized arm is away from its stow pose. De-energizing removes its torque, and it would
       fall from wherever it is.
     do:
-      - Press **PARK BOTH**, then **DE-ENERGIZE**.
+      - Press **PARK**, then **RELEASE**.
       - >
         If the arm is already somewhere it can safely drop from, say so explicitly from the robot's
         computer: `openarm-up down --drop`.
@@ -300,7 +321,7 @@ entries:
       An arm's gripper controller is not running, and the teleop bridge needs both. Its log ends with
       *Timed out waiting for left gripper action server*.
     do:
-      - Press **ACTIVATE** for both arms, which starts their gripper controllers, then **START** again.
+      - Press **HOLD**, which starts both arms' gripper controllers, then **START** again.
     see: [arm-dashboard.md#arm-teleop-gripper-timeout]
 
   - code: ARM_TELEOP_CERT_NOT_ACCEPTED

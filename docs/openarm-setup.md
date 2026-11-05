@@ -296,6 +296,40 @@ The arm service that runs it as a systemd unit (`opendubs-arm@left|right`), how 
 To work inside the container: `sudo docker exec -it openarm bash`, then
 `source /opt/ros/jazzy/setup.bash && source /openarm_ws/install/setup.bash`.
 
+## One controller for both arms
+
+A second arm controller can be installed beside this stack: the gafro arm service
+(`software/openarm/gafro/`), one `opendubs-arm@<side>` systemd unit per arm. Two controllers on one
+arm's motors fight, and neither knows. So one controller has both arms at a time, chosen for the whole
+robot: this stack, gafro, or none.
+
+- **Nothing starts either one at boot.** The arms come up limp with no controller, and the operator
+  chooses one on the dashboard's Arms page: **Use ROS 2** or **Use gafro**. Either way, the arms
+  stiffen where they are and don't move.
+- **The gafro service refuses to start** while this stack's `ros2_control_node` runs, or while
+  anything else commands the arm's bus.
+- **`openarm-up` refuses to start or activate** while an `opendubs-arm@<side>` unit is active, or
+  while anything else commands that arm's bus. It checks by listening for half a second, and sends
+  nothing (`openarm-motors senders arm_left`).
+- **Both running, or no way to tell, is CONFLICT.** Every arm button on the Arms page is off until one
+  stack is stopped at the robot's computer.
+
+To change controllers, use **Hand arms to ROS 2** or **Hand arms to gafro** on the Arms page. A person
+must be at the e-stop, holding the deadman, with CH5 at MANUAL or AUTO. Both arms always go together,
+and the page lists each step as it runs, with what the arms do:
+
+1. **Park under the old controller.** The arms move to their stow pose. If the park fails, the old
+   controller holds the arms where they are, and nothing else happens.
+2. **Stop the old controller.** Under gafro, the motors keep their last command, so the arms hold at
+   stow. Under this stack, `openarm-up down` lets them go limp at stow.
+3. **Check both buses.** Nothing may still be commanding the arms.
+4. **Hand over.** To this stack, the motors are disabled (limp at stow) and both arms are activated
+   here: they stiffen at stow. To gafro, both units are started: the arms stiffen at stow.
+
+If a step after the park fails, the page runs a rollback. It undoes what was started, then starts the
+old controller again. **Release** gives the arms back to no controller, and they go limp. It is
+refused unless both arms are at stow: Park first.
+
 ## Troubleshooting
 
 - **On the gafro path** (`opendubs-arm@…`): see [openarm-arm-service.md](openarm-arm-service.md); everything below is the old ROS stack.

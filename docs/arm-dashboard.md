@@ -1,34 +1,50 @@
 # Arm controls on the tablet
 
-The dashboard's **TELEOP** page is where an operator powers the arms, parks them, starts and stops
-teleop, and sees what the arms are doing. Every arm button runs the same `openarm-up` command
-described in [OpenArm setup](openarm-setup.md), so the tablet and a shell on the Thor follow the
-same rules. This page lists what each button does, how it reports progress, and every message it
-can show, each under a stable **code** such as `ARM_OP_RUNNING`. An entry's link anchor is its code,
-lower-cased (`#arm-op-running`), so a link survives the entry being reworded.
+The dashboard's **Arms** page is where an operator chooses which controller has the arms, parks and
+holds them, starts and stops teleop, and sees what the arms are doing. Under the ROS 2 stack, every
+arm button runs the same `openarm-up` command described in [OpenArm setup](openarm-setup.md), so
+the tablet and a shell on the Thor follow the same rules. This page lists what each button does, how
+it reports progress, and every message it can show, each under a stable **code** such as
+`ARM_OP_RUNNING`. An entry's link anchor is its code, lower-cased (`#arm-op-running`), so a link
+survives the entry being reworded.
 
 For the headset side of teleop, see [WebXR teleop](teleop-setup.md).
 
+## The controller
+
+One controller has both arms: the ROS 2 stack, the gafro arm service, or none. The CONTROLLER card
+names it. Nothing starts a controller when the robot boots, so after a power-up it reads **none** and
+the arms are limp. Both stacks running at once reads **CONFLICT**, and every arm button is off until
+one is stopped at the robot's computer. The full design is in
+[One controller for both arms](openarm-setup.md#one-controller-for-both-arms).
+
+A button the controller can't do is greyed out, and a line under its card says why. It is never sent
+to the other stack.
+
 ## The buttons
 
-Every button that moves an arm or ends a session is **confirm-on-tap**: the first tap changes its
-label to a confirmation (for example **MOVES TO ZERO**), and only a **second tap within 5 s** sends
-it. A single tap does nothing.
+Every button that moves an arm or ends a session is **confirm-on-tap**. The first tap changes its
+label to a confirmation that says what the arms will do (for example **ARMS MOVE TO STOW**). Only a
+**second tap within 5 s** sends it, so a single tap does nothing.
 
-| Panel | Button | Confirm label | What it does |
+| Panel | Button | Confirm label | What the arms do |
 |---|---|---|---|
-| ARM POWER | **ACTIVATE L** / **ACTIVATE R** | MOVES TO ZERO | Energizes that arm and moves it to its zero pose over about 2 s, then starts its controller and its gripper controller. If the arm stack is not running, it starts it first (about 15–30 s). After an e-stop, it also recovers the arm by itself — see [`ARM_POWER_RESTORED`](#arm-power-restored). |
-| ARM POWER | **DE-ENERGIZE** | CONFIRM DROP | Turns both arms' controllers off, makes the arms limp, stops the arm stack, and confirms every motor is off. Refuses while an arm is energized away from its stow pose, because a limp arm falls. |
-| RECOVER | **PARK BOTH** | CONFIRM PARK | Moves both arms to the robot's stow pose, so they can be de-energized safely. |
-| RECOVER | **HOLD L** / **HOLD R** | CONFIRM HOLD | Commands that arm to stay exactly where it is, stopping any motion in progress. |
-| TELEOP | **START** / **STOP** | CONFIRM START / CONFIRM STOP | Starts or stops the teleop bridge. START does not power the arms: activate them first. |
+| CONTROLLER | **USE ROS 2** / **USE GAFRO** | ARMS STIFFEN WHERE THEY ARE | With no controller only. The arms stiffen where they are and don't move. Under ROS 2 this starts the stack and activates both arms (about 15–30 s). |
+| CONTROLLER | **HAND ARMS TO ROS 2** / **TO GAFRO** | ARMS MOVE TO STOW · HOLD THE DEADMAN | The arms move to stow under the old controller, then rest there while it stops and the new one stiffens them. It needs CH5 at MANUAL or AUTO, the deadman held, and the e-stop clear. Each step shows below the buttons as it runs. If a step fails, the old controller gets the arms back. |
+| CONTROLLER | **RELEASE** | ARMS GO LIMP | Back to no controller. The arms go limp. It is refused while an arm is energized away from its stow pose, because a limp arm falls. |
+| BOTH ARMS | **PARK** | ARMS MOVE TO STOW | Moves both arms to the robot's stow pose. |
+| BOTH ARMS | **HOLD** | CONFIRM HOLD | Both arms stay stiff where they are, stopping any motion in progress. Under ROS 2 it also activates an arm that isn't active and recovers one after an e-stop; see [`ARM_POWER_RESTORED`](#arm-power-restored). |
+| TELEOP | **START** / **STOP** | CONFIRM START / CONFIRM STOP | Starts or stops the teleop bridge. It drives the ROS 2 stack's controllers, so START needs ROS 2 to have the arms. |
+| GAFRO ONLY | **PREPARE FOR A SHOW**, **READY L/R**, **FOLLOW L/R**, **SUPERVISE** | (says what moves) | The gafro arm service's moves; see [the arm service](openarm-arm-service.md). |
 
 **One arm action runs at a time.** While one runs:
 
-- its button reads, for example, **ACTIVATING… 12 s**, counting up until it really finishes;
-- the other arm buttons are dimmed and do not respond, and a line under them says what is running;
-- when it finishes, its button shows **DONE** for a few seconds, or **FAILED — SEE BELOW** with the
+- its button reads, for example, **PARKING… 12 s**, counting up until it really finishes;
+- the other arm buttons are dimmed and don't respond, and a line under them says what is running;
+- when it finishes, its button shows **DONE** for a few seconds, or **FAILED — SEE BELOW**, with the
   message in the readiness list.
+
+HOLD is the exception: it is never kept waiting.
 
 The readiness list (SERVER panel) shows the bridge's two ports, whether the arms are energized, the
 motor count and faults, and the last arm action's message.
@@ -37,9 +53,10 @@ motor count and faults, and the last arm action's message.
 
 | Goal | Steps |
 |---|---|
-| Power up and teleoperate | CH5 to MANUAL → **ACTIVATE L** → **ACTIVATE R** → **START** → put on the headset |
-| Put the arms away | release both grips → **STOP** → **PARK BOTH** → **DE-ENERGIZE** |
-| After an e-stop | clear the e-stop so the contactor closes → CH5 to MANUAL → **ACTIVATE L** → **ACTIVATE R**. If ACTIVATE reports *CAN links not ready*, restart the links ([The CAN links are not ready](#arm-can-not-ready)) and press **ACTIVATE** again. |
+| Power up and teleoperate | CH5 to MANUAL → **USE ROS 2** → **START** → put on the headset |
+| Put the arms away | release both grips → **STOP** → **PARK** → **RELEASE** |
+| Switch to the other controller | a person at the e-stop, CH5 to MANUAL, deadman held → **HAND ARMS TO …** → watch the steps |
+| After an e-stop | clear the e-stop so the contactor closes → CH5 to MANUAL → **HOLD**. If it reports *CAN links not ready*, restart the links ([The CAN links are not ready](#arm-can-not-ready)) and press **HOLD** again. |
 
 ## Arm action messages
 
@@ -66,7 +83,7 @@ such as the Shows page. Running two would mean two commands fighting over the sa
 arm) -- resetting this arm*, followed by a normal activation.
 
 **Means:** this is not an error. After an e-stop, or any loss of the arms' power, the motors come
-back **disabled** while the arm stack still has the arm marked active. ACTIVATE recognises that
+back **disabled** while the arm stack still has the arm marked active. HOLD recognises that
 state — every motor answering, none enabled, none faulted — resets just that arm, and activates it
 as usual.
 
@@ -78,7 +95,7 @@ as usual.
 
 **Shown as:** *could not reset the arm after a power loss (hardware is '…', not inactive)*.
 
-**Do:** press **DE-ENERGIZE**, tap it again to confirm, then press **ACTIVATE** for that arm.
+**Do:** press **RELEASE**, tap it again to confirm, then **USE ROS 2**.
 
 ### Motors answer but are disabled {#arm-motors-disabled}
 
@@ -88,7 +105,7 @@ as usual.
 
 **Means:** the power-loss state, in a case the automatic reset did not cover.
 
-**Do:** press **DE-ENERGIZE**, tap it again to confirm, then press **ACTIVATE** for that arm.
+**Do:** press **RELEASE**, tap it again to confirm, then **USE ROS 2**.
 
 ### Motors do not answer {#arm-motors-silent}
 
@@ -99,7 +116,7 @@ as usual.
 **Means:** those motors are unpowered, or the CAN wiring is broken at or before the first silent
 one. The gripper is last in the chain, so a lone silent gripper points at the end of the chain.
 
-**Do:** check the e-stop is released and the contactor closed, then press ACTIVATE again. If they
+**Do:** check the e-stop is released and the contactor closed, then press **HOLD** again (**USE ROS 2** if no controller has the arms). If they
 still do not answer, `openarm-motors status` on the Thor shows which motors are silent; see
 [OpenArm setup § Troubleshooting](openarm-setup.md#troubleshooting).
 
@@ -112,7 +129,7 @@ vary).
 
 **Means:** a motor's fault latches until the motor loses power.
 
-**Do:** press and release the e-stop to power-cycle the arms, then press ACTIVATE again.
+**Do:** press and release the e-stop to power-cycle the arms, then press **HOLD** again (**USE ROS 2** if no controller has the arms).
 
 ### Only some motors enabled {#arm-partial-enable}
 
@@ -120,7 +137,7 @@ vary).
 
 **Shown as:** *the hardware went active but only N/8 motors enabled*.
 
-**Do:** press **DE-ENERGIZE**, tap it again to confirm, then **ACTIVATE**. If it happens again,
+**Do:** press **RELEASE**, tap it again to confirm, then **USE ROS 2**. If it happens again,
 power-cycle the arms with the e-stop first.
 
 ### A controller would not start {#arm-controller-inactive}
@@ -129,7 +146,7 @@ power-cycle the arms with the e-stop first.
 
 **Shown as:** *right_controller is 'inactive', not active* (or *not loaded*).
 
-**Do:** **DE-ENERGIZE**, then **ACTIVATE**. If it repeats, the arm stack's log (`openarm-up logs` on
+**Do:** **RELEASE**, then **USE ROS 2**. If it repeats, the arm stack's log (`openarm-up logs` on
 the Thor) says why.
 
 ### The gripper controller would not start {#arm-gripper-controller-inactive}
@@ -142,7 +159,7 @@ will move, but TELEOP WILL NOT START*.
 **Means:** the arm works, but the teleop bridge needs both grippers' controllers and will exit about
 30 s after START without them ([`ARM_TELEOP_GRIPPER_TIMEOUT`](#arm-teleop-gripper-timeout)).
 
-**Do:** **DE-ENERGIZE**, then **ACTIVATE** that arm again.
+**Do:** **RELEASE**, then **USE ROS 2**.
 
 ### Nothing to park or hold {#arm-not-active}
 
@@ -153,7 +170,7 @@ not running — nothing to park*.
 
 **Means:** PARK and HOLD command an energized arm; this one is not energized.
 
-**Do:** **ACTIVATE** that arm first, if it should move at all. A de-energized arm is already limp.
+**Do:** **HOLD** first, if the arm should move at all. A released arm is already limp.
 
 ### No stow pose is configured {#arm-no-stow-pose}
 
@@ -175,7 +192,7 @@ falls from wherever it is now.*
 
 **Means:** an energized arm is away from its stow pose; de-energizing would drop it.
 
-**Do:** **PARK BOTH**, then **DE-ENERGIZE**. If the arm is already somewhere it can safely drop
+**Do:** **PARK**, then **RELEASE**. If the arm is already somewhere it can safely drop
 from, a shell on the Thor can say so explicitly: `openarm-up down --drop`.
 
 ### The arm stack is dead {#arm-stack-dead}
@@ -187,7 +204,7 @@ answer.*
 
 **Means:** the arm stack crashed but did not fully exit.
 
-**Do:** **DE-ENERGIZE** (it clears a dead stack), then **ACTIVATE**. If DE-ENERGIZE refuses because
+**Do:** **RELEASE** (it clears a dead stack), then **USE ROS 2**. If RELEASE refuses because
 motors are still energized with no controller, follow the options it prints — the arms hold their
 last command until something disables them.
 
@@ -204,7 +221,7 @@ itself.
 
 **Do:** after an e-stop, power first: once the contactor is closed again (see
 [The drive contactor is open](reference/troubleshooting.md#contactor-open)), restart both links,
-`sudo systemctl restart openarm-can@arm_left openarm-can@arm_right`, then **ACTIVATE**. Restarting the links before power is back puts them straight back in bus-off.
+`sudo systemctl restart openarm-can@arm_left openarm-can@arm_right`, then **HOLD**. Restarting the links before power is back puts them straight back in bus-off.
 Otherwise, see [OpenArm setup § Troubleshooting](openarm-setup.md#troubleshooting): is the adapter
 plugged in, is its driver installed, is each link `ERROR-ACTIVE`.
 
@@ -266,7 +283,7 @@ partly completed.
 
 ## Teleop messages
 
-These appear on the TELEOP page's **SESSION** panel, within a second of happening. Each hand has a
+These appear on the Arms page's **SESSION** panel, within a second of happening. Each hand has a
 tile: a filled dot while its pose data is arriving, **GRIPPING** while its grip drives the arm,
 **HOMING** while X or A returns it to stow, and a red border while something is holding it back.
 Under the tiles is what that is, with a **?** that opens its entry here. A message clears by itself
@@ -284,7 +301,7 @@ waiting for left gripper action server*.
 
 **Means:** an arm's gripper controller is not running. The bridge needs both.
 
-**Do:** **ACTIVATE** both arms (which starts their gripper controllers), then **START** again.
+**Do:** **HOLD** (which starts both arms' gripper controllers), then **START** again.
 
 ### Grip refused: CH5 is not MANUAL {#arm-teleop-grip-refused-mode}
 
@@ -360,7 +377,7 @@ reload the teleop page. See [WebXR teleop § Certificates](teleop-setup.md#certi
 
 **Code:** `ARM_JOINT_DATA_MISSING`
 
-**Shown as:** the TELEOP page's arm view says **no joint data**, or **STALE**, or the SESSION panel
+**Shown as:** the Arms page's arm view says **no joint data**, or **STALE**, or the SESSION panel
 says **NO JOINT DATA**.
 
 **Means:** the page is not receiving the arms' joint states. Check the **ROSBRIDGE** badge at the top
