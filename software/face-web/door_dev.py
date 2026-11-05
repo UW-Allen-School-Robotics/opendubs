@@ -33,9 +33,11 @@ import functools
 import http.server
 import itertools
 import json
+import mimetypes
 import os
 import sys
 import threading
+from urllib.parse import unquote
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "head-protocol"))
@@ -128,7 +130,40 @@ class NoCache(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    library = None          # --library: a show library folder served at /library/, as the robot serves its own
+
+    def _library_get(self, path) -> bool:
+        """/library/index.json and the files it names, from --library: the folder's index.yaml, read as the
+        robot's dashboard serves it to the face (library_serve.py, /api/library/files/). Same origin as the
+        page, so a card never taints the canvas the face reads back. Only files the index names are served."""
+        try:
+            import yaml
+            with open(os.path.join(self.library, "index.yaml"), encoding="utf-8") as fh:
+                entries = [e for e in (yaml.safe_load(fh) or []) if isinstance(e, dict) and e.get("file")]
+        except Exception:  # noqa: BLE001  no index here: the face keeps its code skins
+            entries = []
+        rel = path[len("/library/"):]
+        if rel == "index.json":
+            body, ctype = json.dumps(entries).encode(), "application/json"
+        else:
+            names = {str(e["file"]) for e in entries}
+            full = os.path.realpath(os.path.join(self.library, rel))
+            if rel not in names or not full.startswith(os.path.realpath(self.library) + os.sep) or not os.path.isfile(full):
+                return False
+            with open(full, "rb") as fh:
+                body = fh.read()
+            ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+
     def do_GET(self):
+        path = unquote(self.path.split("?", 1)[0])
+        if self.library and path.startswith("/library/") and self._library_get(path):
+            return
         # No library here (it is git-ignored, and a packaged twin ships without it): an empty one,
         # rather than a 404 in the page's console. The face draws its code skins either way.
         if self.path.split("?", 1)[0] == "/library/index.json" and not os.path.exists(os.path.join(HERE, "library", "index.json")):
@@ -146,6 +181,7 @@ class NoCache(http.server.SimpleHTTPRequestHandler):
 
 
 async def main(a):
+    NoCache.library = a.library
     handler = functools.partial(NoCache, directory=HERE)
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", a.http), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -170,6 +206,8 @@ async def main(a):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--http", type=int, default=8765)
+    ap.add_argument("--library", default=None, help="a show library folder (its index.yaml) to serve at /library/, "
+                    "as the robot serves its own to the face: the studio passes the workstation's")
     ap.add_argument("--ws", type=int, default=8766)
     ap.add_argument("--face", type=int, default=4244)
     ap.add_argument("--neck", type=int, default=4245)
