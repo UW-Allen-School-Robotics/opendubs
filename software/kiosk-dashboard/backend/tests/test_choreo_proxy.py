@@ -71,7 +71,7 @@ def test_the_fake_robot_switches_are_not_forwarded():
                      "/api/choreo/robot", "/ws/show-audio", "/api/choreo/audio", "/api/choreo/media/{rel:path}",
                      "/api/choreo/ambient", "/api/choreo/video", "/api/choreo/video/output",
                      "/api/choreo/video/settings", "/api/choreo/audio/output", "/api/choreo/audio/test",
-                     "/api/choreo/audio/test.wav"}
+                     "/api/choreo/audio/test.wav", "/api/choreo/lift/ack"}
 
 
 # ---- /api/choreo/robot: the runner's view of the robot (plan 4.4c) -----------------------------
@@ -263,3 +263,33 @@ def test_arms_field_from_the_per_part_status():
     assert choreo_proxy.arms_from_effectors(excluded) == "active"       # as the summary counts it
     assert choreo_proxy.arms_from_effectors(dict(ok, arm_right={"state": "down", "why": "J5 no reply"})) == "inactive"
     assert choreo_proxy.arms_from_effectors(dict(ok, grip_right={"state": "down", "excluded": None})) == "inactive"
+
+
+# ---- a show's consent through the lift's pinch zone: MAST ACK only while the deadman is held ----
+def test_lift_consent_only_with_the_deadman_held_in_auto():
+    held = choreo_proxy.robot_view(_rs(), FRESH, {"fresh": True})
+    assert held["deadman"] is True and held["ch5"] == "AUTO"
+    assert choreo_proxy.lift_ack_refusal(held) is None
+
+
+def test_lift_consent_refused_when_the_deadman_is_released_unknown_or_not_auto():
+    assert "not held" in choreo_proxy.lift_ack_refusal(choreo_proxy.robot_view(_rs(deadman=False), FRESH, {"fresh": True}))
+    assert "unknown" in choreo_proxy.lift_ack_refusal(choreo_proxy.robot_view(_rs(), FRESH, {"fresh": False}))
+    assert "not AUTO" in choreo_proxy.lift_ack_refusal(
+        choreo_proxy.robot_view(_rs(authority="RC_MANUAL"), FRESH, {"fresh": True}))
+    assert choreo_proxy.lift_ack_refusal(choreo_proxy.robot_view(_rs(estopped=True), FRESH, {"fresh": True}))
+
+
+def test_the_lift_ack_route_sends_mast_ack_only_when_granted(monkeypatch):
+    import stamplc
+    import status
+    sent = []
+    monkeypatch.setattr(stamplc.reader, "send", lambda cmd: sent.append(cmd) or True)
+    monkeypatch.setattr(status, "_safety", lambda: FRESH)
+    monkeypatch.setattr(status, "_rc_link", lambda: {"fresh": True})
+    monkeypatch.setattr(status, "_robot_state", lambda: _rs(deadman=False))
+    r = choreo_proxy.lift_ack()
+    assert r.status_code == 409 and sent == []
+    monkeypatch.setattr(status, "_robot_state", lambda: _rs())
+    r = choreo_proxy.lift_ack()
+    assert r.status_code == 200 and sent == ["MAST ACK"]

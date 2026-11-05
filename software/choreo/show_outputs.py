@@ -7,8 +7,15 @@ end the moment the run ends, however it ends.
 THE LIFT goes through the dashboard's POST /api/mast/{up|down|stop}?by=show, which the StamPLC takes
 as `MAST CMD`: a held intent it expires after 250 ms, behind the contactor, the e-stop, the RC link
 and the pinch guard. So the show RENEWS its intent every RENEW_S while a cue is in force, and a
-runner that dies stops the lift within 250 ms. The show never sends `MAST ACK`: it cannot authorize a
-descent through the pinch zone, so a long `down` stops at the guard (the twin does not model that).
+runner that dies stops the lift within 250 ms.
+THE PINCH GUARD holds a descent into the last ~60 mm until a human consents. A show never consents by
+itself, so a plain `down` stops at the guard (the twin does not model that). A `down` cue marked
+`ack_pinch: deadman`, which the show announces out loud first (decided 2026-11-05: the operator's
+CONTINUING deadman hold is the consent), first asks the dashboard for that consent
+(POST /api/choreo/lift/ack). The dashboard sends `MAST ACK` only if, at that moment, CH5 is AUTO and the
+deadman reads held; otherwise it refuses, nothing is sent, and this cue is skipped quietly: the lift
+stays where it is and the show plays on. The StamPLC spends the consent when that descent stops and
+drops it unused after 15 s, and in AUTO it moves the lift only while the deadman is held.
 THE OPERATOR WINS (decided 2026-10-12, as the RC stick does in the firmware): if anyone else sends a
 lift command THROUGH THE DASHBOARD during the run — the Z-AXIS HOLD buttons on its StamPLC page, or
 the ROS `/zaxis/*` triggers (stamplc_bridge.py), counted as `mast_operator_seq` — the show's lift
@@ -48,6 +55,10 @@ class Dashboard:
 
     def mast(self, cmd: str) -> dict:
         return self.post(f"/api/mast/{urllib.parse.quote(cmd)}?by=show")
+
+    def lift_ack(self) -> dict:
+        """Consent for one descent through the pinch zone, granted only while the deadman is held."""
+        return self.post("/api/choreo/lift/ack")
 
     def light(self, body: dict) -> dict:
         return self.post("/api/choreo/light", body)
@@ -103,6 +114,8 @@ class LiftOutput:
         if self.off:
             return
         do = c.get("do")
+        if do == "down" and c.get("ack_pinch") == "deadman" and not self._consent(t):
+            return
         if do in ("up", "down"):
             self.intent = 1 if do == "up" else -1
             self.until = now + float(c.get("secs", 0.0))
@@ -113,6 +126,22 @@ class LiftOutput:
             self.intent = 0
             if self._post("stop"):
                 self.note("lift", do="stop", show_t=round(t, 3))
+
+    def _consent(self, t: float) -> bool:
+        """Ask for the pinch-zone consent the operator gives by holding the deadman. Refused or failed: this
+        descent does not happen (the lift stays where it is), quietly, and the rest of the show plays."""
+        try:
+            self.dash.lift_ack()
+        except Exception as e:  # noqa: BLE001  never a reason to stop the show
+            why = _refusal(e)
+            self.intent = 0
+            if self.sent_any:
+                self._post("stop")
+            self.note("lift", do="hold", why=f"no consent through the pinch zone ({why}): the lift stays where it is",
+                      show_t=round(t, 3))
+            return False
+        self.note("lift", ack="the deadman is held: one descent through the pinch zone", show_t=round(t, 3))
+        return True
 
     def tick(self, now: float, operator_seq):
         if self.off:
@@ -132,6 +161,14 @@ class LiftOutput:
         if self.sent_any and not self.off:
             self.intent = 0
             self._post("stop")
+
+
+def _refusal(e) -> str:
+    """The dashboard's words for a refusal (its JSON `error`), else the exception's."""
+    try:
+        return json.loads(e.read() or b"{}").get("error") or str(e)
+    except Exception:  # noqa: BLE001
+        return f"{type(e).__name__}: {e}"
 
 
 class LightOutput:
