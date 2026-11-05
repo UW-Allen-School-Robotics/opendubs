@@ -629,14 +629,22 @@ body.op-faulted .op-clearfault{ display:inline-flex; }
 .tp-server { grid-area: server; }
 
 .tp-ctl { padding: 8px 11px; flex: 0 0 auto; }
-/* ARM POWER is the group that MOVES an arm, so it is set apart from RECOVER rather than lined up
-   beside it — a reach for PARK must not land on DE-ENERGIZE. */
-.tp-ctl.tp-power { border-color: #2a1f1f; margin-left: auto; flex: 1 1 100%; }   /* the full row, so its buttons wrap inside it and not past the edge */
-.tp-warn { color: var(--warn); font-weight: 400; }
 .tp-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.tp-btns .sysbtn { flex: 0 1 auto; width: auto; white-space: nowrap; padding: 10px 18px; }
+.tp-btns .danger { margin-left: auto; }                       /* RELEASE sits apart from the rest, so a reach for PARK does not land on it */
 .tp-ctl { max-width: 100%; }                                  /* a card's why-line wraps inside the page, not past its edge */
 .tp-ctl.tp-controller { flex: 1 1 100%; }                     /* which controller has the arms: the whole first row */
-.tp-off, .tp-steps { margin-top: 6px; white-space: pre-line; }
+#view-teleop [hidden] { display: none !important; }
+/* Teleop not running: no SESSION or TELEOP card, so the arm pose takes the row. */
+#view-teleop.teleopview.active:not(.tp-live) { grid-template-columns: 1fr; grid-template-areas: "ctl" "pose"; }
+#tpCtl { font-size: 18px; letter-spacing: .5px; color: var(--txt); justify-content: flex-start; }
+#tpCtl.bad { color: var(--bad); } #tpCtl.good { color: var(--good); }
+#tpLine { margin-top: 6px; font-size: 14px; }
+#tpLine.ok { color: var(--good); } #tpLine.warnx { color: var(--warn); } #tpLine.badx { color: var(--bad); }
+.tp-details { margin-top: 8px; }
+.tp-details summary { cursor: pointer; color: var(--dim); font-size: 13px; letter-spacing: .05em; }
+.tp-details > * + * { margin-top: 6px; }
+.tp-steps { white-space: pre-line; font-size: 12px; }
 .tp-btns .sysbtn { min-height: 44px; }
 .tp-accent { border-color: var(--accent); color: var(--accent); }
 

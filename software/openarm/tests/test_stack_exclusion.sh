@@ -59,7 +59,7 @@ check() {  # check NAME CONDITION
 
 setup left ok no; out=$(run activate left)
 check "activate under a gafro unit: refused, naming the handover; nothing launched or restarted" \
-  'grep -q "gafro arm service (opendubs-arm@left) is running" <<<"$out" && grep -q "Hand arms to ROS 2" <<<"$out" && ! grep -qE "launch|restart" "$T/log"'
+  'grep -q "gafro arm service (opendubs-arm@left) is running" <<<"$out" && grep -q "HAND TO ROS 2" <<<"$out" && ! grep -qE "launch|restart" "$T/log"'
 setup right ok no; out=$(run start)
 check "bring-up with gafro on the OTHER arm: refused (the launch opens both buses)" \
   'grep -q "opendubs-arm@right" <<<"$out" && ! grep -q launch "$T/log"'

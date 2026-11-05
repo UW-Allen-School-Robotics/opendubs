@@ -73,7 +73,7 @@ def unavailable(ctrl, why_conflict=""):
         for a in ("follow", "supervise", "prepare"):
             out[a] = GAFRO_ONLY
     else:
-        out["teleop"] = "the Quest teleop drives the ROS 2 stack's controllers, and gafro has the arms: Hand arms to ROS 2 first"
+        out["teleop"] = "the Quest teleop drives the ROS 2 stack's controllers, and gafro has the arms: HAND TO ROS 2 first"
     return out
 
 

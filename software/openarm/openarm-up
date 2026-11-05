@@ -686,7 +686,7 @@ require_bus_ours() {
     # @fault ARM_OTHER_CONTROLLER
     die "$A arm: the gafro arm service (opendubs-arm@$arm) is running and controls this arm.
   Two controllers on one arm fight, so nothing was started here.
-  To hand both arms to this stack: Hand arms to ROS 2 on the dashboard's Arms page (it parks
+  To hand both arms to this stack: HAND TO ROS 2 on the dashboard's Arms page (it parks
   them under gafro, stops the service, and activates them here)."
   fi
   # This stack commands an arm's bus only while that arm's hardware is active here.

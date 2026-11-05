@@ -71,7 +71,7 @@
  },
  "ARM_OTHER_CONTROLLER": {
   "do": [
-   "To hand both arms from the gafro service to this stack, press **Hand arms to ROS 2** on the dashboard's Arms page, with a person at the e-stop holding the deadman. It parks the arms under gafro, stops the service, and activates the arms here.",
+   "To hand both arms from the gafro service to this stack, press **HAND TO ROS 2** on the dashboard's Arms page, with a person at the e-stop holding the deadman. It parks the arms under gafro, stops the service, and activates the arms here.",
    "If no gafro service is named, run `openarm-motors senders arm_left` (or `arm_right`). It listens and sends nothing, and says what is commanding the arm. Stop that program first."
   ],
   "means": "Something other than this arm stack is commanding the arm: the gafro arm service (`opendubs-arm@left` or `@right`), or another program sending motor commands on that arm's CAN bus. Two controllers on one arm fight, so nothing starts the ROS 2 stack until there is only one. This message moves nothing.",

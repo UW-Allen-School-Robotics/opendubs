@@ -498,7 +498,7 @@ Something other than this arm stack is commanding the arm: the gafro arm service
 
 **What to do**
 
-1. To hand both arms from the gafro service to this stack, press **Hand arms to ROS 2** on the dashboard's Arms page, with a person at the e-stop holding the deadman. It parks the arms under gafro, stops the service, and activates the arms here.
+1. To hand both arms from the gafro service to this stack, press **HAND TO ROS 2** on the dashboard's Arms page, with a person at the e-stop holding the deadman. It parks the arms under gafro, stops the service, and activates the arms here.
 2. If no gafro service is named, run `openarm-motors senders arm_left` (or `arm_right`). It listens and sends nothing, and says what is commanding the arm. Stop that program first.
 
 **See also:** [OpenArm setup](../openarm-setup.md#one-controller-for-both-arms)

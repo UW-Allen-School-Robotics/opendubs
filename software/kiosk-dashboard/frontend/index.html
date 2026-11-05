@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=8d57e0a5" />
+  <link rel="stylesheet" href="style.css?v=0e30ac21" />
 </head>
 <body>
   <div id="app">
@@ -513,61 +513,48 @@
          (Its id stays view-teleop: the styles and the /joint_states routing in app.js name it.) -->
     <main id="view-teleop" class="view teleopview">
       <div class="tp-controls">
+        <!-- One card: who has the arms, the buttons that controller can do now (the rest are hidden, and the backend refuses them anyway), one line for what is
+             happening, and everything else behind Details. teleop.js paints it from /api/arms/status. -->
         <section class="card tp-ctl tp-controller">
-          <h2>CONTROLLER <span id="tpCtl" class="badge dimbadge">—</span></h2>
-          <div class="sub" id="tpCtlWhy">—</div>
+          <h2 id="tpCtl">—</h2>
+          <div class="sub bad" id="tpCtlWhy" hidden></div>
           <div class="tp-btns">
-            <button id="btnUseRos2" class="sysbtn">USE ROS 2 · arms stiffen where they are</button>
-            <button id="btnUseGafro" class="sysbtn">USE GAFRO · arms stiffen where they are</button>
-            <button id="btnToRos2" class="sysbtn tp-accent">HAND ARMS TO ROS 2 · park, then rest at stow</button>
-            <button id="btnToGafro" class="sysbtn tp-accent">HAND ARMS TO GAFRO · park, then rest at stow</button>
-            <button id="btnArmRelease" class="sysbtn danger">RELEASE · arms go limp at stow</button>
-          </div>
-          <div class="tp-steps" id="tpSteps" hidden></div>
-          <div class="sub tp-off" id="tpOffCtl"></div>
-        </section>
-        <section class="card tp-ctl">
-          <h2>BOTH ARMS</h2>
-          <div class="tp-btns">
-            <button id="btnArmPark" class="sysbtn tp-accent">PARK · arms move to stow</button>
-            <button id="btnArmHold" class="sysbtn">HOLD · stiff where they are</button>
-          </div>
-          <div class="sub tp-off" id="tpOffBoth"></div>
-        </section>
-        <section class="card tp-ctl">
-          <h2>TELEOP <span class="tp-warn">· Quest, ROS 2 only</span></h2>
-          <div class="tp-btns">
-            <button id="btnTeleopStart" class="sysbtn">START</button>
-            <button id="btnTeleopStop" class="sysbtn">STOP</button>
-          </div>
-          <div class="sub tp-off" id="tpOffTeleop"></div>
-        </section>
-        <section class="card tp-ctl tp-power">
-          <h2>GAFRO ONLY <span class="tp-warn">· moves the arm</span></h2>
-          <div class="tp-btns">
-            <button id="btnArmPrepBoth" class="sysbtn tp-accent">PREPARE FOR A SHOW · I am at the e-stop, arms move to ready</button>
+            <button id="btnUseRos2" class="sysbtn" hidden>USE ROS 2</button>
+            <button id="btnUseGafro" class="sysbtn" hidden>USE GAFRO</button>
+            <button id="btnToRos2" class="sysbtn tp-accent" hidden>HAND TO ROS 2</button>
+            <button id="btnToGafro" class="sysbtn tp-accent" hidden>HAND TO GAFRO</button>
+            <button id="btnArmPark" class="sysbtn tp-accent" hidden>PARK</button>
+            <button id="btnArmHold" class="sysbtn" hidden>HOLD</button>
+            <button id="btnArmPrepBoth" class="sysbtn tp-accent" hidden>PREPARE</button>
             <button id="btnArmSupL" class="sysbtn" hidden>SUPERVISE L</button>
             <button id="btnArmSupR" class="sysbtn" hidden>SUPERVISE R</button>
             <button id="btnArmUnsupL" class="sysbtn" hidden>END SUPERVISION L</button>
             <button id="btnArmUnsupR" class="sysbtn" hidden>END SUPERVISION R</button>
-            <button id="btnArmActL" class="sysbtn">READY L · moves to ready</button>
-            <button id="btnArmActR" class="sysbtn">READY R · moves to ready</button>
-            <button id="btnArmFollowL" class="sysbtn">FOLLOW L · hand follows target</button>
-            <button id="btnArmFollowR" class="sysbtn">FOLLOW R · hand follows target</button>
+            <button id="btnArmActL" class="sysbtn" hidden>READY L</button>
+            <button id="btnArmActR" class="sysbtn" hidden>READY R</button>
+            <button id="btnArmFollowL" class="sysbtn" hidden>FOLLOW L</button>
+            <button id="btnArmFollowR" class="sysbtn" hidden>FOLLOW R</button>
+            <button id="btnTeleopStart" class="sysbtn" hidden>START TELEOP</button>
+            <button id="btnTeleopStop" class="sysbtn" hidden>STOP TELEOP</button>
+            <button id="btnArmRelease" class="sysbtn danger" hidden>RELEASE</button>
           </div>
-          <div class="sub tp-off" id="tpOffGafro"></div>
-        </section>
-        <section class="card tp-ctl">
-          <h2>VIEWER &amp; CHECK <span class="tp-warn">· moves nothing</span></h2>
-          <div class="tp-btns">
-            <button id="btnViewerL" class="sysbtn">VIEWER L</button>
-            <button id="btnViewerR" class="sysbtn">VIEWER R</button>
-            <button id="btnViewerStopL" class="sysbtn" hidden>STOP VIEWER L</button>
-            <button id="btnViewerStopR" class="sysbtn" hidden>STOP VIEWER R</button>
-            <button id="btnArmDoctorL" class="sysbtn">CHECK L</button>
-            <button id="btnArmDoctorR" class="sysbtn">CHECK R</button>
-          </div>
-          <pre id="tpDoctor" class="sub" hidden></pre>
+          <div class="sub" id="tpLine" hidden></div>
+          <details class="tp-details">
+            <summary>Details</summary>
+            <div class="sub" id="tpWhyFull"></div>
+            <div class="tp-steps" id="tpSteps" hidden></div>
+            <div id="tpReady" class="tp-ready"></div>
+            <div class="tp-btns tp-diag">
+              <button id="btnViewerL" class="sysbtn">VIEWER L</button>
+              <button id="btnViewerR" class="sysbtn">VIEWER R</button>
+              <button id="btnViewerStopL" class="sysbtn" hidden>STOP VIEWER L</button>
+              <button id="btnViewerStopR" class="sysbtn" hidden>STOP VIEWER R</button>
+              <button id="btnArmDoctorL" class="sysbtn">CHECK L</button>
+              <button id="btnArmDoctorR" class="sysbtn">CHECK R</button>
+            </div>
+            <pre id="tpDoctor" class="sub" hidden></pre>
+            <div class="sub">Quest: open the address under TELEOP in the Quest Browser; accept the certificate once.</div>
+          </details>
         </section>
       </div>
 
@@ -585,7 +572,8 @@
         <canvas id="armCanvas" class="tp-canvas"></canvas>
       </section>
 
-      <section class="card tp-session">
+      <!-- SESSION and TELEOP show only while the teleop bridge runs (teleop.js). -->
+      <section class="card tp-session" hidden>
         <h2>SESSION <span id="tpSessionState" class="badge dimbadge">—</span></h2>
         <div class="tp-hands">
           <div class="tp-hand" id="tpHandL"><div class="dot">○</div><div class="sub">L hand</div></div>
@@ -598,14 +586,12 @@
           <div><span id="tpLoopOver">—</span><span class="sub"> over budget</span></div>
           <div><span id="tpLoopWorst">—</span><span class="sub"> worst</span></div>
         </div>
-        <div class="sub" id="tpLoopNote">the loop reports this itself; it is why teleop can feel vague</div>
+        <div class="sub bad" id="tpLoopNote"></div>
       </section>
 
-      <section class="card tp-server">
-        <h2>SERVER <span id="tpServerState" class="badge dimbadge">—</span></h2>
+      <section class="card tp-server" hidden>
+        <h2>TELEOP <span id="tpServerState" class="badge dimbadge">—</span></h2>
         <div class="tp-url" id="tpUrl">—</div>
-        <div class="sub">open in the Quest Browser · accept the certificate once</div>
-        <div id="tpReady" class="tp-ready"></div>
       </section>
     </main>
 
@@ -652,7 +638,7 @@
   </nav>
   <script src="app.js?v=8c2fceb6"></script>
   <script src="operate.js?v=9fc851ed"></script>
-  <script type="module" src="teleop.js?v=9482816f"></script>
+  <script type="module" src="teleop.js?v=f42d8ee8"></script>
   <script src="show_audio.js?v=6ae749a1"></script>
   <script type="module" src="architect.js?v=cd084c5c"></script>
   <script src="choreo.js?v=7c4b077c"></script>

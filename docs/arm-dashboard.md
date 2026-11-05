@@ -12,14 +12,15 @@ For the headset side of teleop, see [WebXR teleop](teleop-setup.md).
 
 ## The controller
 
-One controller has both arms: the ROS 2 stack, the gafro arm service, or none. The CONTROLLER card
-names it. Nothing starts a controller when the robot boots, so after a power-up it reads **none** and
-the arms are limp. Both stacks running at once reads **CONFLICT**, and every arm button is off until
-one is stopped at the robot's computer. The full design is in
+One controller has both arms: the ROS 2 stack, the gafro arm service, or none. The page's first line
+names it: **ROS 2 has the arms**, **gafro has the arms**, **No controller** or **CONFLICT**. Nothing
+starts a controller when the robot boots, so after a power-up it reads **No controller** and the arms
+are limp. Both stacks running at once is a **CONFLICT**: no arm button shows until one is stopped at
+the robot's computer. The full design is in
 [One controller for both arms](openarm-setup.md#one-controller-for-both-arms).
 
-A button the controller can't do is greyed out, and a line under its card says why. It is never sent
-to the other stack.
+Only the buttons the controller can do now are shown. A button for something it can't do is not on
+the page, and the dashboard refuses it anyway; it is never sent to the other stack.
 
 ## The buttons
 
@@ -27,35 +28,33 @@ Every button that moves an arm or ends a session is **confirm-on-tap**. The firs
 label to a confirmation that says what the arms will do (for example **ARMS MOVE TO STOW**). Only a
 **second tap within 5 s** sends it, so a single tap does nothing.
 
-| Panel | Button | Confirm label | What the arms do |
+| Button | Shown when | Confirm label | What the arms do |
 |---|---|---|---|
-| CONTROLLER | **USE ROS 2** / **USE GAFRO** | ARMS STIFFEN WHERE THEY ARE | With no controller only. The arms stiffen where they are and don't move. Under ROS 2 this starts the stack and activates both arms (about 15–30 s). |
-| CONTROLLER | **HAND ARMS TO ROS 2** / **TO GAFRO** | ARMS MOVE TO STOW · HOLD THE DEADMAN | The arms move to stow under the old controller, then rest there while it stops and the new one stiffens them. It needs CH5 at MANUAL or AUTO, the deadman held, and the e-stop clear. Each step shows below the buttons as it runs. If a step fails, the old controller gets the arms back. |
-| CONTROLLER | **RELEASE** | ARMS GO LIMP | Back to no controller. The arms go limp. It is refused while an arm is energized away from its stow pose, because a limp arm falls. |
-| BOTH ARMS | **PARK** | ARMS MOVE TO STOW | Moves both arms to the robot's stow pose. |
-| BOTH ARMS | **HOLD** | CONFIRM HOLD | Both arms stay stiff where they are, stopping any motion in progress. Under ROS 2 it also activates an arm that isn't active and recovers one after an e-stop; see [`ARM_POWER_RESTORED`](#arm-power-restored). |
-| TELEOP | **START** / **STOP** | CONFIRM START / CONFIRM STOP | Starts or stops the teleop bridge. It drives the ROS 2 stack's controllers, so START needs ROS 2 to have the arms. |
-| GAFRO ONLY | **PREPARE FOR A SHOW**, **READY L/R**, **FOLLOW L/R**, **SUPERVISE** | (says what moves) | The gafro arm service's moves; see [the arm service](openarm-arm-service.md). |
+| **USE ROS 2** / **USE GAFRO** | no controller | ARMS STIFFEN WHERE THEY ARE | The arms stiffen where they are and don't move. Under ROS 2 this starts the stack and activates both arms (about 15–30 s). |
+| **HAND TO ROS 2** / **HAND TO GAFRO** | the other controller has the arms | ARMS MOVE TO STOW · HOLD THE DEADMAN | The arms move to stow under the old controller, then rest there while it stops and the new one stiffens them. It needs CH5 at MANUAL or AUTO, the deadman held, and the e-stop clear. If a step fails, the old controller gets the arms back. |
+| **PARK** | a controller has the arms | ARMS MOVE TO STOW | Moves both arms to the robot's stow pose. |
+| **HOLD** | a controller has the arms | ARMS STIFF WHERE THEY ARE | Both arms stay stiff where they are, stopping any motion in progress. Under ROS 2 it also activates an arm that isn't active and recovers one after an e-stop; see [`ARM_POWER_RESTORED`](#arm-power-restored). |
+| **RELEASE** | a controller has the arms | ARMS GO LIMP | Back to no controller. The arms go limp. It is refused while an arm is energized away from its stow pose, because a limp arm falls. |
+| **START TELEOP** / **STOP TELEOP** | ROS 2 has the arms / teleop runs | CONFIRM START / CONFIRM STOP | Starts or stops the teleop bridge, which drives the ROS 2 stack's controllers. |
+| **PREPARE**, **READY L/R**, **FOLLOW L/R**, **SUPERVISE L/R** | gafro has the arms | (says what moves) | The gafro arm service's moves; see [the arm service](openarm-arm-service.md). |
 
-**One arm action runs at a time.** While one runs:
+**One arm action runs at a time.** While one runs, its button reads, for example, **PARKING… 12 s**,
+and only it and **HOLD** stay on the page. During a handover, one line under the buttons names the
+step that is running. When an action ends, its button shows **DONE** or **FAILED** for a few
+seconds, and a failure or a refusal leaves one line saying why.
 
-- its button reads, for example, **PARKING… 12 s**, counting up until it really finishes;
-- the other arm buttons are dimmed and don't respond, and a line under them says what is running;
-- when it finishes, its button shows **DONE** for a few seconds, or **FAILED — SEE BELOW**, with the
-  message in the readiness list.
-
-HOLD is the exception: it is never kept waiting.
-
-The readiness list (SERVER panel) shows the bridge's two ports, whether the arms are energized, the
-motor count and faults, and the last arm action's message.
+**Details**, under the buttons, holds the rest: every step of the last handover with what the arms
+did, the full message of the last failure, the bridge's ports, the motor count and faults, a CAN
+link in error, and the VIEWER and CHECK buttons. The SESSION and TELEOP panels show only while
+teleop runs.
 
 ## Typical sequences
 
 | Goal | Steps |
 |---|---|
-| Power up and teleoperate | CH5 to MANUAL → **USE ROS 2** → **START** → put on the headset |
-| Put the arms away | release both grips → **STOP** → **PARK** → **RELEASE** |
-| Switch to the other controller | a person at the e-stop, CH5 to MANUAL, deadman held → **HAND ARMS TO …** → watch the steps |
+| Power up and teleoperate | CH5 to MANUAL → **USE ROS 2** → **START TELEOP** → put on the headset |
+| Put the arms away | release both grips → **STOP TELEOP** → **PARK** → **RELEASE** |
+| Switch to the other controller | a person at the e-stop, CH5 to MANUAL, deadman held → **HAND TO …** → watch the line under the buttons |
 | After an e-stop | clear the e-stop so the contactor closes → CH5 to MANUAL → **HOLD**. If it reports *CAN links not ready*, restart the links ([The CAN links are not ready](#arm-can-not-ready)) and press **HOLD** again. |
 
 ## Arm action messages
@@ -274,7 +273,7 @@ partly completed.
 
 **Code:** `ARM_SERVICE_FAILED`
 
-**Shown as:** *systemctl start failed: …* or *systemctl stop returned …* under TELEOP.
+**Shown as:** *systemctl start failed: …* or *systemctl stop returned …* under the buttons.
 
 **Means:** the dashboard could not start or stop the teleop bridge's service.
 
@@ -301,7 +300,7 @@ waiting for left gripper action server*.
 
 **Means:** an arm's gripper controller is not running. The bridge needs both.
 
-**Do:** **HOLD** (which starts both arms' gripper controllers), then **START** again.
+**Do:** **HOLD** (which starts both arms' gripper controllers), then **START TELEOP** again.
 
 ### Grip refused: CH5 is not MANUAL {#arm-teleop-grip-refused-mode}
 

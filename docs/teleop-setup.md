@@ -73,17 +73,17 @@ dashboard.
 ## Starting a session
 
 1. **CH5 to MANUAL** (the middle position).
-2. On the tablet's Arms page, **USE ROS 2** (or **HAND ARMS TO ROS 2**, if gafro has them). The arms
+2. On the tablet's Arms page, **USE ROS 2** (or **HAND TO ROS 2**, if gafro has them). The arms
    stiffen where they are and don't move. Each press is confirmed with a second tap; see
    [Arm controls on the tablet](arm-dashboard.md).
-3. **START** under TELEOP, then wait for the SERVER badge to read **READY**.
+3. **START TELEOP**, then wait for the TELEOP panel's badge to read **READY**.
 4. **Stand behind the robot, facing the way it faces.** Hand motion is measured in a frame fixed
    where the headset faced when the immersive session began, and the bridge assumes that was the
    robot's forward.
 5. In the Quest Browser, open the address the Arms page shows and enter the immersive session.
 6. Squeeze a controller's **grip** and move: that arm follows.
 
-To end: release both grips, **STOP** under TELEOP, then **PARK** and **RELEASE** if the
+To end: release both grips, **STOP TELEOP**, then **PARK** and **RELEASE** if the
 arms are done for now.
 
 ## The controls
@@ -109,8 +109,8 @@ The bridge's rules about when motion is allowed:
 
 On the tablet's Arms page:
 
-- **SERVER** reads **READY**, with **HTTPS page :8444** and **pose channel :8766** both shown as
-  good, **arms energized**, and **motors 16 enabled, 0 faults**.
+- **TELEOP** reads **READY**. Under **Details**, **HTTPS page :8444** and **pose channel :8766** are
+  both shown as good, with **arms energized** and **motors 16 enabled, 0 faults**.
 - **SESSION** reads **ARMS LIVE**, and the arm view moves with the arms. Each hand's tile shows a
   filled dot once the headset is streaming, and **GRIPPING** while you squeeze. A message under the
   tiles says what is holding a hand back; see

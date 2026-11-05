@@ -314,7 +314,7 @@ robot: this stack, gafro, or none.
 - **Both running, or no way to tell, is CONFLICT.** Every arm button on the Arms page is off until one
   stack is stopped at the robot's computer.
 
-To change controllers, use **Hand arms to ROS 2** or **Hand arms to gafro** on the Arms page. A person
+To change controllers, use **HAND TO ROS 2** or **HAND TO GAFRO** on the Arms page. A person
 must be at the e-stop, holding the deadman, with CH5 at MANUAL or AUTO. Both arms always go together,
 and the page lists each step as it runs, with what the arms do:
 

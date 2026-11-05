@@ -10,11 +10,12 @@
    per-arm mixing.
 2. **After a reboot no controller starts on its own.** The arms come up with no owner, and the
    operator picks one.
-3. **One explicit handover in each direction,** with the deadman held. Each step says what the arms do.
+3. **One explicit handover in each direction,** with the deadman held. Each step says what the arms do
+   (under Details on the page; the page itself shows only the step that is running).
    A failed step refuses cleanly and leaves the controller that was in charge.
-4. **Buttons are named for what the arm does.** A button the controller can't perform is disabled,
-   with its reason, and is never sent to the other stack. Both stacks running, or no way to tell, is
-   CONFLICT: every arm button is disabled until it is resolved.
+4. **Only what the controller can do is shown.** A button it can't perform is hidden, and the backend
+   refuses it in words; it is never sent to the other stack. Both stacks running, or no way to tell, is
+   CONFLICT: no arm button shows until it is resolved. A button's second tap says what the arms do.
 5. **The controller is shown on the Arms page and the Shows page,** with no banner on every page.
    The "Teleop" page is renamed "Arms". Both pages read the dashboard's `stack` field.
 
@@ -40,20 +41,23 @@ now also removes any `opendubs-arm@*.service` link left in a `.wants/` directory
 ## The buttons
 
 `stack.unavailable` lists every action, with `null` when the controller can do it now, or the reason.
-The page disables the button and prints the reason under its card, since a tablet has no hover. The
-backend refuses with the same words.
+The page hides a button whose action is not `null`, and the backend refuses it with those words.
+The page has one line naming the controller (and a short reason for a CONFLICT), the buttons, one
+line for the running step or the last failure, and a collapsed **Details** with everything else.
+An earlier version printed every reason and every step on the page; at the robot that was too much
+text to use.
 
 | Button (what the arms do) | ROS 2 | gafro | none |
 |---|---|---|---|
 | **Use ROS 2** / **Use gafro**: the arms stiffen where they are | off | off | on |
-| **Hand arms to gafro** / **to ROS 2**: park, then rest at stow | to gafro | to ROS 2 | off |
+| **HAND TO GAFRO** / **HAND TO ROS 2**: park, then rest at stow | to gafro | to ROS 2 | off |
 | **Release**: the arms go limp at stow (refused away from stow) | `openarm-up down` | stop, listen, disable | off |
 | **Park**: the arms move to stow | `openarm-up park` | the service's park | off |
 | **Hold**: stiff where they are | `openarm-up hold`; an inactive arm is activated in place | the service's hold | off |
 | **Ready L/R**, **Follow L/R**, **Supervise**, **Prepare for a show** | off (gafro's) | on | off |
 | Teleop **START** (the Quest bridge) | on | off (it drives ROS 2's controllers) | off |
 
-Under CONFLICT every row is off, and the controller card names the stacks and how to stop one.
+Under CONFLICT every row is off; the page says to stop one stack at the robot's computer, and Details names them.
 
 ## The changes of controller
 
@@ -61,7 +65,7 @@ Each change runs as the dashboard's one operation at a time (`backend/arm_handov
 shows its steps as they run, each with what the arms do. Before anything moves, each change refuses
 while a show runs or the Quest teleop bridge runs.
 
-**Hand arms to ROS 2** (from gafro). Refused unless the e-stop is clear, CH5 is MANUAL or AUTO, the
+**HAND TO ROS 2** (from gafro). Refused unless the e-stop is clear, CH5 is MANUAL or AUTO, the
 deadman is held, and gafro is supervised.
 
 | Step | What the arms do |
@@ -72,7 +76,7 @@ deadman is held, and gafro is supervised.
 | 4. Disable both arms' motors | go limp at stow |
 | 5. `openarm-up activate both` | stiffen at stow (activation holds the measured pose, A1) |
 
-**Hand arms to gafro** (from ROS 2). Same gates; gafro's supervision isn't needed to start it.
+**HAND TO GAFRO** (from ROS 2). Same gates; gafro's supervision isn't needed to start it.
 
 | Step | What the arms do |
 |---|---|
