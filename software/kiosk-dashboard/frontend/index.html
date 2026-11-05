@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=d13025ec" />
+  <link rel="stylesheet" href="style.css?v=8d57e0a5" />
 </head>
 <body>
   <div id="app">
@@ -410,11 +410,6 @@
       </div>
     </main>
 
-    <!-- ARMS view (placeholder) -->
-    <main id="view-arms" class="view placeholder">
-      <div class="ph"><h1>ARMS</h1><p>Dual OpenArm 7-DOF</p><p class="dim">telemetry pending — layout to be designed</p></div>
-    </main>
-
     <!-- POWER view — 52V pack (BMS) · usage/projection · 24V rails + charger + PDH -->
     <main id="view-power" class="view powerview">
       <!-- 52V pack -->
@@ -513,49 +508,53 @@
       </section>
     </main>
 
-    <!-- TELEOP view — WebXR teleop: controls, arm pose, session health -->
+    <!-- ARMS view — which controller has the arms, park / hold / release, the gafro arm service's moves, the WebXR teleop, arm pose, session health.
+         (Its id stays view-teleop: the styles and the /joint_states routing in app.js name it.) -->
     <main id="view-teleop" class="view teleopview">
       <div class="tp-controls">
-        <section class="card tp-ctl">
-          <h2>RECOVER</h2>
+        <section class="card tp-ctl tp-controller">
+          <h2>CONTROLLER <span id="tpCtl" class="badge dimbadge">—</span></h2>
+          <div class="sub" id="tpCtlWhy">—</div>
           <div class="tp-btns">
-            <button id="btnArmPark" class="sysbtn tp-accent">PARK BOTH</button>
-            <button id="btnArmHoldL" class="sysbtn">HOLD L</button>
-            <button id="btnArmHoldR" class="sysbtn">HOLD R</button>
+            <button id="btnUseRos2" class="sysbtn">USE ROS 2 · arms stiffen where they are</button>
+            <button id="btnUseGafro" class="sysbtn">USE GAFRO · arms stiffen where they are</button>
+            <button id="btnToRos2" class="sysbtn tp-accent">HAND ARMS TO ROS 2 · park, then rest at stow</button>
+            <button id="btnToGafro" class="sysbtn tp-accent">HAND ARMS TO GAFRO · park, then rest at stow</button>
+            <button id="btnArmRelease" class="sysbtn danger">RELEASE · arms go limp at stow</button>
           </div>
+          <div class="tp-steps" id="tpSteps" hidden></div>
+          <div class="sub tp-off" id="tpOffCtl"></div>
         </section>
         <section class="card tp-ctl">
-          <h2>TELEOP</h2>
+          <h2>BOTH ARMS</h2>
+          <div class="tp-btns">
+            <button id="btnArmPark" class="sysbtn tp-accent">PARK · arms move to stow</button>
+            <button id="btnArmHold" class="sysbtn">HOLD · stiff where they are</button>
+          </div>
+          <div class="sub tp-off" id="tpOffBoth"></div>
+        </section>
+        <section class="card tp-ctl">
+          <h2>TELEOP <span class="tp-warn">· Quest, ROS 2 only</span></h2>
           <div class="tp-btns">
             <button id="btnTeleopStart" class="sysbtn">START</button>
             <button id="btnTeleopStop" class="sysbtn">STOP</button>
           </div>
-        </section>
-        <section class="card tp-ctl">
-          <h2>PREPARE FOR A SHOW <span class="tp-warn">· energizes, then moves to ready</span></h2>
-          <div class="tp-btns">
-            <button id="btnArmPrepL" class="sysbtn tp-accent">PREPARE L</button>
-            <button id="btnArmPrepR" class="sysbtn tp-accent">PREPARE R</button>
-            <button id="btnArmPrepBoth" class="sysbtn tp-accent">PREPARE BOTH</button>
-          </div>
+          <div class="sub tp-off" id="tpOffTeleop"></div>
         </section>
         <section class="card tp-ctl tp-power">
-          <h2>ARM POWER <span class="tp-warn">· moves the arm</span></h2>
+          <h2>GAFRO ONLY <span class="tp-warn">· moves the arm</span></h2>
           <div class="tp-btns">
+            <button id="btnArmPrepBoth" class="sysbtn tp-accent">PREPARE FOR A SHOW · I am at the e-stop, arms move to ready</button>
             <button id="btnArmSupL" class="sysbtn" hidden>SUPERVISE L</button>
             <button id="btnArmSupR" class="sysbtn" hidden>SUPERVISE R</button>
             <button id="btnArmUnsupL" class="sysbtn" hidden>END SUPERVISION L</button>
             <button id="btnArmUnsupR" class="sysbtn" hidden>END SUPERVISION R</button>
-            <button id="btnArmStartL" class="sysbtn">START L</button>
-            <button id="btnArmStartR" class="sysbtn">START R</button>
-            <button id="btnArmActL" class="sysbtn">ACTIVATE L</button>
-            <button id="btnArmActR" class="sysbtn">ACTIVATE R</button>
-            <button id="btnArmFollowL" class="sysbtn">FOLLOW L</button>
-            <button id="btnArmFollowR" class="sysbtn">FOLLOW R</button>
-            <button id="btnArmDownL" class="sysbtn danger">DE-ENERGIZE L</button>
-            <button id="btnArmDownR" class="sysbtn danger">DE-ENERGIZE R</button>
-            <button id="btnArmDown" class="sysbtn danger">DE-ENERGIZE</button>
+            <button id="btnArmActL" class="sysbtn">READY L · moves to ready</button>
+            <button id="btnArmActR" class="sysbtn">READY R · moves to ready</button>
+            <button id="btnArmFollowL" class="sysbtn">FOLLOW L · hand follows target</button>
+            <button id="btnArmFollowR" class="sysbtn">FOLLOW R · hand follows target</button>
           </div>
+          <div class="sub tp-off" id="tpOffGafro"></div>
         </section>
         <section class="card tp-ctl">
           <h2>VIEWER &amp; CHECK <span class="tp-warn">· moves nothing</span></h2>
@@ -644,7 +643,7 @@
     <div class="ditem" data-view="nav">Navigation — GPS / flow<span class="ch">›</span></div>
     <div class="ditem" data-view="lidar">Lidar — front / rear scan<span class="ch">›</span></div>
     <div class="ditem" data-view="payload">Payload / mast<span class="ch">›</span></div>
-    <div class="ditem" data-view="teleop">Teleop<span class="ch">›</span></div>
+    <div class="ditem" data-view="teleop">Arms — controller, park, teleop<span class="ch">›</span></div>
     <div class="ditem" data-view="shows">Shows — routines<span class="ch">›</span></div>
     <div class="ditem" data-view="architect">ARCHITECT — program, camera, speech<span class="ch">›</span></div>
     <div class="ditem" data-view="headface">Head &amp; face — idle, looks, sound<span class="ch">›</span></div>
@@ -652,7 +651,7 @@
   </nav>
   <script src="app.js?v=8c2fceb6"></script>
   <script src="operate.js?v=9fc851ed"></script>
-  <script type="module" src="teleop.js?v=4f3be772"></script>
+  <script type="module" src="teleop.js?v=9482816f"></script>
   <script src="show_audio.js?v=6ae749a1"></script>
   <script type="module" src="architect.js?v=cd084c5c"></script>
   <script src="choreo.js?v=ced8f8c7"></script>
