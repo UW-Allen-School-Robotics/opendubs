@@ -110,6 +110,14 @@ on the robot a show waits ARMED until the operator presses the deadman in CH5 AU
   measured speed caps (`cue.SPEED_CAP_DEG_S`) are gates, not suggestions. A clearance or speed figure
   counts only for the path the runner actually sends (`motion.py`'s smoothed path); a planner's route is
   advice until the runner executes it.
+- **The lift's pinch guard: consent is the operator's held deadman, never the show's.** The StamPLC
+  holds a descent into the last ~60 mm until a human consents. A show may ask for that consent in one
+  form only: `ack_pinch: deadman` on a LIFT `down` cue, which the robot announces out loud first ("I'm
+  going to lower my Z-axis now. Watch your fingers."). The dashboard (`/api/choreo/lift/ack`) sends
+  `MAST ACK` only if CH5 is AUTO and the deadman reads held at that moment; otherwise nothing is sent,
+  the descent is skipped and the show plays on. Decided by the user on 2026-11-05: the operator's
+  continuing deadman hold is the consent. No StamPLC change; the guard's own rules (consent spent when
+  the descent stops, stale after 15 s, no motion in AUTO without the deadman) all still hold.
 - **Effectors declare what they need.** Parts come from the slots a show uses (`cue.EFFECTORS`); a show
   may list parts it can do without in `can_skip:`; the operator approves a run without them.
 - **Audio roles hold:** dialogue on the tablet, music to the projector with the tablet as fallback.

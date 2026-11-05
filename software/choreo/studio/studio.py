@@ -314,7 +314,9 @@ def cmd_up(a) -> int:
         want = [p if free(p, kind) else 0 for p, kind in zip(s["door_ports"], (socket.SOCK_STREAM,
                 socket.SOCK_STREAM, socket.SOCK_DGRAM, socket.SOCK_DGRAM))]
         comps["face_door"] = spawn("face_door", [py, face_web / "door_dev.py", "--http", want[0], "--ws", want[1],
-                                                 "--face", want[2], "--neck", want[3], "--ready-json"],
+                                                 "--face", want[2], "--neck", want[3], "--ready-json",
+                                                 # the library's skins and cards, as the robot serves its own
+                                                 "--library", str(lib)],
                                    env, face_web, d["log"])
         save()
         got = door_ready(comps["face_door"])

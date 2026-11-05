@@ -1815,9 +1815,19 @@ class Show:
                 p.append(f"{where}: lift {do} needs secs")
             elif not _num(secs) or not (0.2 <= float(secs) <= LIFT_MAX_S):
                 p.append(f"{where}: lift secs {secs} outside 0.2..{LIFT_MAX_S}")
-        if c.get("ack_pinch"):
-            p.append(f"{where}: a show may not acknowledge the pinch guard — "
-                     "consent through the zone is a human's decision, every time")
+        # The pinch guard (the StamPLC holds a descent into the last ~60 mm until a human consents). A show
+        # may ask for that consent in ONE form only: `ack_pinch: deadman` on a `down` cue, which the robot
+        # has announced out loud before it (the user's decision, 2026-11-05). The operator's continuing
+        # deadman hold is the consent: the dashboard sends `MAST ACK` only if the deadman reads held at that
+        # moment (show_outputs.py). Anything else is refused: consent is never a show's own decision.
+        ack = c.get("ack_pinch")
+        if ack is not None and ack is not False:
+            if ack != "deadman":
+                p.append(f"{where}: a show may not acknowledge the pinch guard by itself — "
+                         "consent through the zone is a human's decision, every time; the only form a show "
+                         "may ask for is `ack_pinch: deadman` (the operator's held deadman, checked at that moment)")
+            elif do != "down":
+                p.append(f"{where}: ack_pinch belongs on a lift `down` cue")
         return p
 
     def _sounds_dir(self):
@@ -2406,7 +2416,7 @@ def describe(limits: dict) -> str:
       "in the gripper controller's own units")
     w(f"HEAD: pan, tilt in {HEAD_RANGE_DEG} deg (90 = centre); an axis left out keeps its target; "
       f"turns at {HEAD_SLEW_DPS:g} deg/s per axis (warns if a move cannot finish)")
-    w(f"LIFT: do up|down|stop, secs <= {LIFT_MAX_S:g}; never ack_pinch")
+    w(f"LIFT: do up|down|stop, secs <= {LIFT_MAX_S:g}; ack_pinch: deadman only, on a down the robot announces first")
     w(f"SOUND: do play, sound: a head earcon {TAB5_EARCONS}, or {SOUND_DIR}/<name>.* beside the show "
       "(listed under sounds: if it is kept locally and may be absent); "
       f"output {AUDIO_OUTPUTS} (default tablet; an earcon with no file -> tab5); can play: {CAN_PLAY}")
