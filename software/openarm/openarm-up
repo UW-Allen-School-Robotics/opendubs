@@ -3,12 +3,15 @@
 #
 #   openarm-up                  launch the stack with both arms INACTIVE (motors off, limp)
 #   openarm-up activate ARM     power one arm and start its controllers: left | right | both
-#                               (the arm then moves itself to its zero pose over ~2 s).
+#                               (the arm holds the pose it is measured at).
 #                               Starts the stack first if it is not running.
 #                               Starts the arm's GRIPPER controller too — teleop needs it.
+#                               Refused while the gafro arm service, or anything else, commands
+#                               that arm: one controller per arm.
 #   openarm-up park ARM         move to the stow pose so going limp is harmless: left | right | both
-#   openarm-up hold ARM         stop where it is: drives the arm to its CURRENT pose, which
-#                               preempts any running trajectory without moving anything
+#   openarm-up hold ARM         stiff where it is: activates the arm (it holds the pose it is
+#                               measured at; this also recovers it after a power loss), then drives
+#                               it to its CURRENT pose, which preempts any running trajectory
 #   openarm-up down [--drop]    controllers off, arms inactive, stack stopped, motors verified off.
 #                               REFUSES while an arm is active, because inactive = limp = the arm
 #                               falls from wherever it is. Park first, or pass --drop deliberately.
@@ -197,7 +200,7 @@ cmd_start() {
   A link would not come back after a restart: it has no power behind it, or its CAN connection is
   loose.
   To fix: check the e-stop is released and the contactor closed, and that the arm's CAN connectors
-  are seated, then press ACTIVATE again."
+  are seated, then press HOLD again (USE ROS 2 if no controller has the arms)."
   fi
   echo "== container"; ensure_container; echo "  $CONTAINER running"
   # `running` tests for the LAUNCH process, which outlives a SIGKILLed ros2_control_node — so a
@@ -210,6 +213,8 @@ cmd_start() {
     die "a DEAD stack is still holding the launch process — the controller_manager does not answer.
   Clear it first:  openarm-up down"
   fi
+  # The launch opens both arms' buses: neither may have another controller on it.
+  echo "== other controllers"; require_bus_ours left; require_bus_ours right; echo "  none"
   ensure_fastdds_profile
   echo "== motors before launch: $($MOTORS summary)"
   local log="$LOGDIR/launch-$(date +%Y%m%d-%H%M%S).log"
@@ -252,7 +257,7 @@ arm_motor_counts() {
 # ACTIVATE" left an operator asking de-energize WHAT, and DE-ENERGIZE needs a second, confirming tap.
 tablet_reset() {
   local s=L; [ "$1" = right ] && s=R
-  echo "on the TELEOP page press DE-ENERGIZE, tap it again to confirm, then press ACTIVATE $s"
+  echo "on the Arms page press RELEASE, tap it again to confirm, then USE ROS 2"
 }
 
 # An arm's CAN link in plain words, from `openarm-motors links` (ip only; sends nothing). Empty when
@@ -293,15 +298,15 @@ explain_no_activation() {
       if [ -n "$none" ]; then
         die "$A arm: no motor answers, though its CAN link is up. The arm has no power, or its CAN cable is
   loose. To fix: check the e-stop is released and the contactor closed, and the $arm arm's CAN cable
-  and power, then press ACTIVATE $K again."
+  and power, then press HOLD again (USE ROS 2 if no controller has the arms)."
       fi
       die "$A arm: the arm hardware refused to activate${reason:+: $reason}.
-  To fix: check the $arm arm's CAN cable and power, then press ACTIVATE $K again." ;;
+  To fix: check the $arm arm's CAN cable and power, then press HOLD again (USE ROS 2 if no controller has the arms)." ;;
     *)
       # @fault ARM_LINK_ERROR
       die "$A arm: ${none}Its CAN link is $lw.
   To fix: check the $arm arm's CAN cable and power (the e-stop released, the contactor closed), then
-  press RESTART LINK $K and ACTIVATE $K again (shell: openarm-up relink $arm, then activate $arm)." ;;
+  press RESTART LINK $K, then HOLD again (shell: openarm-up relink $arm, then activate $arm)." ;;
   esac
 }
 
@@ -353,7 +358,7 @@ activate_one() {
     if [ "${c_flt:-0}" -gt 0 ]; then
       die "$arm: motor fault —$c_desc. Not starting its controller.
   A motor fault latches until the motor loses power.
-  To fix: press and release the e-stop to power-cycle the arms, then press ACTIVATE again
+  To fix: press and release the e-stop to power-cycle the arms, then press HOLD again (USE ROS 2 if no controller has the arms)
   (shell: openarm-up activate $arm)."
     elif [ "${c_nr:-0}" -gt 0 ] && [ -n "$(link_words "$arm")" ]; then
       explain_no_activation "$arm"
@@ -361,7 +366,7 @@ activate_one() {
       die "$arm: $c_nr of $n motors do not answer on CAN. Not starting its controller.
   They are unpowered, or the CAN wiring is broken at or before the first silent one (the gripper is
   last in the chain).
-  To fix: check the e-stop is released and the contactor closed, then press ACTIVATE again. If they
+  To fix: check the e-stop is released and the contactor closed, then press HOLD again (USE ROS 2 if no controller has the arms). If they
   still do not answer, openarm-motors status shows which ids are silent."
     elif [ "$was" = active ]; then
       die "$arm: the motors answer but are DISABLED, while the arm stack still has this arm active.
@@ -371,7 +376,7 @@ activate_one() {
     else
       die "$arm: the hardware went active but only $c_en/$n motors enabled ($c_dis stayed DISABLED).
   To fix: $(tablet_reset "$arm"). If it happens again, press and release the e-stop
-  first to power-cycle the arms, then press ACTIVATE again."
+  first to power-cycle the arms, then press HOLD again (USE ROS 2 if no controller has the arms)."
     fi
   fi
   echo "  $arm: $n/$n motors ENABLED"
@@ -405,6 +410,8 @@ activate_one() {
 cmd_activate() {
   local which=$1 arms
   case "$which" in left|right) arms=$which ;; both) arms="left right" ;; *) die "usage: openarm-up activate left|right|both" ;; esac
+  # Before anything else, link restarts included: one controller per arm.
+  local a; for a in $arms; do require_bus_ours "$a"; done
   # From the tablet there is no "start the stack" step: DE-ENERGIZE runs `down`, which stops the
   # whole stack, and ACTIVATE is the next button anyone presses. So bring the stack up first when it
   # is not running -- exactly `openarm-up`, arms INACTIVE, with all its checks -- then activate.
@@ -477,8 +484,10 @@ cmd_hold() {
   case "$which" in left|right) arms=$which ;; both) arms="left right" ;;
     *) die "usage: openarm-up hold left|right|both" ;; esac
   running || die "stack is not running — nothing to hold"
+  # Activate first: it holds the measured pose (A1), and it is what recovers an arm whose motors lost power and restarted disabled under a controller that still reads active.
+  # On a healthy active arm it changes nothing. Then drive the arm to where it is, which preempts a running trajectory.
   for a in $arms; do
-    [ "$(ctrl_state "$a")" = active ] || die "$a: controller is not active — nothing to hold"
+    cmd_activate "$a"
     move_to "$a" "$(current_pose "$a")" 1 "holding at its current pose"
   done
 }
@@ -662,6 +671,34 @@ cmd_relink() {
   $MOTORS status | awk -v b="$i" '/^arm_/{cur=$1; next} cur==b'
 }
 
+# ---- one controller per arm --------------------------------------------------------------------
+# The gafro arm service (software/openarm/gafro) runs as opendubs-arm@<side>, outside this stack. It
+# refuses to start while ros2_control_node runs; this is the other half (notes/design/
+# arm-stack-contract.md, section 1). Two controllers on one arm's motors fight, and neither knows:
+# on 2026-10-27 a gafro unit was commanding the right arm while the tablet's ACTIVATE would still
+# have started this stack on it.
+gafro_active() { systemctl is-active --quiet "opendubs-arm@$1.service"; }
+
+# Refuse to energize ARM (or to open its bus at all, for `start`) while anything else commands it.
+require_bus_ours() {
+  local arm=$1 A seen; A=$(arm_word "$arm")
+  if gafro_active "$arm"; then
+    # @fault ARM_OTHER_CONTROLLER
+    die "$A arm: the gafro arm service (opendubs-arm@$arm) is running and controls this arm.
+  Two controllers on one arm fight, so nothing was started here.
+  To hand both arms to this stack: Hand arms to ROS 2 on the dashboard's Arms page (it parks
+  them under gafro, stops the service, and activates them here)."
+  fi
+  # This stack commands an arm's bus only while that arm's hardware is active here.
+  if running && cm_reachable && [ "$(hw_state "$arm")" = active ]; then return 0; fi
+  seen=$($MOTORS senders "arm_$arm" 0.5) && return 0
+  # @fault ARM_OTHER_CONTROLLER
+  die "$A arm: something else is commanding this arm's motors (${seen:-could not listen}), so nothing
+  was started here: two controllers on one arm fight.
+  To fix: stop the other controller first (openarm-motors senders arm_$arm shows what is on the
+  bus; it sends nothing)."
+}
+
 case "${1:-start}" in
   start|up) cmd_start ;;
   relink) cmd_relink "${2:-}" ;;
@@ -671,6 +708,6 @@ case "${1:-start}" in
   down|stop) shift; [ "${1:-}" = --drop ] && DROP=1; cmd_down ;;
   status) cmd_status ;;
   logs) sudo docker exec -it "$CONTAINER" tail -n 200 -F "$LOGDIR/latest.log" ;;
-  -h|--help|help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$1' (openarm-up help)" ;;
 esac

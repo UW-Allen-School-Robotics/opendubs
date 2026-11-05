@@ -56,6 +56,13 @@ if [ -n "$ROOT" ]; then
   exit 0
 fi
 
+# No arm controller starts at boot (notes/design/arm-controller-handover.md): the operator chooses one. The unit has no [Install], so only a link made by hand can start it;
+# on 2026-10-27 the units on opendubs2 had been installed from a checkout outside any deploy. Remove any such link, and say so. Moves nothing: it changes only what the next boot does.
+for link in /etc/systemd/system/*.wants/opendubs-arm@*.service; do
+  [ -L "$link" ] || continue
+  rm -f "$link"
+  echo "-- removed $link: no arm controller starts at boot"
+done
 systemctl daemon-reload
 
 # The interfaces package, into a workspace the unit's user can read. Built from the copy of this directory that is being installed.

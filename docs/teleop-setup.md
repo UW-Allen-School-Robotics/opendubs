@@ -21,7 +21,7 @@ looks like. The tablet's arm buttons, and what each of their messages means, are
   in **MANUAL**, the middle position; see [Control authority](control-authority.md).
 - A Meta Quest headset with its two controllers, on the **same network as the robot**. Only the
   Quest Browser is used; no app is installed on the headset.
-- The robot's dashboard on the tablet, with the TELEOP page.
+- The robot's dashboard on the tablet, with the Arms page.
 
 ## How it fits together
 
@@ -31,7 +31,7 @@ looks like. The tablet's arm buttons, and what each of their messages means, are
 | Pose channel | A secure WebSocket the page sends those poses over | `wss://<robot-address>:8766/` |
 | Teleop bridge | Turns each hand's motion into a target for its arm, solves the arm's inverse kinematics, and streams joint commands to the arm controllers | `opendubs-teleop.service`, running inside the `openarm` container |
 | Arm stack | The arms' controllers, started by `openarm-up` | see [OpenArm setup](openarm-setup.md) |
-| TELEOP page | Starts and stops the bridge, shows readiness, the arms' live pose and the control loop's health | the dashboard |
+| Arms page | Starts and stops the bridge, shows readiness, the arms' live pose and the control loop's health | the dashboard |
 
 The bridge is a copy of the upstream OpenArm WebXR teleop with changes for this robot: losing the
 headset stops the arm, releasing the grip stops it where it is, the gripper and the home buttons
@@ -39,7 +39,7 @@ answer only while allowed, motion requires CH5 in MANUAL, and the bridge keeps i
 each arm synced to the real joints. Those behaviours are described below.
 
 The bridge's service is **installed but not enabled**: it never starts at boot, only from the
-TELEOP page. It also never restarts itself after it stops, so a session the operator ended stays
+Arms page. It also never restarts itself after it stops, so a session the operator ended stays
 ended.
 
 ## Certificates
@@ -67,23 +67,23 @@ warning:
    page itself shows nothing useful.
 2. `https://<robot-address>:8444/` — the teleop page.
 
-The TELEOP page shows the exact address to use, derived from however the tablet reached the
+The Arms page shows the exact address to use, derived from however the tablet reached the
 dashboard.
 
 ## Starting a session
 
 1. **CH5 to MANUAL** (the middle position).
-2. On the tablet's TELEOP page, **ACTIVATE L** and **ACTIVATE R**. Each arm energizes and moves to
-   its zero pose, so clear the workspace first. Each press is confirmed with a second tap; see
+2. On the tablet's Arms page, **USE ROS 2** (or **HAND ARMS TO ROS 2**, if gafro has them). The arms
+   stiffen where they are and don't move. Each press is confirmed with a second tap; see
    [Arm controls on the tablet](arm-dashboard.md).
 3. **START** under TELEOP, then wait for the SERVER badge to read **READY**.
 4. **Stand behind the robot, facing the way it faces.** Hand motion is measured in a frame fixed
    where the headset faced when the immersive session began, and the bridge assumes that was the
    robot's forward.
-5. In the Quest Browser, open the address the TELEOP page shows and enter the immersive session.
+5. In the Quest Browser, open the address the Arms page shows and enter the immersive session.
 6. Squeeze a controller's **grip** and move: that arm follows.
 
-To end: release both grips, **STOP** under TELEOP, then **PARK BOTH** and **DE-ENERGIZE** if the
+To end: release both grips, **STOP** under TELEOP, then **PARK** and **RELEASE** if the
 arms are done for now.
 
 ## The controls
@@ -107,7 +107,7 @@ The bridge's rules about when motion is allowed:
 
 ## What working looks like
 
-On the tablet's TELEOP page:
+On the tablet's Arms page:
 
 - **SERVER** reads **READY**, with **HTTPS page :8444** and **pose channel :8766** both shown as
   good, **arms energized**, and **motors 16 enabled, 0 faults**.

@@ -17,7 +17,7 @@
  },
  "ARM_CONTROLLER_INACTIVE": {
   "do": [
-   "Press **DE-ENERGIZE**, then **ACTIVATE**.",
+   "Press **RELEASE**, then **USE ROS 2**.",
    "If it repeats, `openarm-up logs` on the robot's computer says why."
   ],
   "means": "The arm energized, but its controller is inactive or not loaded, so it cannot be commanded.",
@@ -25,7 +25,7 @@
  },
  "ARM_GRIPPER_CONTROLLER_INACTIVE": {
   "do": [
-   "Press **DE-ENERGIZE**, then **ACTIVATE** that arm again."
+   "Press **RELEASE**, then **USE ROS 2**."
   ],
   "means": "The arm works, but its gripper controller is not running. The teleop bridge needs both grippers' controllers and exits about 30 s after START without them.",
   "title": "An arm's gripper controller would not start"
@@ -33,7 +33,7 @@
  "ARM_LINK_ERROR": {
   "do": [
    "Check that arm's CAN cable at both ends, and its power (the e-stop released, the contactor closed).",
-   "Press RESTART LINK for that arm, then ACTIVATE. RESTART LINK moves nothing. It's offered only while the link is the problem, and it's refused during a show or while the arm is energized.",
+   "Press RESTART LINK for that arm, then HOLD. RESTART LINK moves nothing. It's offered only while the link is the problem, and it's refused during a show or while the arm is energized.",
    "If the tablet says the link is missing, a restart can't help: the CAN adapter is unplugged or its driver isn't loaded. Check its USB cable at the robot's computer."
   ],
   "means": "The CAN link the tablet names (left or right) is in error (ERROR-PASSIVE or BUS-OFF), down, or missing. While it is, that arm's motors answer intermittently or not at all, so it won't activate. The usual cause is a loose or damaged CAN cable, or no power to the arm. A link that was in error doesn't recover by itself even after the cable is fixed. Unarmed motors that read disabled are normal, and are not this fault.",
@@ -41,7 +41,7 @@
  },
  "ARM_MOTORS_DISABLED": {
   "do": [
-   "Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm."
+   "Press **RELEASE** and tap it again to confirm, then **USE ROS 2**."
   ],
   "means": "The arms lost power and got it back, and the motors restarted disabled under an arm the stack still marks active — a case the automatic reset did not cover.",
   "title": "The arm's motors answer but are disabled"
@@ -49,7 +49,7 @@
  "ARM_MOTORS_SILENT": {
   "do": [
    "Check that the e-stop is released and the drive contactor is closed — the arms are on the drive bus.",
-   "Press ACTIVATE again.",
+   "Press HOLD again (USE ROS 2 if no controller has the arms).",
    "If they still do not answer, `openarm-motors status` on the robot's computer lists the silent motors."
   ],
   "means": "Those motors are unpowered, or the CAN wiring is broken at or before the first silent one. The gripper is last in each arm's chain.",
@@ -57,7 +57,7 @@
  },
  "ARM_MOTOR_FAULT": {
   "do": [
-   "Press and release the e-stop to power-cycle the arms. Once the contactor is closed again, restart both CAN links (see `ARM_CAN_NOT_READY`), then press ACTIVATE."
+   "Press and release the e-stop to power-cycle the arms. Once the contactor is closed again, restart both CAN links (see `ARM_CAN_NOT_READY`), then press HOLD (USE ROS 2 if no controller has the arms)."
   ],
   "means": "A motor reports a fault such as over-voltage. A motor's fault latches until the motor loses power.",
   "title": "An arm motor reports a fault"
@@ -69,9 +69,17 @@
   "means": "The action did not finish within its time limit. It may have partly completed.",
   "title": "An arm action timed out"
  },
+ "ARM_OTHER_CONTROLLER": {
+  "do": [
+   "To hand both arms from the gafro service to this stack, press **Hand arms to ROS 2** on the dashboard's Arms page, with a person at the e-stop holding the deadman. It parks the arms under gafro, stops the service, and activates the arms here.",
+   "If no gafro service is named, run `openarm-motors senders arm_left` (or `arm_right`). It listens and sends nothing, and says what is commanding the arm. Stop that program first."
+  ],
+  "means": "Something other than this arm stack is commanding the arm: the gafro arm service (`opendubs-arm@left` or `@right`), or another program sending motor commands on that arm's CAN bus. Two controllers on one arm fight, so nothing starts the ROS 2 stack until there is only one. This message moves nothing.",
+  "title": "Another arm controller is running on that arm"
+ },
  "ARM_PARTIAL_ENABLE": {
   "do": [
-   "Press **DE-ENERGIZE**, tap again to confirm, then **ACTIVATE**.",
+   "Press **RELEASE**, tap again to confirm, then **USE ROS 2**.",
    "If it happens again, power-cycle the arms with the e-stop first."
   ],
   "means": "The arm's hardware went active, but not all eight of its motors enabled.",
@@ -79,9 +87,9 @@
  },
  "ARM_RESET_FAILED": {
   "do": [
-   "Press **DE-ENERGIZE** and tap it again to confirm, then press **ACTIVATE** for that arm."
+   "Press **RELEASE** and tap it again to confirm, then **USE ROS 2**."
   ],
-  "means": "ACTIVATE tried to reset the arm after a power loss, and the arm did not go inactive.",
+  "means": "HOLD tried to reset the arm after a power loss, and the arm did not go inactive.",
   "title": "The arm could not be reset after a power loss"
  },
  "ARM_SERVICE_FAILED": {
@@ -93,8 +101,8 @@
  },
  "ARM_STACK_DEAD": {
   "do": [
-   "Press **DE-ENERGIZE**, which clears a dead stack, then **ACTIVATE**.",
-   "If DE-ENERGIZE refuses because motors are still energized with no controller, follow the options it prints: the motors hold their last command until something disables them."
+   "Press **RELEASE**, which clears a dead stack, then **USE ROS 2**.",
+   "If RELEASE refuses because motors are still energized with no controller, follow the options it prints: the motors hold their last command until something disables them."
   ],
   "means": "The arm software crashed but did not fully exit, so nothing answers it.",
   "title": "The arm stack is dead"
@@ -122,7 +130,7 @@
  },
  "ARM_TELEOP_GRIPPER_TIMEOUT": {
   "do": [
-   "Press **ACTIVATE** for both arms, which starts their gripper controllers, then **START** again."
+   "Press **HOLD**, which starts both arms' gripper controllers, then **START** again."
   ],
   "means": "An arm's gripper controller is not running, and the teleop bridge needs both. Its log ends with *Timed out waiting for left gripper action server*.",
   "title": "Teleop exits about 30 s after START"

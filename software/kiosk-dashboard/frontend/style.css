@@ -634,6 +634,9 @@ body.op-faulted .op-clearfault{ display:inline-flex; }
 .tp-ctl.tp-power { border-color: #2a1f1f; margin-left: auto; flex: 1 1 100%; }   /* the full row, so its buttons wrap inside it and not past the edge */
 .tp-warn { color: var(--warn); font-weight: 400; }
 .tp-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.tp-ctl { max-width: 100%; }                                  /* a card's why-line wraps inside the page, not past its edge */
+.tp-ctl.tp-controller { flex: 1 1 100%; }                     /* which controller has the arms: the whole first row */
+.tp-off, .tp-steps { margin-top: 6px; white-space: pre-line; }
 .tp-btns .sysbtn { min-height: 44px; }
 .tp-accent { border-color: var(--accent); color: var(--accent); }
 
