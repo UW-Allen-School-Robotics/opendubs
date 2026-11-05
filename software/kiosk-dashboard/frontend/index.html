@@ -302,7 +302,7 @@
     <main id="view-shows" class="view showsview">
       <!-- The Shows page (notes/design/choreo-shows-page.md): three steps, then a fold. Every control says in
            one line what it does; nothing on it overrides another unseen. choreo.js runs steps 2 and 3 and the
-           Robot line; projector.js / stagebox.js (the Tablet lane) fill the Video and Sound rows and their
+           Robot and Arms lines; projector.js / stagebox.js (the Tablet lane) fill the Video and Sound rows and their
            parts of Advanced. -->
       <section class="card shows-setup">
         <h2>1 · BEFORE YOU START <span id="showsTwin" class="badge twinbadge" title="On the robot the real ARMS follow every run, while CH5 is AUTO and the deadman is held. A runner without the arms drives only the twins (MuJoCo, the face twin).">TWIN ONLY · THE ROBOT DOES NOT MOVE</span></h2>
@@ -310,6 +310,7 @@
         <div id="showsVideoRow" class="shows-outrow"></div>
         <div id="showsSoundRow" class="shows-outrow"></div>
         <div id="showsRobotRow" class="shows-outrow"></div>
+        <div id="showsArmsRow" class="shows-outrow"></div>
       </section>
       <section class="card shows-card">
         <h2>2 · PICK A SHOW</h2>
@@ -326,7 +327,7 @@
         <div class="shows-gonote">GO checks everything and makes the selected show READY; nothing moves until you press and hold the deadman.
           Once it runs, letting go of the deadman stops it and the arms hold where they are.
           <button id="showsPark" class="sysbtn shows-park" title="Moves both arms to their stow pose, e.g. after a stopped run left them part-way. Confirm-on-tap; not while a routine runs.">PARK BOTH ARMS</button>
-          moves both arms to stow (not during a show).</div>
+          moves both arms to stow (not during a show).<span id="showsParkWhy" class="bad"></span></div>
       </section>
       <details id="showsAdvanced" class="card shows-adv">
         <summary>ADVANCED — start mode, timing, stage box setup and diagnostics (not needed to run a show)</summary>
@@ -655,7 +656,7 @@
   <script type="module" src="teleop.js?v=4f3be772"></script>
   <script src="show_audio.js?v=6ae749a1"></script>
   <script type="module" src="architect.js?v=cd084c5c"></script>
-  <script src="choreo.js?v=ced8f8c7"></script>
+  <script src="choreo.js?v=7c4b077c"></script>
   <script src="headface.js?v=ea3f18f3"></script>
   <script src="projector.js?v=5500e329"></script>
   <script src="stagebox.js?v=e0c33aa5"></script>
