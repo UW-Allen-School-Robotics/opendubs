@@ -24,29 +24,40 @@ the page, and the dashboard refuses it anyway; it is never sent to the other sta
 
 ## The buttons
 
-Every button that moves an arm or ends a session is **confirm-on-tap**. The first tap changes its
-label to a confirmation that says what the arms will do (for example **ARMS MOVE TO STOW**). Only a
-**second tap within 5 s** sends it, so a single tap does nothing.
+**Every button that moves an arm needs the deadman** (CH6) held when you press it; without it,
+the button is refused at once with one line: **Hold the deadman**. Under gafro its arm service also
+moves only for a person at the e-stop: **SUPERVISE L/R** (or **READY FOR SHOW**) says so.
 
-| Button | Shown when | Confirm label | What the arms do |
-|---|---|---|---|
-| **USE ROS 2** / **USE GAFRO** | no controller | ARMS STIFFEN WHERE THEY ARE | The arms stiffen where they are and don't move. Under ROS 2 this starts the stack and activates both arms (about 15–30 s). |
-| **HAND TO ROS 2** / **HAND TO GAFRO** | the other controller has the arms | ARMS MOVE TO STOW · HOLD THE DEADMAN | The arms move to stow under the old controller, then rest there while it stops and the new one stiffens them. It needs CH5 at MANUAL or AUTO, the deadman held, and the e-stop clear. If a step fails, the old controller gets the arms back. |
-| **PARK** | a controller has the arms | ARMS MOVE TO STOW | Moves both arms to the robot's stow pose. |
-| **HOLD** | a controller has the arms | ARMS STIFF WHERE THEY ARE | Both arms stay stiff where they are, stopping any motion in progress. Under ROS 2 it also activates an arm that isn't active and recovers one after an e-stop; see [`ARM_POWER_RESTORED`](#arm-power-restored). |
-| **RELEASE** | a controller has the arms | ARMS GO LIMP | Back to no controller. The arms go limp. It is refused while an arm is energized away from its stow pose, because a limp arm falls. |
-| **START TELEOP** / **STOP TELEOP** | ROS 2 has the arms / teleop runs | CONFIRM START / CONFIRM STOP | Starts or stops the teleop bridge, which drives the ROS 2 stack's controllers. |
-| **PREPARE**, **READY L/R**, **FOLLOW L/R**, **SUPERVISE L/R** | gafro has the arms | (says what moves) | The gafro arm service's moves; see [the arm service](openarm-arm-service.md). |
+Every button is **confirm-on-tap**: the first tap changes its label, and only a **second tap within
+5 s** sends it. Where the arms move, the confirmation says so (for example **ARMS MOVE TO STOW**);
+elsewhere it reads **CONFIRM**.
+
+| Button | Shown when | What the arms do |
+|---|---|---|
+| **USE ROS 2** / **USE GAFRO** | no controller | The arms stiffen where they are and don't move. Under ROS 2 this starts the stack and activates both arms (about 15–30 s). |
+| **HAND TO ROS 2** / **HAND TO GAFRO** | the other controller has the arms | The arms move to stow under the old controller, then rest there while it stops and the new one stiffens them. Arms that already read at stow are not parked, so nothing moves and the deadman isn't needed. Away from stow under gafro, **SUPERVISE** first. If a step fails, the old controller gets the arms back. |
+| **SUPERVISE L/R** / **END SUPERVISION L/R** | gafro has the arms | Your word that a person is at the e-stop, per arm. gafro refuses its moves without it. |
+| **PARK** | a controller has the arms | Both arms move to the robot's stow pose. |
+| **READY FOR SHOW** | gafro has the arms | Your word that you are at the e-stop (it supervises both arms), then both arms move to their ready pose, so a show can run. |
+| **START TELEOP** / **STOP TELEOP** | ROS 2 has the arms / teleop runs | Starts or stops the teleop bridge, which drives the ROS 2 stack's controllers. |
+| **RELEASE** | a controller has the arms | Back to no controller. The arms go limp. It is refused while an arm is energized away from its stow pose, because a limp arm falls. |
+| **STOP** | while an arm action runs | The arms stop where they are. |
 
 **One arm action runs at a time.** While one runs, its button reads, for example, **PARKING… 12 s**,
-and only it and **HOLD** stay on the page. During a handover, one line under the buttons names the
-step that is running. When an action ends, its button shows **DONE** or **FAILED** for a few
-seconds, and a failure or a refusal leaves one line saying why.
+and only it and **STOP** stay on the page. During a handover, one line under the buttons names the
+step that is running. A failure or a refusal leaves one line saying why, until the next action.
 
-**Details**, under the buttons, holds the rest: every step of the last handover with what the arms
-did, the full message of the last failure, the bridge's ports, the motor count and faults, a CAN
-link in error, and the VIEWER and CHECK buttons. The SESSION and TELEOP panels show only while
-teleop runs.
+**Details**, under the buttons, holds the rest:
+
+- **HOLD**: both arms stay stiff where they are. Under ROS 2 it also activates an arm that isn't
+  active and recovers one after an e-stop; see [`ARM_POWER_RESTORED`](#arm-power-restored).
+- **READY L/R**, **FOLLOW L/R**: one arm's gafro moves, for working on an arm; see
+  [the arm service](openarm-arm-service.md).
+- **VIEWER L/R**, **CHECK L/R**: they move nothing.
+- Every step of the last handover with what the arms did, the full message of the last failure, the
+  bridge's ports, the motor count and faults, and a CAN link in error.
+
+The SESSION and TELEOP panels show only while teleop runs.
 
 ## Typical sequences
 
@@ -54,8 +65,8 @@ teleop runs.
 |---|---|
 | Power up and teleoperate | CH5 to MANUAL → **USE ROS 2** → **START TELEOP** → put on the headset |
 | Put the arms away | release both grips → **STOP TELEOP** → **PARK** → **RELEASE** |
-| Switch to the other controller | a person at the e-stop, CH5 to MANUAL, deadman held → **HAND TO …** → watch the line under the buttons |
-| After an e-stop | clear the e-stop so the contactor closes → CH5 to MANUAL → **HOLD**. If it reports *CAN links not ready*, restart the links ([The CAN links are not ready](#arm-can-not-ready)) and press **HOLD** again. |
+| Switch to the other controller | CH5 to MANUAL, deadman held → **HAND TO …** → watch the line under the buttons |
+| After an e-stop | clear the e-stop so the contactor closes → CH5 to MANUAL → **HOLD** (under Details). If it reports *CAN links not ready*, restart the links ([The CAN links are not ready](#arm-can-not-ready)) and press **HOLD** again. |
 
 ## Arm action messages
 

@@ -66,6 +66,7 @@ def arms(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENDUBS_ARM_SOCKET_DIR", str(tmp_path))
     monkeypatch.setattr(openarm, "_run", lambda *a, **k: (_ for _ in ()).throw(AssertionError(f"the old stack was called: {a}")))   # openarm-up must not run
     monkeypatch.setattr(openarm, "_ros_running", lambda: False)          # the ROS stack is not up: the arm service is the stack
+    monkeypatch.setattr(openarm.arm_handover, "motion_gates_problem", lambda io: None)   # the deadman is held (test_a_move_without_the_deadman_* says otherwise)
     made = []
 
     def make(side, **kwargs):
@@ -91,7 +92,17 @@ def test_park_goes_to_the_service_and_waits_for_it(arms):
     assert op["running"], "a 1 s park was reported done at once"
     op = wait()
     assert op["error"] is None and op["rc"] == 0 and "park done" in op["out"], op
-    assert right.received[0] == "park"
+    assert [c for c in right.received if c != "status"] == ["park"], right.received
+
+
+def test_a_move_without_the_deadman_is_refused_at_the_press_and_sends_nothing(arms, monkeypatch):
+    right = arms("right")
+    monkeypatch.setattr(openarm.arm_handover, "motion_gates_problem", lambda io: "Hold the deadman. Nothing was moved or stopped")
+    for word in ("park", "follow", "ready", "prepare"):
+        ok, detail = openarm.start_op(word, "right" if word != "prepare" else "both")
+        assert not ok and detail.startswith("Hold the deadman."), (word, detail)
+    assert [c for c in right.received if c != "status"] == [], right.received
+    assert openarm.start_op("hold", "right")[0], "HOLD only stops, so it needs no deadman"
 
 
 def test_both_means_every_arm_that_has_a_service(arms):
@@ -285,7 +296,7 @@ def test_an_arm_that_is_up_but_not_supervised_is_not_ok_and_says_how_to_fix_it(a
     """A show is a trajectory goal per arm and the service rejects it without supervision, which ends the show: so the runner must be told before it starts."""
     right = arms("right")
     eff = openarm.effector_status()["arm_right"]
-    assert eff["state"] == "degraded" and eff["pose_deg"] == [0.0] * 7 and "PREPARE R" in eff["why"], eff       # the pose stays: a skipped arm is checked to be at rest
+    assert eff["state"] == "degraded" and eff["pose_deg"] == [0.0] * 7 and "SUPERVISE R" in eff["why"], eff       # the pose stays: a skipped arm is checked to be at rest
     right.supervised = True
     assert openarm.effector_status()["arm_right"]["state"] == "ok"
 
@@ -299,7 +310,7 @@ def test_follow_goes_to_the_service_and_nowhere_else(arms):
     right = arms("right")
     assert openarm.start_op("follow", "right")[0]
     op = wait()
-    assert op["error"] is None and right.received == ["follow"], (op, right.received)
+    assert op["error"] is None and [c for c in right.received if c != "status"] == ["follow"], (op, right.received)
 
 
 def _free_port():

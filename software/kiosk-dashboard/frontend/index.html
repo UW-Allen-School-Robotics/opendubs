@@ -522,18 +522,14 @@
             <button id="btnUseRos2" class="sysbtn" hidden>USE ROS 2</button>
             <button id="btnUseGafro" class="sysbtn" hidden>USE GAFRO</button>
             <button id="btnToRos2" class="sysbtn tp-accent" hidden>HAND TO ROS 2</button>
-            <button id="btnToGafro" class="sysbtn tp-accent" hidden>HAND TO GAFRO</button>
-            <button id="btnArmPark" class="sysbtn tp-accent" hidden>PARK</button>
-            <button id="btnArmHold" class="sysbtn" hidden>HOLD</button>
-            <button id="btnArmPrepBoth" class="sysbtn tp-accent" hidden>PREPARE</button>
             <button id="btnArmSupL" class="sysbtn" hidden>SUPERVISE L</button>
             <button id="btnArmSupR" class="sysbtn" hidden>SUPERVISE R</button>
             <button id="btnArmUnsupL" class="sysbtn" hidden>END SUPERVISION L</button>
             <button id="btnArmUnsupR" class="sysbtn" hidden>END SUPERVISION R</button>
-            <button id="btnArmActL" class="sysbtn" hidden>READY L</button>
-            <button id="btnArmActR" class="sysbtn" hidden>READY R</button>
-            <button id="btnArmFollowL" class="sysbtn" hidden>FOLLOW L</button>
-            <button id="btnArmFollowR" class="sysbtn" hidden>FOLLOW R</button>
+            <button id="btnToGafro" class="sysbtn tp-accent" hidden>HAND TO GAFRO</button>
+            <button id="btnArmPark" class="sysbtn tp-accent" hidden>PARK</button>
+            <button id="btnArmStop" class="sysbtn danger" hidden>STOP</button>
+            <button id="btnArmPrepBoth" class="sysbtn tp-accent" hidden>READY FOR SHOW</button>
             <button id="btnTeleopStart" class="sysbtn" hidden>START TELEOP</button>
             <button id="btnTeleopStop" class="sysbtn" hidden>STOP TELEOP</button>
             <button id="btnArmRelease" class="sysbtn danger" hidden>RELEASE</button>
@@ -545,6 +541,11 @@
             <div class="tp-steps" id="tpSteps" hidden></div>
             <div id="tpReady" class="tp-ready"></div>
             <div class="tp-btns tp-diag">
+              <button id="btnArmHold" class="sysbtn" hidden>HOLD</button>
+              <button id="btnArmActL" class="sysbtn" hidden>READY L</button>
+              <button id="btnArmActR" class="sysbtn" hidden>READY R</button>
+              <button id="btnArmFollowL" class="sysbtn" hidden>FOLLOW L</button>
+              <button id="btnArmFollowR" class="sysbtn" hidden>FOLLOW R</button>
               <button id="btnViewerL" class="sysbtn">VIEWER L</button>
               <button id="btnViewerR" class="sysbtn">VIEWER R</button>
               <button id="btnViewerStopL" class="sysbtn" hidden>STOP VIEWER L</button>
@@ -638,7 +639,7 @@
   </nav>
   <script src="app.js?v=8c2fceb6"></script>
   <script src="operate.js?v=9fc851ed"></script>
-  <script type="module" src="teleop.js?v=f42d8ee8"></script>
+  <script type="module" src="teleop.js?v=ebc5671b"></script>
   <script src="show_audio.js?v=6ae749a1"></script>
   <script type="module" src="architect.js?v=cd084c5c"></script>
   <script src="choreo.js?v=7c4b077c"></script>

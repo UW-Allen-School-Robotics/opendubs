@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -46,7 +47,7 @@ _TELEOP_STALE_S = 1.5
 
 _lock = threading.Lock()
 _teleop_rx = {"started": False, "at": 0.0, "data": None, "error": None}
-_op = {"running": False, "name": None, "started": 0.0, "rc": None, "out": "", "error": None, "steps": []}   # steps: a change of controller's, as it goes
+_op = {"running": False, "name": None, "started": 0.0, "ended": None, "rc": None, "out": "", "error": None, "steps": []}   # steps: a change of controller's, as it goes
 _motors = {"at": 0.0, "text": "", "error": None}
 
 
@@ -183,8 +184,7 @@ def effector_status():
                 # Up, enabled and holding, but the service refuses every moving command until a person is at the e-stop (SUPERVISE), so the runner's goal for this arm would be rejected
                 # and a live show ended by it. Not ok: the show is refused up front with a reason that says what to do, or offered without this arm if it can do without. Its pose stays,
                 # so a skipped arm can still be checked to be at rest. Activating (`ready`) is not needed: a show moves each arm to zero from where it is.
-                letter = side[0].upper()
-                out[f"arm_{side}"] = {"state": "degraded", **pose, "why": f"the {side} arm service is up but nobody is supervising it, so it refuses every moving command (PREPARE {letter}, or SUPERVISE {letter})"}
+                out[f"arm_{side}"] = {"state": "degraded", **pose, "why": f"the {side} arm service is up but not supervised, so it refuses every moving command: SUPERVISE {side[0].upper()} or READY FOR SHOW on the Arms page"}
         out[f"grip_{side}"] = _grip_state(side, out[f"arm_{side}"])
     return out
 
@@ -213,6 +213,9 @@ def _grip_state(side, arm):
 #: Operations that only take capability away. They do not wait for, or count as, "the" running operation: a HOLD refused as "busy" while a move runs would be the one
 #: button that must always work, and ending supervision is the same. They answer at once, so the request returns the service's answer.
 INSTANT_OPS = ("hold", "unsupervise")
+#: What moves an arm, so needs the deadman held at the press (arm_handover.motion_gates_problem): without it, refused at once in one line. gafro's own supervision
+#: (SUPERVISE, PREPARE) is unchanged: the press plus the deadman as that attestation is held until the gafro side is agreed.
+MOVING_OPS = ("park", "activate", "follow", "prepare")
 _SERVICE_TIMEOUT = 180.0
 
 #: Bringing an arm's service up is the unit's job (software/openarm/opendubs-arm@.service). The sudoers rule (opendubs-arm.sudoers) allows exactly these commands, as
@@ -516,11 +519,14 @@ class _HandoverIo:
 
     def at_stow(self, side):
         want = _stow_pose(side)
-        try:
-            r = _run([OPENARM_MOTORS, "status"], 20)
-        except Exception:                            # noqa: BLE001
-            return None
-        cur = _measured(side, r.stdout or "")
+        m = re.search(r"^joints \(deg\)\s+(.+)$", _service_status(side) or "", re.M)
+        cur = [float(x) for x in m[1].split()] if m else None
+        if cur is None or len(cur) != 7:
+            try:
+                r = _run([OPENARM_MOTORS, "status"], 20)
+            except Exception:                        # noqa: BLE001
+                return None
+            cur = _measured(side, r.stdout or "")
         if want is None or cur is None:
             return None
         return all(abs(w - c) <= STOW_TOL_DEG for w, c in zip(want, cur))
@@ -566,7 +572,7 @@ def _start_change(name):
     with _lock:
         if _op["running"]:
             return False, f"{_op['name']} is still running ({int(time.time() - _op['started'])}s)"
-        _op.update({"running": True, "name": name, "started": time.time(), "rc": None, "out": "", "error": None, "steps": []})
+        _op.update({"running": True, "name": name, "started": time.time(), "ended": None, "rc": None, "out": "", "error": None, "steps": []})
 
     def publish(change):
         with _lock:
@@ -581,7 +587,7 @@ def _start_change(name):
             out, error = "", f"{type(e).__name__}: {e}"
         publish(change)
         with _lock:
-            _op.update({"rc": 1 if error else 0, "out": out or "", "error": error, "running": False})
+            _op.update({"rc": 1 if error else 0, "out": out or "", "error": error, "running": False, "ended": time.time()})
 
     threading.Thread(target=work, name=f"openarm-{name}", daemon=True).start()
     return True, name
@@ -618,6 +624,10 @@ def start_op(name, arm="both"):
             return _start_change(name)
         if name == "ready":
             name = "activate"                        # the arm service's word for it
+        if name in MOVING_OPS:
+            problem = arm_handover.motion_gates_problem(_HandoverIo())
+            if problem:
+                return False, problem
         if stack == "ros":
             spec = ROS_OPS[name]
         else:
@@ -638,7 +648,7 @@ def start_op(name, arm="both"):
             # Deliberately a refusal rather than a queue: a second arm command arriving mid-motion
             # is a collision. Same reasoning as the lease model's select-one-with-handoff.
             return False, f"{_op['name']} is still running ({int(time.time() - _op['started'])}s)"
-        _op.update({"running": True, "name": f"{name} {arm}".strip(), "started": time.time(),
+        _op.update({"running": True, "name": f"{name} {arm}".strip(), "started": time.time(), "ended": None,
                     "rc": None, "out": "", "error": None, "steps": []})
 
     def work():
@@ -648,7 +658,7 @@ def start_op(name, arm="both"):
             except Exception as e:                       # noqa: BLE001 - surfaced to the operator
                 out, error = "", f"{type(e).__name__}: {e}"
             with _lock:
-                _op.update({"rc": 1 if error else 0, "out": out[-4000:], "error": error, "running": False})
+                _op.update({"rc": 1 if error else 0, "out": out[-4000:], "error": error, "running": False, "ended": time.time()})
             return
         argv_fn, timeout, _desc = spec
         try:
@@ -671,6 +681,7 @@ def start_op(name, arm="both"):
         finally:
             with _lock:
                 _op["running"] = False
+                _op["ended"] = time.time()
 
     threading.Thread(target=work, name=f"openarm-{name}", daemon=True).start()
     return True, _op["name"]
@@ -680,7 +691,8 @@ def op_status():
     with _lock:
         o = dict(_op)
     if o["started"]:
-        o["elapsed"] = round(time.time() - o["started"], 1)
+        # How long it ran: frozen when it ends. (It used to keep counting, so a refusal read at once looked like a 49 s wait.)
+        o["elapsed"] = round((o.get("ended") or time.time()) - o["started"], 1)
     return o
 
 

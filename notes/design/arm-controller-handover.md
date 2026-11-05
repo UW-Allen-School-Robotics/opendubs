@@ -16,6 +16,10 @@
 4. **Only what the controller can do is shown.** A button it can't perform is hidden, and the backend
    refuses it in words; it is never sent to the other stack. Both stacks running, or no way to tell, is
    CONFLICT: no arm button shows until it is resolved. A button's second tap says what the arms do.
+6. **Every move needs the deadman held at the press** (the user, 2026-11-05), and is refused at
+   once, in one line, without it. When both arms already read at stow, a handover parks nothing, so it
+   needs no deadman. Whether the press plus the deadman should also be gafro's supervision (no
+   SUPERVISE button) is held until the gafro side is agreed; for now SUPERVISE stays as it was.
 5. **The controller is shown on the Arms page and the Shows page,** with no banner on every page.
    The "Teleop" page is renamed "Arms". Both pages read the dashboard's `stack` field.
 
@@ -65,8 +69,12 @@ Each change runs as the dashboard's one operation at a time (`backend/arm_handov
 shows its steps as they run, each with what the arms do. Before anything moves, each change refuses
 while a show runs or the Quest teleop bridge runs.
 
-**HAND TO ROS 2** (from gafro). Refused unless the e-stop is clear, CH5 is MANUAL or AUTO, the
-deadman is held, and gafro is supervised.
+**HAND TO ROS 2** (from gafro). Refused unless the e-stop is clear, CH5 is MANUAL or AUTO, and the
+deadman is held, at the press: a press without it is refused at once with "Hold the deadman". The
+gates are read for up to 0.7 s, so one of CH6's known ~0.6 s "released" blips does not refuse a
+person holding it. If both arms already read at stow the park is skipped, as it is to gafro, and so
+are the gates and gafro's supervision: nothing moves. Otherwise gafro must be supervised
+(SUPERVISE on the page), and the handover refuses before anything moves if it is not.
 
 | Step | What the arms do |
 |---|---|
@@ -76,7 +84,7 @@ deadman is held, and gafro is supervised.
 | 4. Disable both arms' motors | go limp at stow |
 | 5. `openarm-up activate both` | stiffen at stow (activation holds the measured pose, A1) |
 
-**HAND TO GAFRO** (from ROS 2). Same gates; gafro's supervision isn't needed to start it.
+**HAND TO GAFRO** (from ROS 2). Same gates, skipped the same way at stow; gafro's supervision isn't needed to start it.
 
 | Step | What the arms do |
 |---|---|

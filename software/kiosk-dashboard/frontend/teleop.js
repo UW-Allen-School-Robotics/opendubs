@@ -115,29 +115,33 @@ async function boot() {
  * that is refused anyway says so instead of looking like success. */
 const ARM_BUTTONS = [
   // ONE CONTROLLER FOR BOTH ARMS (backend arm_handover.py). `act` is the action the backend's `stack.unavailable` names: a button the controller cannot do now is HIDDEN, and the
-  // backend refuses it anyway, in words. Labels are short; the confirmation (second tap) says what the arms do.
+  // backend refuses it anyway, in words. Every move needs the deadman held at the press. The confirmation (second tap) names what moves, or just CONFIRMs when nothing does.
   // Choosing a controller when none has the arms (after a boot): the arms stiffen where they are and do not move.
-  { id: "btnUseRos2",  url: "/api/arms/use-ros2",  op: "use-ros2",  act: "use-ros2",  confirm: "ARMS STIFFEN WHERE THEY ARE", pending: "STARTING ROS 2…", label: "USE ROS 2" },
-  { id: "btnUseGafro", url: "/api/arms/use-gafro", op: "use-gafro", act: "use-gafro", confirm: "ARMS STIFFEN WHERE THEY ARE", pending: "STARTING GAFRO…", label: "USE GAFRO" },
+  { id: "btnUseRos2",  url: "/api/arms/use-ros2",  op: "use-ros2",  act: "use-ros2",  confirm: "CONFIRM", pending: "STARTING ROS 2…", label: "USE ROS 2" },
+  { id: "btnUseGafro", url: "/api/arms/use-gafro", op: "use-gafro", act: "use-gafro", confirm: "CONFIRM", pending: "STARTING GAFRO…", label: "USE GAFRO" },
   // The handover: the arms move to stow under the old controller (hold the deadman), then rest there while it stops and the new one takes them.
-  { id: "btnToRos2",  url: "/api/arms/to-ros2",  op: "to-ros2",  act: "to-ros2",  confirm: "ARMS MOVE TO STOW · HOLD THE DEADMAN", pending: "HANDING OVER…", label: "HAND TO ROS 2" },
-  { id: "btnToGafro", url: "/api/arms/to-gafro", op: "to-gafro", act: "to-gafro", confirm: "ARMS MOVE TO STOW · HOLD THE DEADMAN", pending: "HANDING OVER…", label: "HAND TO GAFRO" },
+  { id: "btnToRos2",  url: "/api/arms/to-ros2",  op: "to-ros2",  act: "to-ros2",  confirm: "ARMS MOVE TO STOW", pending: "HANDING OVER…", label: "HAND TO ROS 2" },
+  { id: "btnToGafro", url: "/api/arms/to-gafro", op: "to-gafro", act: "to-gafro", confirm: "ARMS MOVE TO STOW", pending: "HANDING OVER…", label: "HAND TO GAFRO" },
   { id: "btnArmPark", url: "/api/arms/park?arm=both", op: "park both", act: "park", confirm: "ARMS MOVE TO STOW", pending: "PARKING…", label: "PARK" },
   // Stiff where they are: under gafro its hold; under ROS 2 an active arm is held at its pose and an inactive one activated in place. Never kept waiting by a running move.
-  { id: "btnArmHold", url: "/api/arms/hold?arm=both", op: "hold both", act: "hold", confirm: "ARMS STIFF WHERE THEY ARE", pending: "HOLDING…", label: "HOLD", instant: true },
-  // gafro's alone. PREPARE: the person's word that they are at the e-stop, then each arm to ready; the confirmation names both. Nothing runs while a show does.
-  { id: "btnArmPrepBoth", url: "/api/arms/prepare?arm=both", op: "prepare both", act: "prepare", confirm: "I AM AT THE E-STOP · ARMS MOVE TO READY", pending: "PREPARING…", label: "PREPARE" },
+  { id: "btnArmHold", url: "/api/arms/hold?arm=both", op: "hold both", act: "hold", confirm: "CONFIRM", pending: "HOLDING…", label: "HOLD", instant: true },
+  // The same hold, on the main row and only while an arm action runs: it stops the arms where they are. (Releasing the deadman stops gafro; the e-stop stops everything.)
+  { id: "btnArmStop", url: "/api/arms/hold?arm=both", op: "hold both", act: "hold", confirm: "STOP ARMS", pending: "STOPPING…", label: "STOP", instant: true, whileRunning: true },
+  // gafro's alone: the person's word that they are at the e-stop (it supervises both arms), then both to ready, so a show can run. Nothing runs while a show does.
+  { id: "btnArmPrepBoth", url: "/api/arms/prepare?arm=both", op: "prepare both", act: "prepare", confirm: "I AM AT THE E-STOP · ARMS MOVE TO READY", pending: "PREPARING…", label: "READY FOR SHOW" },
   // The attestation the arm service wants before any moving command: a person is at the e-stop, head tracking is off and the neck centred. Shown only while the
   // service answers, and only the one that applies. Ending it only takes capability away, so it never waits for a running move.
-  { id: "btnArmSupL",   url: "/api/arms/supervise?arm=left",    op: "supervise left",    act: "supervise", confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE L",       sup: { side: "left",  on: true } },
-  { id: "btnArmSupR",   url: "/api/arms/supervise?arm=right",   op: "supervise right",   act: "supervise", confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE R",       sup: { side: "right", on: true } },
-  { id: "btnArmUnsupL", url: "/api/arms/unsupervise?arm=left",  op: "unsupervise left",  act: "supervise", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION L", sup: { side: "left",  on: false }, instant: true },
-  { id: "btnArmUnsupR", url: "/api/arms/unsupervise?arm=right", op: "unsupervise right", act: "supervise", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION R", sup: { side: "right", on: false }, instant: true },
   { id: "btnArmActL",  url: "/api/arms/ready?arm=left",  op: "activate left",  act: "ready", confirm: "ARM MOVES TO READY", pending: "MOVING…", label: "READY L" },
   { id: "btnArmActR",  url: "/api/arms/ready?arm=right", op: "activate right", act: "ready", confirm: "ARM MOVES TO READY", pending: "MOVING…", label: "READY R" },
   // The hand follows the pose target the viewer (or the ROS bridge) publishes. The service refuses it until SUPERVISE, and `hold`, CH6 or the e-stop ends it.
   { id: "btnArmFollowL", url: "/api/arms/follow?arm=left",  op: "follow left",  act: "follow", confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW L" },
   { id: "btnArmFollowR", url: "/api/arms/follow?arm=right", op: "follow right", act: "follow", confirm: "HAND FOLLOWS TARGET", pending: "STARTING…", label: "FOLLOW R" },
+  // gafro's attestation that a person is at the e-stop, per arm, as deployed (whether the press plus the deadman should be it waits on the gafro side). Shown only while the
+  // service answers, and only the one that applies. Ending it only takes capability away, so it never waits for a running move.
+  { id: "btnArmSupL",   url: "/api/arms/supervise?arm=left",    op: "supervise left",    act: "supervise", confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE L",       sup: { side: "left",  on: true } },
+  { id: "btnArmSupR",   url: "/api/arms/supervise?arm=right",   op: "supervise right",   act: "supervise", confirm: "I AM AT THE E-STOP", pending: "…", label: "SUPERVISE R",       sup: { side: "right", on: true } },
+  { id: "btnArmUnsupL", url: "/api/arms/unsupervise?arm=left",  op: "unsupervise left",  act: "supervise", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION L", sup: { side: "left",  on: false }, instant: true },
+  { id: "btnArmUnsupR", url: "/api/arms/unsupervise?arm=right", op: "unsupervise right", act: "supervise", confirm: "CONFIRM",            pending: "…", label: "END SUPERVISION R", sup: { side: "right", on: false }, instant: true },
   // To no controller: the arms go limp. Refused unless both read at stow.
   { id: "btnArmRelease", url: "/api/arms/release", op: "release", act: "release", confirm: "ARMS GO LIMP", pending: "RELEASING…", label: "RELEASE" },
   // Reads only (`arm doctor`), under Details: is the service up, is /joint_states publishing, is a viewer on the graph. Its words are shown whatever its status was.
@@ -156,7 +160,8 @@ let lastViewers = null;        // /api/arms/status "viewers": per arm, {state: s
 let viewerNote = "";           // a refused or failed viewer, in words
 let requested = null;          // { id, at } -- pressed, and the poll has not shown it running yet
 const flash = {};              // id -> { text, until } -- REFUSED / DONE / FAILED, shown briefly
-let line = null;               // { text, cls, until } -- the one line under the buttons: a refusal, a failure, or done
+let line = null;               // { text, cls, until } -- the one line under the buttons: a refusal or a failure (until the next action), or done (briefly)
+let lineOp = null;             // the `started` of the failed op the line names, so it is set once and a reload shows it again
 
 function paintArmButtons() {
   const now = Date.now();
@@ -179,8 +184,8 @@ function paintArmButtons() {
       const supervised = !!(st && /^supervised: yes$/m.test(st));
       show = show && !!(st && (b.sup.on ? !supervised : supervised));
     }
-    // One arm action at a time: while one runs, only it and the ones that only stop (HOLD, END SUPERVISION) show. The running one stays whatever the controller reads mid-change.
-    el.hidden = !(mine || (show && (b.instant || !(running || requested))));
+    // One arm action at a time: while one runs, only it and STOP show on the main row. The running one stays whatever the controller reads mid-change.
+    el.hidden = !(mine || (show && (b.whileRunning ? (running || !!requested) : (b.instant || !(running || requested)))));
     if (el.hidden) continue;
     const f = flash[b.id];
     el.classList.toggle("busy", mine);
@@ -216,6 +221,8 @@ function firstSentence(s) {
 }
 
 /* One line naming the controller (and, for a CONFLICT, one short reason); under the buttons one line for what is happening; Details holds the rest. */
+let lineCtl = null;            // the controller when the line was last painted: a change of controller is news, so an old failure line goes
+
 function paintController() {
   const c = lastStack;
   const el = $("tpCtl"), why = $("tpCtlWhy"), full = $("tpWhyFull");
@@ -298,13 +305,14 @@ function opOf(id) { const b = ARM_BUTTONS.find((x) => x.id === id); return b ? b
 async function onArmResponse(b, r) {
   if (r && r.ok && b.instant) {                                     // answered already: nothing to wait for
     flash[b.id] = { text: "DONE", until: Date.now() + 2500 };
+    setLine(null);
     paintArmButtons(); setTimeout(paintArmButtons, 2600); pollStatus(); return;
   }
-  if (r && r.ok) { requested = { id: b.id, at: Date.now() }; paintArmButtons(); pollStatus(); return; }
+  if (r && r.ok) { setLine(null); requested = { id: b.id, at: Date.now() }; paintArmButtons(); pollStatus(); return; }
   let why = "the dashboard did not answer";
   if (r) { try { why = (await r.json()).error || `HTTP ${r.status}`; } catch (e) { why = `HTTP ${r.status}`; } }
   flash[b.id] = { text: r && r.status === 409 ? "BUSY — WAIT" : "REFUSED", until: Date.now() + 4000 };
-  setLine(`✗ ${b.label}: ${firstSentence(why)}`, "badx", 30);
+  setLine(`✗ ${b.label}: ${firstSentence(why)}`, "badx", Infinity);
   const d = $("tpDoctor");                                          // the whole refusal, under Details
   if (d) { d.textContent = `${b.label} refused: ${why}`; d.hidden = false; }
   paintArmButtons();
@@ -312,7 +320,7 @@ async function onArmResponse(b, r) {
 }
 
 function ensureRelinkButtons() {
-  const anchor = $("btnArmHold");
+  const anchor = $("btnArmPark");                                    // on the main row: shown only while a link needs it
   if (!anchor) return;
   for (const b of ARM_BUTTONS) {
     if (!b.side || $(b.id)) continue;
@@ -461,9 +469,17 @@ async function pollStatus() {
         if (b) {
           const ok = (lastOp.rc === 0 || b.report) && !lastOp.error;
           flash[b.id] = { text: ok ? "DONE" : "FAILED", until: Date.now() + (ok ? 2500 : 6000) };
-          if (!b.report) setLine(ok ? `✓ ${b.label} done` : `✗ ${b.label}: ${firstSentence(lastOp.error || `exit ${lastOp.rc}`)}`, ok ? "ok" : "badx", ok ? 4 : 60);
+          if (!b.report && ok) setLine(`✓ ${b.label} done`, "ok", 4);
           setTimeout(paintArmButtons, ok ? 2600 : 6100);
         }
+      }
+      if (lastStack && lineCtl !== null && lastStack.controller !== lineCtl && line && line.cls === "badx") line = null;
+      if (lastStack) lineCtl = lastStack.controller;
+      // A failed arm action says why on the page, in one line, until the next action (also after a reload: the backend keeps the last op).
+      if (lastOp && !lastOp.running && lastOp.error && lastOp.started && lastOp.started !== lineOp && !String(lastOp.name).startsWith("doctor")) {
+        lineOp = lastOp.started;
+        const b = ARM_BUTTONS.find((x) => x.op === lastOp.name);
+        setLine(`✗ ${b ? b.label : lastOp.name}: ${firstSentence(lastOp.error)}`, "badx", Infinity);
       }
       paintStatus(s);
       paintArmButtons();

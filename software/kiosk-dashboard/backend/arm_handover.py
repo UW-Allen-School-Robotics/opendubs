@@ -25,6 +25,8 @@ this file runs no command of its own.
 """
 from __future__ import annotations
 
+import time
+
 LABELS = {"ros2": "ROS 2", "gafro": "gafro", "none": "none", "conflict": "CONFLICT"}
 FROM_STACK = {"ros": "ros2", "gafro": "gafro", "none": "none", "both": "conflict", "unknown": "conflict"}
 SIDES = ("left", "right")
@@ -121,15 +123,32 @@ def _both_at_stow(io, sides=SIDES):
     return away
 
 
-def _require_motion_gates(io):
-    """The old controller moves the arms to stow: a person at the e-stop, holding the deadman."""
-    g = io.gates() or {}
+#: CH6 is known to read released for ~0.6 s in otherwise valid frames (2026-10-16). The gates are read for up to this long, so one such blip at the press does not refuse a
+#: person who is holding the deadman; a deadman that is not held is refused within it.
+BLIP_S = 0.7
+
+
+def _gates_problem(g):
+    """None when the gates allow motion; else the one line that says what to do."""
     if g.get("estop") is not False:
-        raise Failed("the e-stop is " + ("pressed" if g.get("estop") else "not reported") + ". Nothing was moved or stopped")
+        return "the e-stop is " + ("pressed" if g.get("estop") else "not reported") + ". Nothing was moved or stopped"
+    if g.get("deadman") is None:
+        return "Hold the deadman. (The RC link gives no deadman reading.) Nothing was moved or stopped"
     if g.get("deadman") is not True:
-        raise Failed("hold the deadman (CH6) for the whole handover: the arms move to stow first. Nothing was moved or stopped")
+        return "Hold the deadman. Nothing was moved or stopped"
     if g.get("ch5") not in MOTION_CH5:
-        raise Failed(f"CH5 is {g.get('ch5') or 'not reported'}: the park needs MANUAL or AUTO. Nothing was moved or stopped")
+        return f"Set CH5 to MANUAL or AUTO (it is {g.get('ch5') or 'not reported'}). Nothing was moved or stopped"
+    return None
+
+
+def motion_gates_problem(io):
+    """The press is the person's intent, and the deadman says they are at the robot holding it: both, or nothing moves. None when the gates allow motion."""
+    deadline = time.monotonic() + BLIP_S
+    while True:
+        problem = _gates_problem(io.gates() or {})
+        if problem is None or problem.startswith("the e-stop") or time.monotonic() >= deadline:
+            return problem
+        time.sleep(0.1)
 
 
 def _require_quiet_robot(io):
@@ -235,13 +254,19 @@ def handover(io, target, change):
     old = io.controller()
     if old not in ("ros2", "gafro") or old == target:
         raise Failed(unavailable(old, io.stack_why())[f"to-{target}"] or "nothing to hand over")
+    # The gates first, so a press without the deadman is refused at once. Arms that already read at stow are not parked, so nothing moves and the gates are not needed.
+    problem = motion_gates_problem(io)
+    sides = io.gafro_sides() if old == "gafro" else SIDES
+    away = _both_at_stow(io, sides)
+    if problem and (away or problem.startswith("the e-stop")):
+        raise Failed(problem)
     _require_quiet_robot(io)
-    _require_motion_gates(io)
     if old == "gafro":
-        served = io.gafro_sides()
+        served = sides
+        # gafro parks only for a person at the e-stop (SUPERVISE on the page). Arms already at stow are not parked, so then it is not needed.
         unsup = [s for s in served if not io.gafro_supervised(s)]
-        if unsup:
-            raise Failed(f"gafro parks only for a person at the e-stop: SUPERVISE the {' and '.join(unsup)} arm first. Nothing was moved or stopped")
+        if away and unsup:
+            raise Failed(f"SUPERVISE the {' and '.join(unsup)} arm first: gafro parks only for a person at the e-stop. Nothing was moved or stopped")
         change.plan(
             ("Park under gafro", "the arms MOVE to stow: keep clear, hold the deadman"),
             ("Stop the arm services (opendubs-arm@left, @right)", "the arms hold, stiff, at stow (the motors keep their last command)"),
@@ -250,15 +275,17 @@ def handover(io, target, change):
             ("Start the ROS 2 stack and activate both arms", "the arms stiffen at stow; they do not move"))
 
         def park():
+            if not away:
+                return ("skip", "both arms already read at stow")
             for s in served:
                 err = io.gafro_park(s)
                 if err:
                     for h in served:
                         io.gafro_hold(h)
                     raise Failed(f"{s}: {err}. gafro was asked to hold both arms where they are, and still has them")
-            away = _both_at_stow(io, served)
-            if away:
-                raise Failed(f"the park reported done, but the {' and '.join(away)} arm does not read at stow. gafro still has the arms, holding")
+            still = _both_at_stow(io, served)
+            if still:
+                raise Failed(f"the park reported done, but the {' and '.join(still)} arm does not read at stow. gafro still has the arms, holding")
             return "both arms at stow"
         try:
             change.step(0, park)
@@ -289,12 +316,12 @@ def handover(io, target, change):
             ("Start the arm service on both arms (opendubs-arm@left, @right)", "the arms stiffen at stow; they do not move"))
 
         def park():
-            if not _both_at_stow(io):
+            if not away:
                 return ("skip", "both arms already read at stow")
             _ros(io, "park", "both")
-            away = _both_at_stow(io)
-            if away:
-                raise Failed(f"the park ended, but the {' and '.join(away)} arm does not read at stow. The ROS 2 stack still has the arms")
+            still = _both_at_stow(io)
+            if still:
+                raise Failed(f"the park ended, but the {' and '.join(still)} arm does not read at stow. The ROS 2 stack still has the arms")
             return "both arms at stow"
         try:
             change.step(0, park)
