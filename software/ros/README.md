@@ -292,6 +292,11 @@ Ctrl-C saves the map as `bldg_f1-<date>`: the pose graph, a `.pgm`/`.yaml`, and 
 while `site.yaml` exists (SLAM would localize, not map) or with too little disk, and stops the
 recording itself before the disk gets low. `check`'s trial measures the GB an hour (about 30 with the
 camera) and the camera rate it actually achieved, and warns below 12 Hz. `floor-mapping.sh save bldg_f1` saves the current map alone.
+At the end it writes `capture.yaml` in the bag's directory (the `opendubs.capture/1` manifest: building
+and floor, times, robot, deployed code, operator, start landmark, sensors, and every map and bag file by
+sha256) and copies the map's small files beside it. It asks for the operator and the start landmark
+unless `--operator` and `--start` give them, and needs the building's FMS number in
+`/var/lib/opendubs/maps/buildings.yaml` (`bldg: "1234"`); it checks all that before restarting SLAM.
 Bags and maps are site data: they stay on the robot and the project's machines, never in the repo. The
 camera's colour frames are pictures of whoever is in the corridor; `--no-color` leaves them out.
 

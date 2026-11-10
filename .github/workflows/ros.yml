@@ -34,6 +34,8 @@ jobs:
       - run: python3 software/ros/tests/test_skeleton_relay.py
       - run: python3 software/ros/tests/test_scan_body_filter.py
       - run: python3 software/ros/tests/test_floorplan.py
+      # the capture manifest is validated against its JSON schema (tests/capture.schema.json)
+      - run: pip install pyyaml jsonschema
       - run: python3 software/ros/tests/test_floor_mapping.py
       - run: python3 software/ros/tests/test_people_guard.py
       - run: python3 software/ros/tests/test_dance_tracker.py

@@ -3,6 +3,7 @@
 A map written upside down would only show up as a failed fit on the day; a missed camera topic only
 as a bag without it. Pure Python, no ROS. Run: python3 software/ros/tests/test_floor_mapping.py"""
 import datetime
+import json
 import pathlib
 import sys
 import unittest
@@ -63,6 +64,70 @@ class NameTest(unittest.TestCase):
 
     def test_a_1970_clock_gives_no_date(self):
         self.assertEqual(fm.map_name("bldg_f1", set(), datetime.date(1970, 1, 1)), "bldg_f1-run")
+
+
+# `ros2 bag info` as Jazzy prints it (from a recording of the fake robot, trimmed to three topics)
+BAG_INFO = """
+Files:             gates_fG-20261110_0.mcap
+Bag size:          4.3 MiB
+Storage id:        mcap
+ROS Distro:        jazzy
+Duration:          83.379416057s
+Start:             Nov 10 2026 16:49:50.469299154 (1794329390.469299154)
+End:               Nov 10 2026 16:51:13.848715211 (1794329473.848715211)
+Messages:          30280
+Topic information: Topic: /mapping/camera/color/image_raw/compressed | Type: sensor_msgs/msg/CompressedImage | Count: 839 | Serialization Format: cdr
+                   Topic: /odom/raw | Type: std_msgs/msg/String | Count: 830 | Serialization Format: cdr
+                   Topic: /scan | Type: sensor_msgs/msg/LaserScan | Count: 574 | Serialization Format: cdr
+Service:           0
+"""
+
+
+class CaptureManifestTest(unittest.TestCase):
+    """The written capture.yaml must validate against opendubs.capture/1. tests/capture.schema.json is
+    a copy of the site repo's schemas/capture.schema.json; refresh it when that schema changes."""
+
+    def test_floor_codes(self):
+        self.assertEqual(fm.parse_frame("bldg_f2"), ("bldg", "02"))
+        self.assertEqual(fm.parse_frame("bldg_fG"), ("bldg", "0G"))
+        self.assertEqual(fm.parse_frame("bldg_fB1"), ("bldg", "B1"))
+        self.assertIsNone(fm.parse_frame("bldg2"))
+
+    def test_deployed_branch_and_dirty(self):
+        main = fm.parse_deployed("source=main @ 3cdaead0abcd\nsha=3cdaead0abcd\nbranch=main\n")
+        self.assertEqual(main, {"opendubs_sha": "3cdaead0abcd", "dirty": False})
+        br = fm.parse_deployed("source=branch x @ 1234567 , WITH UNCOMMITTED CHANGES\nsha=1234567\nbranch=x\n")
+        self.assertEqual(br, {"opendubs_sha": "1234567", "branch": "x", "dirty": True})
+
+    def test_written_manifest_validates(self):
+        try:
+            import jsonschema
+            import yaml
+        except ImportError:
+            self.skipTest("needs pyyaml and jsonschema")
+        duration, topics = fm.parse_bag_info(BAG_INFO)
+        self.assertAlmostEqual(duration, 83.379416057)
+        self.assertEqual(topics[1], {"name": "/odom/raw", "type": "std_msgs/msg/String", "count": 830})
+        recorded = {t["name"]: t["count"] for t in topics}
+        h = "0" * 64
+        doc = fm.capture_manifest(
+            cid=fm.capture_id(datetime.date(2026, 11, 10), "gates", "0G", "gates_fG-20261110-2"),
+            key="gates", fms="6502", floor_code="0G",
+            start=datetime.datetime(2026, 11, 10, 9, 0, tzinfo=datetime.timezone.utc),
+            end=datetime.datetime(2026, 11, 10, 9, 40, tzinfo=datetime.timezone.utc), ntp=False,
+            robot={"name": "robot", "description_sha256": h},
+            code=dict(fm.parse_deployed("sha=3cdaead0abcd\nbranch=main\n"), slam=fm.SLAM_DESCRIPTION),
+            operator="TL", landmark="elevator lobby", room=None,
+            sensors=fm.sensors_block(recorded, [("color_head", ["/mapping/camera/color/image_raw/compressed"],
+                                                 "camera_color_optical_frame")]),
+            map_name_="gates_fG-20261110-2", resolution=0.05,
+            map_files=[{"path": "gates_fG-20261110-2.pgm", "sha256": h, "bytes": 10}],
+            bag_files=[{"host": "robot", "path": "/b/metadata.yaml", "sha256": h, "bytes": 5}],
+            duration_s=duration, topics=topics, color="present")
+        self.assertEqual(doc["id"], "20261110-gates-0G-2")
+        self.assertEqual([s["id"] for s in doc["sensors"]], ["lidar_front", "odom_pinpoint", "color_head"])
+        schema = json.loads((pathlib.Path(__file__).parent / "capture.schema.json").read_text())
+        jsonschema.validate(yaml.safe_load(yaml.safe_dump(doc, sort_keys=False)), schema)
 
 
 if __name__ == "__main__":

@@ -53,12 +53,26 @@ plan" describes:
                                   only site.yaml. floorplan.py fit writes the full one, with the floor
                                   frame, once the map is fitted to the plan.
 `floor` refuses to start while site.yaml exists, because SLAM would then localize instead of mapping.
+
+THE MANIFEST: at the end, `floor` writes capture.yaml (opendubs.capture/1, the project's site repo
+schemas/capture.schema.json; a copy is in tests/ and the tests validate against it) inside the bag's
+directory, and copies the map's .pgm, .yaml and site file beside it, so that directory is the capture
+to ingest. It names the building and floor (parsed from FRAME, <building>_f<floor>: bldg_f2 -> floor
+02, bldg_fG -> 0G; the building's FMS number from MAPS/buildings.yaml, {key: "number"}, site data the
+building-model lane owns), the times and whether the clock was NTP-synced, the robot, its URDF's
+sha256, the code /opt/opendubs/DEPLOYED says was deployed, the operator and the start landmark
+(--operator, --start, or asked at the start), the sensors, the map, and every bag file by path,
+sha256 and size. Hashing a long drive's bag takes a minute or so. `floor` checks all of it can be
+filled before it restarts SLAM.
 """
 from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import os
+import re
+import socket
 import shutil
 import signal
 import subprocess
@@ -85,6 +99,20 @@ CORE = ["/scan", "/scan_rear", "/scan_filtered", "/odom", "/odom/raw", "/tf", "/
 OPTIONAL = ["/scan_rear_filtered", "/scan_depth", "/opendubs/joint_states"]   # recorded when present
 NEEDED = ["/scan", "/scan_rear", "/odom", "/tf"]      # without these the drive is not worth recording
 RELAY_PREFIX = "/mapping"
+DEPLOYED = os.environ.get("OPENDUBS_DEPLOYED", "/opt/opendubs/DEPLOYED")
+URDF = os.environ.get("OPENDUBS_URDF", "/opt/opendubs/description/opendubs.urdf")
+BUILDINGS = os.path.join(MAPS, "buildings.yaml")
+CAPTURE_SCHEMA = "opendubs.capture/1"
+CAMERA_MODEL = "Orbbec Femto Bolt"       # the robot description's head camera
+SLAM_DESCRIPTION = "slam_toolbox (online async) on /scan_filtered, Pinpoint odometry"
+# (id, model, topics, frame_id, calibration): a sensor is listed when any of its topics was recorded
+SENSORS = [
+    ("lidar_front", "RPLIDAR A1", ["/scan", "/scan_filtered"], "laser", "urdf"),
+    ("lidar_rear", "RPLIDAR A1", ["/scan_rear", "/scan_rear_filtered"], "laser_rear", "urdf"),
+    ("odom_pinpoint", "goBILDA Pinpoint", ["/odom", "/odom/raw"], "odom", "urdf"),
+    ("neck", "M5Dial neck, servo pan and tilt", ["/head/joint_states", "/head/joint_targets",
+                                                  "/head/joint_limits", "/opendubs/joint_states"], "head_tilt_link", "none"),
+]
 IMAGE_T = "sensor_msgs/msg/Image"
 COMPRESSED_T = "sensor_msgs/msg/CompressedImage"
 
@@ -152,7 +180,177 @@ def map_name(frame: str, existing, today: datetime.date) -> str:
     return name
 
 
+def parse_frame(frame: str):
+    """(building key, FMS floor code) from a floor frame: bldg_f2 -> ("bldg", "02"), bldg_fG -> "0G",
+    bldg_fB1 -> "B1". None when FRAME is not <building>_f<floor>."""
+    m = re.fullmatch(r"([a-z0-9]+)_f(G|B[0-9]|M[0-9]|RF|[0-9]{1,2})", frame)
+    if not m:
+        return None
+    fl = m[2]
+    return m[1], "0G" if fl == "G" else fl.zfill(2) if fl.isdigit() else fl
+
+
+def parse_deployed(text: str) -> dict:
+    """/opt/opendubs/DEPLOYED (deploy-all.sh's key=value lines) as the manifest's code: block."""
+    kv = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+    code = {"opendubs_sha": kv.get("sha", "")}
+    if kv.get("branch") and kv["branch"] != "main":
+        code["branch"] = kv["branch"]
+    code["dirty"] = "UNCOMMITTED" in kv.get("source", "")
+    return code
+
+
+def parse_bag_info(text: str):
+    """(duration in s, [{name, type, count}]) from `ros2 bag info`."""
+    d = re.search(r"Duration:\s*([0-9.]+)\s*s", text)
+    topics = [{"name": m[1], "type": m[2], "count": int(m[3])}
+              for m in re.finditer(r"Topic: (\S+) \| Type: (\S+) \| Count: (\d+)", text)]
+    return (float(d[1]) if d else 0.0), topics
+
+
+def capture_id(day: datetime.date, key: str, floor_code: str, map_name_: str) -> str:
+    """<yyyymmdd>-<building>-<floor>[-n], n taken from the map's own -n (map_name never overwrites)."""
+    m = re.search(r"-([0-9]+)$", map_name_)
+    n = f"-{m[1]}" if m and len(m[1]) < 8 else ""   # not the date itself
+    return f"{day:%Y%m%d}-{key}-{floor_code}{n}"
+
+
+def sensors_block(recorded: dict, cameras: list) -> list:
+    """The sensors whose topics hold messages. cameras: (id, topics, frame_id) from the relays."""
+    out = []
+    for sid, model, topics, frame, cal in SENSORS:
+        got = [t for t in topics if recorded.get(t)]
+        if got:
+            out.append({"id": sid, "model": model, "topics": got, "frame_id": frame, "calibration": cal})
+    for sid, topics, frame in cameras:
+        got = [t for t in topics if recorded.get(t)]
+        if got:
+            out.append({"id": sid, "model": CAMERA_MODEL, "topics": got, "frame_id": frame, "calibration": "factory"})
+    return out
+
+
+def capture_manifest(*, cid, key, fms, floor_code, start, end, ntp, robot, code, operator, landmark,
+                     room, sensors, map_name_, resolution, map_files, bag_files, duration_s, topics,
+                     color, notes=None) -> dict:
+    """The opendubs.capture/1 document, in the schema's key order."""
+    doc = {"schema": CAPTURE_SCHEMA, "id": cid, "building": {"key": key, "fms": fms}, "floor": floor_code,
+           "time": {"start": start.isoformat(timespec="seconds"), "end": end.isoformat(timespec="seconds"),
+                    "clock": "ntp" if ntp else "unsynced"},
+           "robot": robot, "code": code, "operator": operator, "sensors": sensors,
+           "start": {"landmark": landmark, **({"room": room} if room else {})},
+           "map": {"name": map_name_, **({"resolution_m": round(resolution, 4)} if resolution else {}),
+                   "files": map_files},
+           "bag": {"storage": "mcap/zstd_fast", "files": bag_files, "duration_s": round(duration_s, 3),
+                   "bytes": sum(f["bytes"] for f in bag_files),
+                   "topics": [dict(t, **({"hz": round(t["count"] / duration_s, 2)} if duration_s else {}))
+                              for t in topics]},
+           "privacy": {"color": color}}
+    if notes:
+        doc["notes"] = notes
+    return doc
+
+
 # ---- the robot side ---------------------------------------------------------------------------------
+
+def sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def file_entry(path: str, host: str | None = None, rel: str | None = None) -> dict:
+    e = {"host": host} if host else {}
+    e.update(path=rel or path, sha256=sha256(path), bytes=os.path.getsize(path))
+    return e
+
+
+def ntp_synced() -> bool:
+    try:
+        return subprocess.run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"], capture_output=True,
+                              text=True, timeout=5).stdout.strip() == "yes"
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def buildings() -> dict:
+    import yaml
+    try:
+        return {str(k): str(v) for k, v in (yaml.safe_load(open(BUILDINGS)) or {}).items()}
+    except FileNotFoundError:
+        return {}
+
+
+def manifest_inputs(args) -> str:
+    """'' when everything the manifest needs is at hand (asking for the operator and the start if
+    they were not given), else why not: checked BEFORE the drive, not after it."""
+    pf = parse_frame(args.frame)
+    if not pf:
+        return f"{args.frame!r} is not <building>_f<floor> (e.g. bldg_f2, bldg_fG)"
+    if pf[0] not in buildings():
+        return f"building {pf[0]!r} has no FMS number in {BUILDINGS}: add a line   {pf[0]}: \"<number>\""
+    if not os.path.exists(DEPLOYED):
+        return f"no {DEPLOYED}: this robot was not deployed by deploy-all.sh, so the code cannot be named"
+    if not parse_deployed(open(DEPLOYED).read())["opendubs_sha"]:
+        return f"{DEPLOYED} names no sha"
+    while not args.operator:
+        args.operator = input("operator (initials or team handle): ").strip()
+    while not args.start:
+        args.start = input("start landmark (where the robot is now, in words): ").strip()
+    return ""
+
+
+def write_capture(args, n, name: str, out: str, started: datetime.datetime, ended: datetime.datetime) -> None:
+    """capture.yaml in the bag directory, with the map's small files copied beside it."""
+    import yaml
+    key, floor_code = parse_frame(args.frame)
+    host = socket.gethostname().split(".")[0]
+    for suffix in (".pgm", ".yaml"):
+        if os.path.exists(os.path.join(MAPS, name + suffix)):
+            shutil.copy2(os.path.join(MAPS, name + suffix), out)
+    site = f"site.{name}.yaml"
+    if os.path.exists(os.path.join(MAPS, site)):
+        shutil.copy2(os.path.join(MAPS, site), out)
+    map_files = [file_entry(os.path.join(out, f), rel=f) for f in (name + ".pgm", name + ".yaml", site)
+                 if os.path.exists(os.path.join(out, f))]
+    map_files += [file_entry(os.path.join(MAPS, name + s), host=host) for s in (".posegraph", ".data")
+                  if os.path.exists(os.path.join(MAPS, name + s))]
+    if not map_files:
+        print("  capture.yaml NOT written: no map file was saved")
+        return
+    print("  hashing the recording for capture.yaml")
+    bag_files = [file_entry(os.path.join(out, f), host=host) for f in sorted(os.listdir(out))
+                 if f == "metadata.yaml" or f.endswith(".mcap")]
+    duration, topics = parse_bag_info(subprocess.run(["ros2", "bag", "info", out], capture_output=True,
+                                                     text=True).stdout)
+    recorded = {t["name"]: t["count"] for t in topics}
+    cameras = [(f"{kind}_head", [t for t in recorded if f"/{kind}/" in t and t.startswith(RELAY_PREFIX + "/")]
+                + [t for t in recorded if (f"/{kind}/" in t and t.endswith("camera_info")) or
+                   (kind == "depth" and (t.endswith(("/imu", "/sample")) or t == "/scan_depth"))],
+                n.frames.get(kind, "camera_link")) for kind in ("color", "depth")]
+    resolution = None
+    try:
+        resolution = float(yaml.safe_load(open(os.path.join(MAPS, name + ".yaml")))["resolution"])
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+    robot = {"name": host}
+    if os.path.exists(URDF):
+        robot["description_sha256"] = sha256(URDF)
+    if args.lift_m is not None:
+        robot["lift_m"] = args.lift_m
+    code = dict(parse_deployed(open(DEPLOYED).read()), slam=SLAM_DESCRIPTION)
+    color = "present" if any(recorded.get(t) for t in recorded if "/color/" in t and t.startswith(RELAY_PREFIX + "/")) \
+        else "not_recorded"
+    doc = capture_manifest(cid=capture_id(started.date(), key, floor_code, name), key=key, fms=buildings()[key],
+                           floor_code=floor_code, start=started, end=ended, ntp=ntp_synced(), robot=robot,
+                           code=code, operator=args.operator, landmark=args.start, room=args.room,
+                           sensors=sensors_block(recorded, cameras), map_name_=name, resolution=resolution,
+                           map_files=map_files, bag_files=bag_files, duration_s=duration, topics=topics,
+                           color=color, notes=args.notes)
+    with open(os.path.join(out, "capture.yaml"), "w") as f:
+        yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True)
+    print(f"  capture.yaml ({doc['id']}): {out}")
 
 def free_gb(path: str) -> float:
     os.makedirs(path, exist_ok=True)
@@ -186,6 +384,7 @@ class Node:
         self.tf = Buffer()
         self._tfl = TransformListener(self.tf, self.node, spin_thread=False)
         self.counts: dict[str, int] = {}
+        self.frames: dict[str, str] = {}               # the camera's frame_id per stream, for the manifest
         self._exec = MultiThreadedExecutor()
         self._exec.add_node(self.node)
         threading.Thread(target=self._exec.spin, daemon=True).start()
@@ -222,6 +421,9 @@ class Node:
                 last[0] = now
                 pub.publish(raw)
                 self.counts[label] += 1
+                if label not in self.frames:
+                    from rclpy.serialization import deserialize_message
+                    self.frames[label] = deserialize_message(raw, cls).header.frame_id
         self.node.create_subscription(cls, topic, cb, qos_profile_sensor_data, raw=True,
                                       callback_group=self._own_group())
         return out
@@ -270,6 +472,7 @@ class Node:
             if ok:
                 pub.publish(CompressedImage(header=m.header, format=fmt, data=buf.tobytes()))
                 self.counts[label] += 1
+                self.frames.setdefault(label, m.header.frame_id)
         self.node.create_subscription(Image, topic, cb, qos_profile_sensor_data, raw=True,
                                       callback_group=self._own_group())
         return out
@@ -347,9 +550,8 @@ def stop(proc: subprocess.Popen) -> None:
 
 def counts(out: str) -> dict[str, int]:
     """{topic: messages} from `ros2 bag info`."""
-    import re
     info = subprocess.run(["ros2", "bag", "info", out], capture_output=True, text=True).stdout
-    return {m[1]: int(m[2]) for m in re.finditer(r"Topic: (\S+) \| Type: \S+ \| Count: (\d+)", info)}
+    return {t["name"]: t["count"] for t in parse_bag_info(info)[1]}
 
 
 def slam_mode() -> str:
@@ -458,6 +660,10 @@ def floor(args) -> int:
     if free < MIN_FREE_GB + START_MARGIN_GB:
         print(f"only {free:.0f} GB free for {BAGS}; need {MIN_FREE_GB + START_MARGIN_GB:.0f}. Move old bags off first.")
         return 1
+    why = manifest_inputs(args)
+    if why:
+        print(f"cannot write the capture manifest: {why}")
+        return 1
     name = map_name(args.frame, saved_maps(), datetime.date.today())
     print(f"floor {args.frame}: map {name}. KEEP THE ROBOT STILL until it says RECORDING.")
     print(f"restarting {SLAM_UNIT} for a fresh map")
@@ -484,6 +690,7 @@ def floor(args) -> int:
         os.makedirs(BAGS, exist_ok=True)
         out = os.path.join(BAGS, name)
         proc = bag(out, streams(n, topics, args.no_color))
+        started = datetime.datetime.now().astimezone()
         t0 = time.monotonic()
         print(f"RECORDING to {out}. Drive the floor; press Ctrl-C ONCE when done.")
         stopped_for_disk = False
@@ -507,13 +714,17 @@ def floor(args) -> int:
     finally:
         if proc:
             stop(proc)
+    ended = datetime.datetime.now().astimezone()
     if proc:
         out = os.path.join(BAGS, name)
         got = counts(out)
         print(f"recording closed: {dir_bytes(out) / 1024 ** 3:.2f} GB in {out}; messages: "
               + ", ".join(f"{t} {c}" for t, c in sorted(got.items())))
     try:
-        return save(args.frame, n, start, name)
+        rc = save(args.frame, n, start, name)
+        if proc:
+            write_capture(args, n, name, os.path.join(BAGS, name), started, ended)
+        return rc
     finally:
         n.close()
 
@@ -525,6 +736,11 @@ def main() -> int:
     f = sp.add_parser("floor", help="fresh SLAM map + recording; Ctrl-C once to stop and save")
     f.add_argument("frame", help="the floor's frame, e.g. bldg_f1: the map is saved as FRAME-<date>")
     f.add_argument("--no-color", action="store_true", help="leave the camera's colour frames out")
+    f.add_argument("--operator", help="who drives (initials or team handle); asked if not given")
+    f.add_argument("--start", help="the start landmark in words; asked if not given")
+    f.add_argument("--room", help="the room number nearest the start, if known")
+    f.add_argument("--lift-m", type=float, help="the lift's height during the drive, if fixed")
+    f.add_argument("--notes", help="anything the next person needs to know about the drive")
     s = sp.add_parser("save", help="save SLAM's current map only")
     s.add_argument("frame")
     args = ap.parse_args()

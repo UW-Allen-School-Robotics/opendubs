@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "opendubs-site/schemas/capture.schema.json",
+  "title": "opendubs.capture/1: one mapping drive",
+  "description": "The manifest of one attended mapping drive of one floor, written as captures/<yyyymmdd>-<building>-<floor>[-n]/capture.yaml. It names everything needed to rebuild the map offline later: the robot and code that recorded it, the sensors and their calibration, where the drive started, the saved map and the recording, each large file by host path and sha256.",
+  "type": "object",
+  "required": ["schema", "id", "building", "floor", "time", "robot", "code", "operator", "sensors", "start", "map", "bag", "privacy"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "opendubs.capture/1" },
+    "id": {
+      "description": "The capture directory's name: <yyyymmdd>-<building>-<floor>[-n], e.g. 20261110-gates-02.",
+      "type": "string",
+      "pattern": "^[0-9]{8}-[a-z0-9]+-[0-9A-Z]{2}(-[0-9]+)?$"
+    },
+    "building": {
+      "type": "object",
+      "required": ["key", "fms"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "description": "The building's directory in this repo.", "enum": ["gates", "allen", "ece"] },
+        "fms": { "description": "UW Facilities building number, as on the drawings.", "type": "string", "pattern": "^[0-9]{4}$" }
+      }
+    },
+    "floor": {
+      "description": "The FMS floor code, as the drawings spell it: 0G, 01..07, B1, M2..M5.",
+      "type": "string",
+      "pattern": "^(0G|[0-9]{2}|B[0-9]|M[0-9]|RF)$"
+    },
+    "time": {
+      "type": "object",
+      "required": ["start", "end", "clock"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "clock": {
+          "description": "Whether the robot's clock was synchronized. The Thor has no clock battery: until NTP syncs, bag stamps are wrong, and 'corrected_offset_s' says by how much if it was found later.",
+          "enum": ["ntp", "unsynced"]
+        },
+        "corrected_offset_s": { "type": "number" }
+      }
+    },
+    "robot": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "e.g. opendubs2.", "type": "string" },
+        "description_sha256": { "description": "sha256 of the URDF robot_state_publisher was running: the sensor extrinsics.", "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "lift_m": { "description": "Scissor-lift height during the drive, if it was fixed.", "type": "number" }
+      }
+    },
+    "code": {
+      "description": "What recorded it: the opendubs commit deployed on the robot, and the mapping tool's own version.",
+      "type": "object",
+      "required": ["opendubs_sha"],
+      "additionalProperties": false,
+      "properties": {
+        "opendubs_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "branch": { "description": "Set when the robot ran an unmerged branch (lane rule 5).", "type": "string" },
+        "dirty": { "type": "boolean" },
+        "slam": { "description": "The SLAM that built the live map, e.g. slam_toolbox on /scan.", "type": "string" }
+      }
+    },
+    "operator": {
+      "description": "Who drove: initials or a team handle, enough to ask them about the drive.",
+      "type": "string"
+    },
+    "sensors": {
+      "description": "Every sensor recorded, with where its calibration came from.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "model", "topics", "frame_id"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "description": "e.g. lidar_front, lidar_rear, odom_pinpoint, depth_head.", "type": "string" },
+          "model": { "description": "e.g. RPLIDAR A1, goBILDA Pinpoint, Orbbec Femto Bolt.", "type": "string" },
+          "serial": { "type": "string" },
+          "topics": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "frame_id": { "type": "string" },
+          "calibration": {
+            "description": "Where its intrinsics and extrinsics came from: a file by path and sha256, or 'urdf' (robot.description_sha256), or 'factory'.",
+            "oneOf": [
+              { "enum": ["urdf", "factory", "none"] },
+              { "$ref": "#/$defs/file" }
+            ]
+          }
+        }
+      }
+    },
+    "start": {
+      "description": "Where the drive started, so the map can be seeded against the plan.",
+      "type": "object",
+      "required": ["landmark"],
+      "additionalProperties": false,
+      "properties": {
+        "landmark": { "description": "In words a person can find again: 'centre of the elevator lobby, facing the doors'.", "type": "string" },
+        "room": { "description": "FMS room number nearest the start, if known.", "type": "string" },
+        "pose_building": {
+          "description": "The start pose in the building frame, if it was known at the time. Usually filled later by a registration.",
+          "$ref": "#/$defs/pose2d"
+        }
+      }
+    },
+    "map": {
+      "description": "The map saved at the end of the drive. Small files are committed beside the manifest; the pose graph is referenced.",
+      "type": "object",
+      "required": ["name", "files"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "description": "As saved on the robot, e.g. gates_f2-20261110.", "type": "string" },
+        "resolution_m": { "type": "number" },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/file" }, "minItems": 1 }
+      }
+    },
+    "bag": {
+      "type": "object",
+      "required": ["storage", "files", "duration_s", "topics"],
+      "additionalProperties": false,
+      "properties": {
+        "storage": { "description": "e.g. mcap/zstd_fast.", "type": "string" },
+        "files": { "description": "Every split of the bag (2 GB each) and its metadata.yaml.", "type": "array", "items": { "$ref": "#/$defs/file" }, "minItems": 1 },
+        "duration_s": { "type": "number" },
+        "bytes": { "type": "integer" },
+        "topics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "count"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "type": "string" },
+              "count": { "type": "integer" },
+              "hz": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "required": ["color"],
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "description": "Whether the bag holds colour frames (pictures of people): left out at record time (--no-color), still present, blurred, or deleted afterwards.",
+          "enum": ["not_recorded", "present", "blurred", "deleted"]
+        }
+      }
+    },
+    "notes": { "description": "Anything the next person needs: doors that were closed, a floor area skipped, SLAM losing track.", "type": "string" }
+  },
+  "$defs": {
+    "file": {
+      "description": "A file by where it lives and its content hash. 'path' is relative to this capture directory when committed here; otherwise 'host' names the machine (opendubs2, the team Drive) and 'path' is absolute there.",
+      "type": "object",
+      "required": ["path", "sha256", "bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "host": { "type": "string" },
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer" }
+      }
+    },
+    "pose2d": {
+      "type": "object",
+      "required": ["x", "y", "yaw"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "yaw": { "type": "number" }
+      }
+    }
+  }
+}
