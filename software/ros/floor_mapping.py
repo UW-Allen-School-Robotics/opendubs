@@ -224,6 +224,23 @@ class Node:
         self.node.destroy_subscription(sub)
         return got[-1] if got else None
 
+    def serialize(self, base: str, timeout_s: float = 60.0) -> str:
+        """slam_toolbox's serialize_map to base(.posegraph/.data): '' on success, else why not."""
+        from slam_toolbox.srv import SerializePoseGraph
+        cli = self.node.create_client(SerializePoseGraph, "/slam_toolbox/serialize_map")
+        try:
+            if not cli.wait_for_service(timeout_sec=10.0):
+                return "slam_toolbox's serialize_map is not offered (is opendubs-slam running?)"
+            fut = cli.call_async(SerializePoseGraph.Request(filename=base))
+            end = time.monotonic() + timeout_s
+            while not fut.done() and time.monotonic() < end:
+                time.sleep(0.1)
+            if not fut.done():
+                return f"no reply within {timeout_s:.0f} s"
+            return "" if fut.result().result == 0 else f"slam_toolbox could not write {base}.posegraph"
+        finally:
+            self.node.destroy_client(cli)
+
     def close(self):
         self._exec.shutdown()
         self.rclpy.try_shutdown()
@@ -240,10 +257,12 @@ def streams(n: Node, topics: dict, no_color: bool = False) -> list:
 
 
 def bag(out: str, record: list) -> subprocess.Popen:
-    # its own session: the operator's Ctrl-C reaches this script, which then stops the bag cleanly
+    """`ros2 bag record` in its own session (the operator's Ctrl-C reaches this script, which then
+    stops the bag cleanly), its chatter in out + '.log' rather than over the progress lines."""
+    log = open(out + ".log", "w")
     return subprocess.Popen(["ros2", "bag", "record", "-s", "mcap", "--storage-preset-profile", "zstd_fast",
                              "--max-bag-size", str(SPLIT_BYTES), "-o", out] + record,
-                            stdout=subprocess.DEVNULL, start_new_session=True)
+                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
 
 def stop(proc: subprocess.Popen) -> None:
@@ -296,7 +315,7 @@ def check(_args) -> int:
     for t in sorted(trial):
         print(f"  {trial[t]:5d}  {t}")
     if not trial:
-        print("  NOTHING: `ros2 bag record` did not record (see its output above)")
+        print("  NOTHING: `ros2 bag record` did not record (its log is above)")
     return 0
 
 
@@ -310,7 +329,10 @@ def trial_recording(n: Node, topics: dict) -> dict[str, int]:
     finally:
         stop(proc)
     got = counts(out)
+    if not got:
+        print(open(out + ".log").read()[-1500:])
     shutil.rmtree(out, ignore_errors=True)
+    os.remove(out + ".log")
     return got
 
 
@@ -318,11 +340,9 @@ def save(frame: str, node: Node, start_pose=None, name: str | None = None) -> in
     name = name or map_name(frame, saved_maps(), datetime.date.today())
     base = os.path.join(MAPS, name)
     print(f"saving the map as {name} in {MAPS}")
-    r = subprocess.run(["ros2", "service", "call", "/slam_toolbox/serialize_map",
-                        "slam_toolbox/srv/SerializePoseGraph", f"{{filename: '{base}'}}"],
-                       capture_output=True, text=True, timeout=120)
-    if not os.path.exists(base + ".posegraph"):
-        print(f"  serialize_map did not write {base}.posegraph:\n{r.stdout[-400:]}{r.stderr[-400:]}")
+    why = node.serialize(base)                 # a failure here must not stop the image below
+    if why or not os.path.exists(base + ".posegraph"):
+        print(f"  NO pose graph: {why or 'serialize_map replied but wrote no file'}")
     else:
         print(f"  {name}.posegraph, .data")
     g = node.grid()
@@ -340,7 +360,8 @@ def save(frame: str, node: Node, start_pose=None, name: str | None = None) -> in
         f.write(f"# {name}: NOT ACTIVE (SLAM reads site.yaml). floorplan.py fit writes the full site file.\n"
                 f"map: {name}\nstart_pose: [{sp[0]:.3f}, {sp[1]:.3f}, {sp[2]:.4f}]"
                 f"{'  # NOT MEASURED: the start was not seen' if start_pose is None else ''}\n")
-    print(f"  site.{name}.yaml (start pose {sp[0]:.3f} {sp[1]:.3f} {sp[2]:.4f}; not active)")
+    print(f"  site.{name}.yaml (start pose {sp[0]:.3f} {sp[1]:.3f} {sp[2]:.4f}"
+          f"{', NOT MEASURED: give fit the real start' if start_pose is None else ''}; not active)")
     return 0
 
 
@@ -389,7 +410,7 @@ def floor(args) -> int:
             size, mins = dir_bytes(out) / 1024 ** 3, (time.monotonic() - t0) / 60
             free = free_gb(BAGS)
             rate = size / mins * 60 if mins else 0
-            left = (free - MIN_FREE_GB) / rate * 60 if rate else float("inf")
+            left = max(free - MIN_FREE_GB, 0) / rate * 60 if rate else float("inf")
             cams = " ".join(f"{k}={c}" for k, c in n.counts.items())
             print(f"  {mins:5.1f} min  {size:5.2f} GB  {rate:4.1f} GB/h  {free:.0f} GB free, ~{left:.0f} min left  {cams}")
             if free <= MIN_FREE_GB:
