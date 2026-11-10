@@ -273,6 +273,26 @@ Check `OUT_DIR/<map>.overlay.png` (the plan in grey, the map's walls in red), th
 `<frame>.plan.yaml` and `site.yaml` to the robot's `/var/lib/opendubs/maps/` and restart
 `opendubs-slam` and `opendubs-floor-frames`.
 
+### Mapping a floor, attended
+
+`floor-mapping.sh` (→ `floor_mapping.py`) maps one floor while a person drives the robot by RC. Run it
+on the robot, in a terminal you can see while driving:
+
+```bash
+/opt/opendubs/ros/floor-mapping.sh check            # disk, live topics, SLAM's mode, a 6 s trial recording
+/opt/opendubs/ros/floor-mapping.sh floor bldg_f1    # robot still at the start; Ctrl-C ONCE when done
+```
+
+`floor` restarts `opendubs-slam` so the floor starts from an empty map, records the drive as a ros2 bag
+in `~/bags/<map>` (both LIDARs, `/odom` and the raw `[ODO]` line on `/odom/raw`, TF, the neck's joint
+states, and the depth camera thinned to 2 Hz colour and 5 Hz depth if its driver is running), and on
+Ctrl-C saves the map as `bldg_f1-<date>`: the pose graph, a `.pgm`/`.yaml`, and an inactive
+`site.<map>.yaml` holding the start pose that `floorplan.py fit --start` needs. It refuses to start
+while `site.yaml` exists (SLAM would localize, not map) or with too little disk, and stops the
+recording itself before the disk gets low. `floor-mapping.sh save bldg_f1` saves the current map alone.
+Bags and maps are site data: they stay on the robot and the project's machines, never in the repo. The
+camera's colour frames are pictures of whoever is in the corridor; `--no-color` leaves them out.
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts
