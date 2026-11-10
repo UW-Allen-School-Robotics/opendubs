@@ -285,11 +285,13 @@ on the robot, in a terminal you can see while driving:
 
 `floor` restarts `opendubs-slam` so the floor starts from an empty map, records the drive as a ros2 bag
 in `~/bags/<map>` (both LIDARs, `/odom` and the raw `[ODO]` line on `/odom/raw`, TF, the neck's joint
-states, and the depth camera thinned to 2 Hz colour and 5 Hz depth if its driver is running), and on
+states, the rear body filter and the depth scan when they run, and the depth camera at 15 Hz if its
+driver is running, compressed here when it publishes only raw images), and on
 Ctrl-C saves the map as `bldg_f1-<date>`: the pose graph, a `.pgm`/`.yaml`, and an inactive
 `site.<map>.yaml` holding the start pose that `floorplan.py fit --start` needs. It refuses to start
 while `site.yaml` exists (SLAM would localize, not map) or with too little disk, and stops the
-recording itself before the disk gets low. `floor-mapping.sh save bldg_f1` saves the current map alone.
+recording itself before the disk gets low. `check`'s trial measures the GB an hour (about 30 with the
+camera) and the camera rate it actually achieved, and warns below 12 Hz. `floor-mapping.sh save bldg_f1` saves the current map alone.
 Bags and maps are site data: they stay on the robot and the project's machines, never in the repo. The
 camera's colour frames are pictures of whoever is in the corridor; `--no-color` leaves them out.
 

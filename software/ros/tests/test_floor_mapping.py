@@ -38,18 +38,21 @@ class CameraTopicsTest(unittest.TestCase):
 
     def test_prefers_compressed_and_keeps_info_and_imu_whole(self):
         c = fm.camera_topics(self.TOPICS)
-        self.assertFalse(c["raw"])
-        self.assertEqual([t for _, t, _ in c["thin"]],
-                         ["/camera/color/image_raw/compressed", "/camera/depth/image_raw/compressedDepth"])
+        self.assertEqual(c["thin"], [("color", "/camera/color/image_raw/compressed", "pass"),
+                                     ("depth", "/camera/depth/image_raw/compressedDepth", "pass")])
         self.assertEqual(c["whole"], ["/camera/color/camera_info", "/camera/depth/camera_info",
                                       "/camera/gyro_accel/sample"])
 
-    def test_falls_back_to_raw_at_half_rate_and_never_takes_the_tablet(self):
+    def test_raw_only_is_compressed_here_per_stream_and_never_takes_the_tablet(self):
+        # the robot's depth camera publishes raw depth only (no compressedDepth): that stream alone is encoded
+        topics = {k: v for k, v in self.TOPICS.items() if not k.endswith("compressedDepth")}
+        self.assertEqual(fm.camera_topics(topics)["thin"],
+                         [("color", "/camera/color/image_raw/compressed", "pass"),
+                          ("depth", "/camera/depth/image_raw", "encode")])
         topics = {k: v for k, v in self.TOPICS.items() if "compressed" not in k or k.startswith("/tablet")}
-        c = fm.camera_topics(topics)
-        self.assertTrue(c["raw"])
-        self.assertEqual(c["thin"], [("color", "/camera/color/image_raw", fm.COLOR_HZ / 2),
-                                     ("depth", "/camera/depth/image_raw", fm.DEPTH_HZ / 2)])
+        self.assertEqual(fm.camera_topics(topics)["thin"],
+                         [("color", "/camera/color/image_raw", "encode"),
+                          ("depth", "/camera/depth/image_raw", "encode")])
 
 
 class NameTest(unittest.TestCase):

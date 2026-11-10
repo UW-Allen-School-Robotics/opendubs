@@ -18,20 +18,30 @@ floor starts from an empty map, which is why nothing has to track the robot betw
 THE RECORDING (a ros2 bag, mcap with zstd chunks, split every 2 GB) is for rebuilding the map offline,
 with or without the dead-wheel odometry and with both LIDARs. It holds:
   /scan /scan_rear /scan_filtered        both LIDARs raw, and the front one as SLAM sees it
+  /scan_rear_filtered /scan_depth        when something publishes them (the rear body filter, the depth
+                                         camera flattened to a scan): recorded if present, never needed
   /odom /odom/raw                        the Pinpoint pose, and its [ODO] line verbatim (raw pod counts,
                                          status bits, failed reads), published by drive_bridge.py
   /tf /tf_static                         including SLAM's map -> odom
   /head/joint_states, _targets, _limits  the neck's pan and tilt (the dashboard's neck_state.py)
-  the depth camera, if its driver is running: colour and depth, compressed, thinned to COLOR_HZ and
-      DEPTH_HZ and republished under /mapping/... (the bag records the thinned copies), its camera_info
-      and its IMU at full rate. The camera's topics are found by name (.../color/image_raw...), so any
-      driver namespace works; with no camera running, the recording goes on without it and says so.
+  /opendubs/joint_states                 what robot_state_publisher was told the lift and neck were, so
+                                         the camera's TF in the bag can be checked against the real neck
+  the depth camera, if its driver is running: colour and depth at CAM_HZ, enough to judge visual and
+      RGB-D odometry offline, republished under /mapping/... (the bag records only these copies), and
+      its camera_info and IMU at full rate. Its compressed transports are passed through untouched;
+      if it publishes only raw images, the relay compresses them itself (colour JPEG on
+      /mapping/<topic>/compressed; depth lossless 16-bit PNG on /mapping/<topic>/png, format
+      "16UC1; png", decoded with cv2.imdecode(..., IMREAD_UNCHANGED)). Without OpenCV the raw images
+      are recorded instead, colour at RAW_COLOR_HZ. The camera's topics are found by name
+      (.../color/image_raw...), so any driver namespace works; with no camera, the recording goes on
+      without it and says so.
   NOT /map: it is the size of the floor every 2 s. The map is saved separately, at the end.
 
 Colour frames are pictures of whoever is in the corridor. The bag stays on the robot and on the
 project's own machines, never in the repo or anywhere public; --no-color leaves colour out.
 
-THE DISK: `floor` refuses to start with less than MIN_FREE_GB + START_MARGIN_GB free, and stops the
+THE DISK: `check` measures the recording's rate from its trial (EXPECTED_GB_H, about 30 GB an hour
+with the camera at 15 Hz, is only the estimate it falls back on). `floor` refuses to start with less than MIN_FREE_GB + START_MARGIN_GB free, and stops the
 recording itself (and still saves the map) if free space falls to MIN_FREE_GB, so a long drive can
 never fill the robot's disk. Every 30 s it prints the recording's size, its rate and the minutes left.
 
@@ -60,13 +70,19 @@ MAPS = os.environ.get("OPENDUBS_MAPS", "/var/lib/opendubs/maps")
 BAGS = os.environ.get("OPENDUBS_BAG_DIR", os.path.expanduser("~/bags"))
 MIN_FREE_GB = float(os.environ.get("OPENDUBS_BAG_MIN_FREE_GB", "20"))
 START_MARGIN_GB = 10.0
-COLOR_HZ, DEPTH_HZ = 2.0, 5.0            # compressed frames; the raw fallback halves them
+CAM_HZ = 15.0                            # colour and depth: what visual / RGB-D odometry needs
+RAW_COLOR_HZ = 3.0                       # raw colour when nothing can compress it: 2.7 MB a frame
+TRIAL_S = 6.0                            # check's trial recording
+MIN_CAM_HZ = 12.0                        # below this, check warns that the camera came out too slow
+KEEP_FRACTION = 0.8                     # keep a frame 0.8 of a period after the last: 30 Hz in -> 15 out, despite jitter
+EXPECTED_GB_H = 30.0                     # an estimate (JPEG ~0.2 MB, depth PNG ~0.35 MB a frame at 15 Hz)
 SPLIT_BYTES = 2 * 1024 ** 3
 SLAM_UNIT = "opendubs-slam"
 SLAM_ENABLED = "/etc/opendubs/slam.enabled"
 
 CORE = ["/scan", "/scan_rear", "/scan_filtered", "/odom", "/odom/raw", "/tf", "/tf_static",
         "/head/joint_states", "/head/joint_targets", "/head/joint_limits"]
+OPTIONAL = ["/scan_rear_filtered", "/scan_depth", "/opendubs/joint_states"]   # recorded when present
 NEEDED = ["/scan", "/scan_rear", "/odom", "/tf"]      # without these the drive is not worth recording
 RELAY_PREFIX = "/mapping"
 IMAGE_T = "sensor_msgs/msg/Image"
@@ -103,24 +119,23 @@ def map_yaml(image: str, resolution: float, origin) -> str:
 
 
 def camera_topics(topics: dict[str, str]) -> dict:
-    """From {topic: type}, the depth camera's streams: the image topics to thin, and the small ones to
-    record whole. Prefers the compressed transports; falls back to the raw images. The tablet's cameras
-    (/tablet/...) are a different thing and are left out."""
+    """From {topic: type}, the depth camera's streams: "thin" lists (kind, topic, how) for colour and
+    depth, how being "pass" (a compressed transport, relayed as it is) or "encode" (only the raw image
+    exists: the relay compresses it), and "whole" the small topics recorded as they are. The tablet's
+    cameras (/tablet/...) are a different thing and are left out."""
     def find(suffix, typ):
         hits = sorted(t for t, ty in topics.items() if t.endswith(suffix) and ty == typ
                       and not t.startswith("/tablet/") and not t.startswith(RELAY_PREFIX + "/"))
         return hits[0] if hits else None
-    out = {"thin": [], "whole": [], "raw": False}
-    color = find("/color/image_raw/compressed", COMPRESSED_T)
-    depth = find("/depth/image_raw/compressedDepth", COMPRESSED_T)
-    if not color and not depth:
-        color, depth = find("/color/image_raw", IMAGE_T), find("/depth/image_raw", IMAGE_T)
-        out["raw"] = bool(color or depth)
+    out = {"thin": [], "whole": []}
     base = None
-    for name, topic, hz in (("color", color, COLOR_HZ), ("depth", depth, DEPTH_HZ)):
+    for kind, transport in (("color", "compressed"), ("depth", "compressedDepth")):
+        topic, how = find(f"/{kind}/image_raw/{transport}", COMPRESSED_T), "pass"
+        if not topic:
+            topic, how = find(f"/{kind}/image_raw", IMAGE_T), "encode"
         if topic:
-            out["thin"].append((name, topic, hz / 2 if out["raw"] else hz))
-            base = base or topic[:topic.index(f"/{name}/")]
+            out["thin"].append((kind, topic, how))
+            base = base or topic[:topic.index(f"/{kind}/")]
     if base:
         out["whole"] = sorted(t for t, ty in topics.items() if t.startswith(base + "/") and
                               ty in ("sensor_msgs/msg/CameraInfo", "sensor_msgs/msg/Imu"))
@@ -198,7 +213,7 @@ class Node:
         cls = get_message(typ)
         out = RELAY_PREFIX + topic
         pub = self.node.create_publisher(cls, out, QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE))
-        gap, last = 1.0 / hz, [0.0]
+        gap, last = KEEP_FRACTION / hz, [0.0]
         self.counts[label] = 0
 
         def cb(raw: bytes):
@@ -207,8 +222,63 @@ class Node:
                 last[0] = now
                 pub.publish(raw)
                 self.counts[label] += 1
-        self.node.create_subscription(cls, topic, cb, qos_profile_sensor_data, raw=True)
+        self.node.create_subscription(cls, topic, cb, qos_profile_sensor_data, raw=True,
+                                      callback_group=self._own_group())
         return out
+
+    def encode(self, label: str, topic: str, hz: float) -> str:
+        """Compress a raw image topic at hz: colour to JPEG (quality 90), 16-bit depth to lossless PNG.
+        Only the frames kept are decoded. Without OpenCV, relays the raw images (colour at RAW_COLOR_HZ)."""
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            hz = RAW_COLOR_HZ if label == "color" else hz
+            print(f"WARNING: no OpenCV (python3-opencv): recording {topic} RAW at {hz:g} Hz")
+            return self.thin(label, topic, IMAGE_T, hz)
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+        from rclpy.serialization import deserialize_message
+        from sensor_msgs.msg import CompressedImage, Image
+        out = f"{RELAY_PREFIX}{topic}/" + ("compressed" if label == "color" else "png")
+        pub = self.node.create_publisher(CompressedImage, out, QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE))
+        gap, last, warned = KEEP_FRACTION / hz, [0.0], set()
+        self.counts[label] = 0
+
+        def cb(raw: bytes):
+            now = time.monotonic()
+            if now - last[0] < gap:
+                return
+            last[0] = now
+            m = deserialize_message(raw, Image)
+            if m.encoding in ("rgb8", "bgr8", "mono8"):
+                ch = 1 if m.encoding == "mono8" else 3
+                img = np.frombuffer(m.data, np.uint8).reshape(m.height, m.step)[:, :m.width * ch]
+                img = img.reshape(m.height, m.width, ch)
+                if m.encoding == "rgb8":
+                    img = img[..., ::-1]
+                ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                fmt = f"{m.encoding}; jpeg compressed {'mono8' if ch == 1 else 'bgr8'}"
+            elif m.encoding in ("16UC1", "mono16"):
+                img = np.frombuffer(m.data, ">u2" if m.is_bigendian else "<u2").reshape(m.height, m.step // 2)
+                ok, buf = cv2.imencode(".png", np.ascontiguousarray(img[:, :m.width]), [cv2.IMWRITE_PNG_COMPRESSION, 1])
+                fmt = f"{m.encoding}; png"
+            else:
+                if m.encoding not in warned:
+                    warned.add(m.encoding)
+                    print(f"WARNING: {topic} is {m.encoding}, which this relay does not compress: skipped")
+                return
+            if ok:
+                pub.publish(CompressedImage(header=m.header, format=fmt, data=buf.tobytes()))
+                self.counts[label] += 1
+        self.node.create_subscription(Image, topic, cb, qos_profile_sensor_data, raw=True,
+                                      callback_group=self._own_group())
+        return out
+
+    def _own_group(self):
+        """Each relay in its own callback group: the executor's threads then run them side by side
+        (OpenCV and the middleware release the GIL) instead of one at a time behind TF."""
+        from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+        return MutuallyExclusiveCallbackGroup()
 
     def grid(self, timeout_s: float = 15.0):
         """The latest /map (slam_toolbox latches it)."""
@@ -248,17 +318,18 @@ class Node:
 
 def streams(n: Node, topics: dict, no_color: bool = False) -> list:
     """Every topic the recording takes, starting the camera's thinning relays."""
-    record = list(CORE)
+    record = CORE + OPTIONAL
     cam = camera_topics(topics)
-    for kind, t, hz in cam["thin"]:
+    for kind, t, how in cam["thin"]:
         if not (kind == "color" and no_color):
-            record.append(n.thin(kind, t, topics[t], hz))
+            record.append(n.thin(kind, t, topics[t], CAM_HZ) if how == "pass" else n.encode(kind, t, CAM_HZ))
     return record + cam["whole"]
 
 
 def bag(out: str, record: list) -> subprocess.Popen:
     """`ros2 bag record` in its own session (the operator's Ctrl-C reaches this script, which then
     stops the bag cleanly), its chatter in out + '.log' rather than over the progress lines."""
+    os.makedirs(os.path.dirname(out), exist_ok=True)
     log = open(out + ".log", "w")
     return subprocess.Popen(["ros2", "bag", "record", "-s", "mcap", "--storage-preset-profile", "zstd_fast",
                              "--max-bag-size", str(SPLIT_BYTES), "-o", out] + record,
@@ -291,49 +362,60 @@ def check(_args) -> int:
     n = Node()
     try:
         topics = n.topics()
-        trial = trial_recording(n, topics)
+        trial, gb_h = trial_recording(n, topics)
     finally:
         n.close()
     free = free_gb(BAGS)
     print(f"disk: {free:.0f} GB free for {BAGS}; `floor` needs {MIN_FREE_GB + START_MARGIN_GB:.0f} GB to start "
           f"and stops recording at {MIN_FREE_GB:.0f} GB")
-    print("      (an estimate, not measured: about 7 GB an hour with the camera compressed; the first "
-          "`floor` run prints the real rate)")
+    rate, how = (gb_h, "measured by the trial below") if gb_h else (EXPECTED_GB_H, "an estimate, not measured")
+    hours = max(free - MIN_FREE_GB, 0) / rate if rate else float("inf")
+    print(f"rate: about {rate:.1f} GB an hour ({how}): {hours:.1f} h of recording before the disk floor")
     print(f"SLAM: {slam_mode()}; enabled: {os.path.exists(SLAM_ENABLED)}")
     for t in CORE:
         print(f"  {'ok  ' if t in topics else 'MISSING'} {t}")
+    for t in OPTIONAL:
+        print(f"  {'ok  ' if t in topics else '(not running)'} {t}")
     cam = camera_topics(topics)
     if cam["thin"]:
-        print(f"camera{' (RAW images: no compressed transport found; bigger and slower)' if cam['raw'] else ''}:")
-        for name, t, hz in cam["thin"]:
-            print(f"  ok   {t} -> {RELAY_PREFIX}{t} at {hz:g} Hz")
+        print("camera:")
+        for kind, t, how in cam["thin"]:
+            print(f"  ok   {t} at {CAM_HZ:g} Hz, " + ("relayed as it is" if how == "pass" else
+                  "RAW: compressed here (" + ("JPEG" if kind == "color" else "16-bit PNG") + ")"))
         for t in cam["whole"]:
             print(f"  ok   {t}")
     else:
         print("camera: NO depth-camera topics (.../color/image_raw...): start its driver first, or record without it")
-    print("a 6 s trial recording (deleted afterwards) got, per topic:")
+    print("the 6 s trial recording (deleted afterwards) got, per topic:")
     for t in sorted(trial):
         print(f"  {trial[t]:5d}  {t}")
     if not trial:
         print("  NOTHING: `ros2 bag record` did not record (its log is above)")
+    for t in sorted(t for t in trial if t.startswith(RELAY_PREFIX + "/")):
+        hz = trial[t] / TRIAL_S
+        print(f"camera rate achieved: {hz:4.1f} Hz on {t}" + (
+            "  WARNING: no frames: its driver lists the topic but sends nothing" if not trial[t] else
+            f"  WARNING: below {MIN_CAM_HZ:g} Hz, too slow to judge visual odometry" if hz < MIN_CAM_HZ else ""))
     return 0
 
 
-def trial_recording(n: Node, topics: dict) -> dict[str, int]:
-    """Record 6 s and count what arrived, so a recording that would come back empty or without a topic
-    is found here, not after a floor's drive."""
+def trial_recording(n: Node, topics: dict, seconds: float = TRIAL_S):
+    """Record a few seconds: ({topic: messages}, GB an hour), so a recording that would come back
+    empty or without a topic is found here, not after a floor's drive, and the disk is sized by a
+    measured rate."""
     out = os.path.join(BAGS, f".check-{os.getpid()}")
     proc = bag(out, streams(n, topics))
     try:
-        time.sleep(6)
+        time.sleep(seconds)
     finally:
         stop(proc)
     got = counts(out)
+    gb_h = dir_bytes(out) / 1024 ** 3 / seconds * 3600 if got else 0.0
     if not got:
         print(open(out + ".log").read()[-1500:])
     shutil.rmtree(out, ignore_errors=True)
     os.remove(out + ".log")
-    return got
+    return got, gb_h
 
 
 def save(frame: str, node: Node, start_pose=None, name: str | None = None) -> int:
