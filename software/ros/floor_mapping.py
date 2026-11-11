@@ -34,7 +34,9 @@ with or without the dead-wheel odometry and with both LIDARs. It holds:
       "16UC1; png", decoded with cv2.imdecode(..., IMREAD_UNCHANGED)). Without OpenCV the raw images
       are recorded instead, colour at RAW_COLOR_HZ. The camera's topics are found by name
       (.../color/image_raw...), so any driver namespace works; with no camera, the recording goes on
-      without it and says so.
+      without it and says so. OPENDUBS_COLOR_FROM_RAW=1 skips a listed compressed colour stream and JPEGs
+      the raw one instead: the Femto's driver advertises /camera/color/image_raw/compressed but sends
+      nothing on it, which `check` shows as 0 Hz.
   NOT /map: it is the size of the floor every 2 s. The map is saved separately, at the end.
 
 Colour frames are pictures of whoever is in the corridor. The bag stays on the robot and on the
@@ -159,6 +161,8 @@ def camera_topics(topics: dict[str, str]) -> dict:
     base = None
     for kind, transport in (("color", "compressed"), ("depth", "compressedDepth")):
         topic, how = find(f"/{kind}/image_raw/{transport}", COMPRESSED_T), "pass"
+        if kind == "color" and os.environ.get("OPENDUBS_COLOR_FROM_RAW"):
+            topic = None        # the driver lists a compressed colour stream that sends nothing (Femto, 2026-11-11)
         if not topic:
             topic, how = find(f"/{kind}/image_raw", IMAGE_T), "encode"
         if topic:
