@@ -300,6 +300,21 @@ unless `--operator` and `--start` give them, and needs the building's FMS number
 Bags and maps are site data: they stay on the robot and the project's machines, never in the repo. The
 camera's colour frames are pictures of whoever is in the corridor; `--no-color` leaves them out.
 
+When someone else drives and the person running the tools is on a laptop, the same steps run as
+systemd units, so a dropped ssh session doesn't stop them (all in this directory, run on the robot):
+
+| script | does |
+|---|---|
+| `pinpoint-reset.sh` | `PPCAL RESET` with the robot still, then 30 s of `[ODO]` and the heading drift. Before each floor |
+| `floor-start.sh FRAME "START" [ROOM]` | `floor-mapping.sh floor` as the unit `opendubs-floor-map`, plus the `[ODO]` text log beside the bag |
+| `floor-stop.sh` | one SIGINT to the unit, which saves the map and `capture.yaml`; waits for the save |
+| `exterior-start.sh NAME` / `exterior-stop.sh` | a bag-only segment (outdoors, ramps): scans, odom, TF, the head, raw colour, depth, the camera IMU, the tablet's GPS and IMU. SLAM is left as it is |
+| `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints |
+| `plc_listen.py` | prints the StamPLC's UDP 5005 lines by tag, optionally after one host command; root (raw socket) |
+
+`OPENDUBS_COLOR_FROM_RAW=1` (set by `floor-start.sh`) records colour from the raw image when the
+driver's compressed colour stream is listed but silent, as the Femto's was on 2026-11-11.
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts
