@@ -839,7 +839,8 @@ def derive(out: str, only: str | None = None) -> int:
                                  "--use-sim-time", "-o", dst] + st["record"], env=env, stdout=log,
                                 stderr=subprocess.STDOUT, start_new_session=True)
         time.sleep(3)
-        play = subprocess.run(["ros2", "bag", "play", src, "--clock", "-r", str(st.get("rate", 1.0))],
+        play = subprocess.run(["ros2", "bag", "play", src, "--clock", "-r", str(st.get("rate", 1.0)),
+                               *[share_path(a) for a in st.get("play_args") or []]],
                               env=env, stdout=log, stderr=subprocess.STDOUT)
         time.sleep(float(st.get("drain_s", 3)))
         for p in (recp, drv):
@@ -855,6 +856,16 @@ def derive(out: str, only: str | None = None) -> int:
         rc = rc or (0 if any(got.values()) else 1)
     refresh_capture(out)
     return rc
+
+
+def share_path(arg: str) -> str:
+    """A play_args entry with {share:PKG} replaced by that ROS package's share directory (no shell)."""
+    import re
+
+    def share(m):
+        from ament_index_python.packages import get_package_share_directory
+        return get_package_share_directory(m[1])
+    return re.sub(r"\{share:([A-Za-z0-9_]+)\}", share, os.path.expandvars(arg))
 
 
 def refresh_capture(out: str) -> None:

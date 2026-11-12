@@ -31,7 +31,10 @@ parts: {}
 # After the stop (and with `floor-mapping.sh derive CAPTURE` later): derive more bags from a part, e.g.
 # Spot's point clouds from the Ouster's raw packets:
 #   points: {from_part: lidar, launch: "<the driver's replay launch> use_sim_time:=true", record: [/ouster/points],
-#            into: derived/points/, settle_s: 5, rate: 1.0}
+#            into: derived/points/, settle_s: 5, rate: 1.0,
+#            play_args: [--qos-profile-overrides-path, "{share:ouster_ros}/config/metadata-qos-override.yaml"]}
+# play_args are appended to `ros2 bag play`; {share:PKG} is that package's share directory. ouster-ros replays
+# its own bags with that override, so the latched /ouster/metadata reaches its cloud node.
 # The part is replayed on the BAG'S clock (`ros2 bag play --clock`; the driver must take use_sim_time:=true and
 # the recorder runs with --use-sim-time), so what it derives carries the walk's stamps, not the replay's. The
 # originals' stamps were set live, by the driver's own timestamp_mode (Ouster: PTP time or ROS time); the replay
