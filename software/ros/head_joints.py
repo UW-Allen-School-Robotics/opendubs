@@ -5,11 +5,10 @@ robot_state_publisher (/opendubs/joint_states), so base_link -> head_tilt_link -
   in   /head/joint_states   head_pan, head_tilt (radians from centre; neck_state.py, in the dashboard)
   out  /opendubs/joint_states   head_pan, head_tilt, zaxis, with the input's stamp
 
-This is the one place the neck's reported angles meet the URDF's joint axes, so a robot whose reported
-sign disagrees with the URDF is corrected here and only here (per robot, never in the repo):
-  OPENDUBS_HEAD_PAN_URDF_SIGN   in /etc/opendubs/robot.env, +1 (default) or -1. opendubs2: -1, from
-                                HallPass's depth-vs-lidar check (2026-11-11, 10 of 10 marks).
-  head_tilt matched the URDF on opendubs2 (checked against gravity), so it has no sign setting.
+neck_state.py already reports in the URDF's convention (head_pan + = the robot's left), so the angles
+pass through unchanged. One escape hatch, per robot, never in the repo, for a neck found to disagree:
+  OPENDUBS_HEAD_PAN_URDF_SIGN   in /etc/opendubs/robot.env, +1 (default, every robot) or -1.
+                                Unverified against data; a still pan sweep settles it.
 zaxis (the lift) is published as 0: /zaxis/encoder carries no reading yet, so the lift is assumed down.
 Nothing is published while the neck is silent: a stale head angle would be a confident wrong camera
 pose, and robot_state_publisher simply stops publishing the frames below the head instead."""

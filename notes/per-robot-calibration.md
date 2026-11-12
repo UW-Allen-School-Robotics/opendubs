@@ -115,7 +115,7 @@ Every value below was set on opendubs2's mitre-gear drive, which is worn and str
 |---|---|---|
 | `OPENDUBS_NECK_FOLLOW_PAN_SIGN` | **`-1`** | 2026-10-16, at the robot: a pan of 70 turns the head to the **robot's right**, and the face page does not mirror image x. The code's default of +1 turned the head away from people and pinned it at the pan limit |
 | `OPENDUBS_NECK_FOLLOW_TILT_SIGN` | `-1` | 2026-10-15, open-loop with both follow ranges at 0 so the head held centre. The code's default is also −1 |
-| `OPENDUBS_HEAD_PAN_URDF_SIGN` | **`-1`** (to set) | 2026-11-11, from recorded drives: `/head/joint_states`' head_pan is opposite to the URDF's head_pan axis. A depth-vs-lidar check at 10 marks favoured the flipped sign at all 10 (46–99% agreement, against 0–43%). head_tilt matched the URDF (against gravity). Read by `opendubs-head-joints` (`software/ros/head_joints.py`), the camera's TF. Default +1 |
+| `OPENDUBS_HEAD_PAN_URDF_SIGN` | `+1` (default; not set) | Pan sign per `neck_state.py`'s convention (head_pan + = the robot's left), unverified against data; settle with a pan sweep. The 2026-11-11 recorded drives cannot tell a reversed sign from a yaw offset: the head held one pan angle wherever depth and lidar overlapped. **Open:** a camera yaw offset of about 11°, or the pan scale (`neck_state.py` assumes a 300° servo span, `OPENDUBS_NECK_SERVO_SPAN_DEG`). Next capture: a still pan sweep facing a wall, about 10 s each at −0.5, 0 and +0.5 rad. Read by `opendubs-head-joints` (`software/ros/head_joints.py`), the camera's TF; −1 is an escape hatch only |
 
 ### Also uncommitted on this robot
 

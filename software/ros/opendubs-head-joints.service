@@ -8,7 +8,7 @@ Type=simple
 User=@OPENDUBS_USER@
 Environment=HOME=@OPENDUBS_HOME@
 EnvironmentFile=/etc/opendubs/ros-dds.env
-# Per robot: OPENDUBS_HEAD_PAN_URDF_SIGN (head_joints.py). "-": absent is fine (sign +1).
+# Escape hatch only: OPENDUBS_HEAD_PAN_URDF_SIGN (head_joints.py). "-": absent is fine (+1, every robot).
 EnvironmentFile=-/etc/opendubs/robot.env
 ExecStart=/opt/opendubs/ros/head-joints.sh
 Restart=always

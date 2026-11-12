@@ -6,7 +6,7 @@
 # robot_state_publisher on /robot_description, which the arms' controller_manager reads: this one
 # must never publish there. Only TF is remapped to the global /tf and /tf_static. Moving joints
 # (zaxis, head_pan, head_tilt) are read from /opendubs/joint_states, published by opendubs-head-joints
-# (head_joints.py: the neck's angles with this robot's pan sign, the lift at 0). While the neck is silent
+# (head_joints.py: the neck's angles as reported, the lift at 0). While the neck is silent
 # the frames below the head are absent; the LIDARs hang off fixed joints.
 # NOTE: do NOT `set -u` — ROS's setup.bash aborts under nounset.
 source /opt/ros/jazzy/setup.bash
