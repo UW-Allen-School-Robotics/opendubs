@@ -56,6 +56,20 @@ class CameraTopicsTest(unittest.TestCase):
                           ("depth", "/camera/depth/image_raw", "png")])
 
 
+class ProfileStreamsTest(unittest.TestCase):
+    def test_a_label_from_the_match_makes_one_stream_per_topic(self):
+        # another robot's profile (Spot: one grey and one depth stream per body camera) must not collapse to one
+        cam = {"streams": [{"label": "grey_{name}", "try": [{"match": r"^(?P<base>/spot/camera/(?P<name>\w+))/image$", "how": "jpeg"}]},
+                           {"label": "depth_{name}", "try": [{"match": r"^(?P<base>/spot/depth/(?P<name>\w+))/image$", "how": "png"}]}],
+               "whole_types": ["sensor_msgs/msg/CameraInfo"]}
+        topics = {f"/spot/{k}/{c}/{t}": ty for k in ("camera", "depth") for c in ("frontleft", "back")
+                  for t, ty in (("image", fm.IMAGE_T), ("camera_info", "sensor_msgs/msg/CameraInfo"))}
+        got = fm.cc.camera_topics(topics, cam)
+        self.assertEqual(sorted(l for l, _, _ in got["thin"]),
+                         ["depth_back", "depth_frontleft", "grey_back", "grey_frontleft"])
+        self.assertEqual(len(got["whole"]), 4)
+
+
 class NameTest(unittest.TestCase):
     def test_dated_and_never_overwrites(self):
         d = datetime.date(2026, 11, 10)
@@ -116,7 +130,7 @@ class CaptureManifestTest(unittest.TestCase):
             start=datetime.datetime(2026, 11, 10, 9, 0, tzinfo=datetime.timezone.utc),
             end=datetime.datetime(2026, 11, 10, 9, 40, tzinfo=datetime.timezone.utc), ntp=False,
             robot={"name": "robot", "description_sha256": h},
-            code=dict(fm.parse_deployed("sha=3cdaead0abcd\nbranch=main\n"), slam=fm.SLAM_DESCRIPTION),
+            code=dict(fm.parse_deployed("sha=3cdaead0abcd\nbranch=main\n"), slam=fm.profile()["slam"]["description"]),
             operator="TL", landmark="elevator lobby", room=None,
             sensors=fm.sensors_block(recorded, [("color_head", ["/mapping/camera/color/image_raw/compressed"],
                                                  "camera_color_optical_frame")]),

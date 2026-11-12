@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Map one floor of a building, attended: a fresh SLAM map, a recording of the drive, and the saved map.
 
+Robot-agnostic through a capture profile, capture_robots/<robot>.yaml, chosen with
+OPENDUBS_CAPTURE_ROBOT=<robot or path> (default opendubs2, which is everything said below): the topics,
+extra bag parts, SLAM (or none: no restart, no map), the camera's topic patterns, the sensors, the URDF,
+the frames and the keyframe and burst settings. Another robot (Spot) gives its own file; whatever it
+leaves out comes from opendubs2.yaml.
+
 Run at the robot by the person driving it, through floor-mapping.sh (which sources ROS and the robot's
 DDS profile). One floor is one command:
 
@@ -19,7 +25,7 @@ THE RECORDING is for rebuilding the map offline, with or without the dead-wheel 
 LIDARs. It is three ros2 bags (mcap, zstd chunks, split every 2 GB) in one capture directory, started
 and stopped together, so the small part can be moved first:
   light/          everything below but the camera's images: small enough to upload over the robot's Wi-Fi
-  heavy/          the camera's colour and depth KEYFRAMES only (capture_camera.yaml: a frame when the robot
+  heavy/          the camera's colour and depth KEYFRAMES only (the robot's profile: a frame when the robot
                   has moved 0.5 m or turned 10 degrees, or the head 5 degrees, and one every 2 s regardless)
   heavy/bursts/   the camera at full rate around each mark: mark.sh writes marks.txt, and about 20 s later
                   the last ~40 s of frames (a rolling buffer, rosbag2's snapshot mode) go to
@@ -37,7 +43,7 @@ It holds:
                                          the camera's TF in the bag can be checked against the real neck
   the depth camera, if its driver is running: colour and depth republished as /mapping/key/<topic>
       (heavy/) and, at the burst rate, /mapping/burst/<topic> (heavy/bursts/), by capture_camera.py (the
-      robot-agnostic keyframe and burst relays, set in capture_camera.yaml), and its camera_info and IMU
+      robot-agnostic keyframe and burst relays), and its camera_info and IMU
       at full rate (light/). Its compressed transports are passed through untouched;
       if it publishes only raw images, the relay compresses them itself (colour JPEG on
       <prefix><topic>/compressed; depth lossless 16-bit PNG on <prefix><topic>/png, format
@@ -104,30 +110,29 @@ TRIAL_S = 6.0                            # check's trial recording
 MIN_CAM_FRACTION = 0.8                   # check warns when the burst feed comes out below this share of its hz
 EXPECTED_GB_H = 2.0                      # an estimate: light/ ~0.15 GB/h, keyframes ~1 GB/h, plus ~0.1-0.2 GB a mark
 SPLIT_BYTES = 2 * 1024 ** 3
-SLAM_UNIT = "opendubs-slam"
-SLAM_ENABLED = "/etc/opendubs/slam.enabled"
 
-CORE = ["/scan", "/scan_rear", "/scan_filtered", "/odom", "/odom/raw", "/tf", "/tf_static",
-        "/head/joint_states", "/head/joint_targets", "/head/joint_limits"]
-OPTIONAL = ["/scan_rear_filtered", "/scan_depth", "/opendubs/joint_states",
-            "/tablet/fix", "/tablet/imu", "/power/bus_voltage"]   # recorded when present
-NEEDED = ["/scan", "/scan_rear", "/odom", "/tf"]      # without these the drive is not worth recording
 RELAY_PREFIX = "/mapping"
 DEPLOYED = os.environ.get("OPENDUBS_DEPLOYED", "/opt/opendubs/DEPLOYED")
-URDF = os.environ.get("OPENDUBS_URDF", "/opt/opendubs/description/opendubs.urdf")
 BUILDINGS = os.path.join(MAPS, "buildings.yaml")
 CAPTURE_SCHEMA = "opendubs.capture/1"
-CAMERA_MODEL = "Orbbec Femto Bolt"       # the robot description's head camera
-SLAM_DESCRIPTION = "slam_toolbox (online async) on /scan_filtered, Pinpoint odometry"
-# (id, model, topics, frame_id, calibration): a sensor is listed when any of its topics was recorded
-SENSORS = [
-    ("lidar_front", "RPLIDAR A1", ["/scan", "/scan_filtered"], "laser", "urdf"),
-    ("lidar_rear", "RPLIDAR A1", ["/scan_rear", "/scan_rear_filtered"], "laser_rear", "urdf"),
-    ("odom_pinpoint", "goBILDA Pinpoint", ["/odom", "/odom/raw"], "odom", "urdf"),
-    ("neck", "M5Dial neck, servo pan and tilt", ["/head/joint_states", "/head/joint_targets",
-                                                  "/head/joint_limits", "/opendubs/joint_states"], "head_tilt_link", "none"),
-]
+_PROFILE = None
 
+
+def profile() -> dict:
+    """This robot's capture profile (capture_robots/<OPENDUBS_CAPTURE_ROBOT>.yaml over opendubs2.yaml): its
+    topics, extra bag parts, SLAM, camera patterns, sensors, URDF, keyframe and burst settings."""
+    global _PROFILE
+    if _PROFILE is None:
+        _PROFILE = cc.load_config()
+    return _PROFILE
+
+
+def urdf() -> str:
+    return os.environ.get("OPENDUBS_URDF") or profile()["robot"].get("urdf") or ""
+
+
+def slam_on() -> bool:
+    return profile()["slam"].get("kind", "none") != "none"
 
 # ---- pure helpers (tests/test_floor_mapping.py) ----------------------------------------------------
 
@@ -159,9 +164,9 @@ def map_yaml(image: str, resolution: float, origin) -> str:
 
 
 def camera_topics(topics: dict[str, str]) -> dict:
-    """The depth camera's streams, found by name (capture_camera.camera_topics); the tablet's cameras
-    (/tablet/...) are a different thing and are left out."""
-    return _camera_topics(topics, ("/tablet/",), (RELAY_PREFIX + "/",))
+    """The camera's streams, found by the profile's camera.streams patterns (capture_camera.camera_topics);
+    camera.exclude (opendubs2: the tablet's cameras) and the relays' own topics are left out."""
+    return _camera_topics(topics, profile()["camera"], (RELAY_PREFIX + "/",))
 
 
 def map_name(frame: str, existing, today: datetime.date) -> str:
@@ -212,14 +217,16 @@ def capture_id(day: datetime.date, key: str, floor_code: str, map_name_: str) ->
 def sensors_block(recorded: dict, cameras: list) -> list:
     """The sensors whose topics hold messages. cameras: (id, topics, frame_id) from the relays."""
     out = []
-    for sid, model, topics, frame, cal in SENSORS:
-        got = [t for t in topics if recorded.get(t)]
+    for sn in profile()["sensors"]:
+        got = [t for t in sn["topics"] if recorded.get(t)]
         if got:
-            out.append({"id": sid, "model": model, "topics": got, "frame_id": frame, "calibration": cal})
+            out.append({"id": sn["id"], "model": sn["model"], "topics": got, "frame_id": sn["frame_id"],
+                        **({"calibration": sn["calibration"]} if sn.get("calibration") else {})})
     for sid, topics, frame in cameras:
         got = [t for t in topics if recorded.get(t)]
         if got:
-            out.append({"id": sid, "model": CAMERA_MODEL, "topics": got, "frame_id": frame, "calibration": "factory"})
+            out.append({"id": sid, "model": profile()["camera"]["model"], "topics": got, "frame_id": frame,
+                        "calibration": "factory"})
     return out
 
 
@@ -295,6 +302,25 @@ def manifest_inputs(args) -> str:
     return ""
 
 
+def pictures(label: str) -> bool:
+    """A camera stream that shows people (the profile's camera.pictures): --no-color drops it."""
+    return bool(re.search(profile()["camera"].get("pictures") or "$^", label))
+
+
+def camera_sensors(recorded: dict, labels: dict, frames: dict) -> list:
+    """(id, topics, frame_id) per camera stream: its relayed topics, the camera_info beside its source
+    (e.g. /camera/color/camera_info for /camera/color/image_raw), and camera.sensor_extra's topics."""
+    cam = profile()["camera"]
+    out = []
+    for label, (src, *relayed) in labels.items():
+        home = os.path.dirname(re.sub(r"/(compressed|compressedDepth)$", "", src)) + "/"
+        extra = (cam.get("sensor_extra") or {}).get(label) or []
+        topics = relayed + [t for t in recorded if (t.startswith(home) and t.endswith("camera_info"))
+                            or any(re.search(x, t) for x in extra)]
+        out.append((cam.get("sensor_id", "{label}_head").format(label=label), topics, frames.get(label, "camera_link")))
+    return out
+
+
 def write_capture(args, n, name: str, out: str, started: datetime.datetime, ended: datetime.datetime) -> None:
     """capture.yaml in the capture directory, with the map's small files copied beside it."""
     import yaml
@@ -311,7 +337,8 @@ def write_capture(args, n, name: str, out: str, started: datetime.datetime, ende
     map_files += [file_entry(os.path.join(MAPS, name + s), host=host) for s in (".posegraph", ".data")
                   if os.path.exists(os.path.join(MAPS, name + s))]
     if not map_files:
-        print("  capture.yaml NOT written: no map file was saved")
+        print("  capture.yaml NOT written: no map file was saved" + ("" if slam_on() else
+              " (slam: none; opendubs.capture/1 needs a map)"))
         return
     print("  hashing the recording for capture.yaml")
     bag_files = [file_entry(os.path.join(d, f), host=host) for b in bags_in(out) for d, _, fs in [next(os.walk(b))]
@@ -323,23 +350,21 @@ def write_capture(args, n, name: str, out: str, started: datetime.datetime, ende
         d, t = parse_bag_info(subprocess.run(["ros2", "bag", "info", b], capture_output=True, text=True).stdout)
         duration, topics = duration or d, topics + t
     recorded = {t["name"]: t["count"] for t in topics}
-    cameras = [(f"{kind}_head", [t for t in recorded if f"/{kind}/" in t and t.startswith(RELAY_PREFIX + "/")]
-                + [t for t in recorded if (f"/{kind}/" in t and t.endswith("camera_info")) or
-                   (kind == "depth" and (t.endswith(("/imu", "/sample")) or t == "/scan_depth"))],
-                n.frames.get(kind, "camera_link")) for kind in ("color", "depth")]
+    cameras = camera_sensors(recorded, n.relays.labels, n.frames)
     resolution = None
     try:
         resolution = float(yaml.safe_load(open(os.path.join(MAPS, name + ".yaml")))["resolution"])
     except (OSError, KeyError, TypeError, ValueError):
         pass
     robot = {"name": host}
-    if os.path.exists(URDF):
-        robot["description_sha256"] = sha256(URDF)
+    if urdf() and os.path.exists(urdf()):
+        robot["description_sha256"] = sha256(urdf())
     if args.lift_m is not None:
         robot["lift_m"] = args.lift_m
-    code = dict(parse_deployed(open(DEPLOYED).read()), slam=SLAM_DESCRIPTION)
-    color = "present" if any(recorded.get(t) for t in recorded if "/color/" in t and t.startswith(RELAY_PREFIX + "/")) \
-        else "not_recorded"
+    code = dict(parse_deployed(open(DEPLOYED).read()), **({"slam": profile()["slam"]["description"]}
+                                                          if profile()["slam"].get("description") else {}))
+    color = "present" if any(recorded.get(t) for lb, (_, *outs) in n.relays.labels.items() if pictures(lb)
+                             for t in outs) else "not_recorded"
     doc = capture_manifest(cid=capture_id(started.date(), key, floor_code, name), key=key, fms=buildings()[key],
                            floor_code=floor_code, start=started, end=ended, ntp=ntp_synced(), robot=robot,
                            code=code, operator=args.operator, landmark=args.start, room=args.room,
@@ -440,11 +465,15 @@ class Node:
 
 
 def streams(n: Node, topics: dict, no_color: bool = False) -> dict:
-    """The topics of each recording, starting the camera's relays: {"light", "heavy", "burst": [topics]}."""
+    """The topics of each recording, starting the camera's relays: {"light", "heavy", "burst": [topics],
+    "parts": {name: [topics]}} (the profile's extra bags, e.g. Spot's lidar/)."""
     cam = camera_topics(topics)
-    rec = {"light": CORE + OPTIONAL + cam["whole"], "heavy": [], "burst": []}
+    tp, parts = profile()["topics"], profile()["parts"]
+    in_parts = {t for ts in parts.values() for t in ts}
+    rec = {"light": [t for t in tp["core"] + tp.get("optional", []) + cam["whole"] if t not in in_parts],
+           "heavy": [], "burst": [], "parts": {k: list(v) for k, v in parts.items()}}
     for kind, t, how in cam["thin"]:
-        if not (kind == "color" and no_color):
+        if not (pictures(kind) and no_color):
             key, burst = n.relays.add(kind, t, how, topics[t])
             rec["heavy"].append(key)
             rec["burst"].append(burst)
@@ -479,6 +508,8 @@ class Recording:
         self.n, self.out, self.procs = n, out, {}
         os.makedirs(out, exist_ok=True)
         self.procs["light"] = bag(os.path.join(out, "light"), rec["light"])
+        for part, topics in rec.get("parts", {}).items():
+            self.procs[part] = bag(os.path.join(out, part), topics)
         if rec["heavy"]:
             heavy = os.path.join(out, "heavy")
             self.procs["heavy"] = bag(heavy, rec["heavy"])
@@ -521,8 +552,9 @@ def counts(out: str) -> dict[str, int]:
 
 
 def bags_in(out: str) -> list:
-    """The recordings in a capture directory: light/, heavy/, heavy/bursts/, or OUT itself (before 2026-11-12)."""
-    found = [os.path.join(out, d) for d in ("light", "heavy", "heavy/bursts")
+    """The recordings in a capture directory: light/, the profile's parts, heavy/, heavy/bursts/, or OUT
+    itself (before 2026-11-12)."""
+    found = [os.path.join(out, d) for d in ("light", *profile()["parts"], "heavy", "heavy/bursts")
              if os.path.exists(os.path.join(out, d, "metadata.yaml"))]
     return found or [out]
 
@@ -550,17 +582,19 @@ def check(_args) -> int:
     for k, v in gb_h.items():
         print(f"  {k}/ {v:.2f} GB an hour")
     print("  plus each mark's burst (heavy/bursts/), and more keyframes while the robot or head moves")
-    print(f"SLAM: {slam_mode()}; enabled: {os.path.exists(SLAM_ENABLED)}")
-    for t in CORE:
+    print(f"profile: {profile()['_path']}")
+    sl = profile()["slam"]
+    print(f"SLAM: {slam_mode()}; enabled: {os.path.exists(sl['enabled_flag'])}" if slam_on() else "SLAM: none (this robot's profile)")
+    for t in profile()["topics"]["core"]:
         print(f"  {'ok  ' if t in topics else 'MISSING'} {t}")
-    for t in OPTIONAL:
+    for t in profile()["topics"].get("optional", []) + [t for ts in profile()["parts"].values() for t in ts]:
         print(f"  {'ok  ' if t in topics else '(not running)'} {t}")
     cam = camera_topics(topics)
     if cam["thin"]:
         print("camera:")
         for kind, t, how in cam["thin"]:
             print(f"  ok   {t}: keyframes, and {burst_hz:g} Hz bursts, " + ("relayed as it is" if how == "pass" else
-                  "RAW: compressed here (" + ("JPEG" if kind == "color" else "16-bit PNG") + ")"))
+                  "RAW: compressed here (" + ("JPEG" if how == "jpeg" else "16-bit PNG") + ")"))
         for t in cam["whole"]:
             print(f"  ok   {t}")
     else:
@@ -627,11 +661,12 @@ def save(frame: str, node: Node, start_pose=None, name: str | None = None) -> in
 
 
 def floor(args) -> int:
-    if os.path.exists(os.path.join(MAPS, "site.yaml")):
+    sl = profile()["slam"]
+    if slam_on() and os.path.exists(os.path.join(MAPS, "site.yaml")):
         print(f"{MAPS}/site.yaml exists, so SLAM would localize on it rather than map. Set it aside first.")
         return 1
-    if not os.path.exists(SLAM_ENABLED):
-        print(f"SLAM is off on this robot ({SLAM_ENABLED} does not exist)")
+    if slam_on() and not os.path.exists(sl["enabled_flag"]):
+        print(f"SLAM is off on this robot ({sl['enabled_flag']} does not exist)")
         return 1
     free = free_gb(BAGS)
     if free < MIN_FREE_GB + START_MARGIN_GB:
@@ -643,23 +678,26 @@ def floor(args) -> int:
         return 1
     name = map_name(args.frame, saved_maps(), datetime.date.today())
     print(f"floor {args.frame}: map {name}. KEEP THE ROBOT STILL until it says RECORDING.")
-    print(f"restarting {SLAM_UNIT} for a fresh map")
-    if subprocess.run(["sudo", "systemctl", "restart", SLAM_UNIT]).returncode:
-        return 1
+    if slam_on():
+        print(f"restarting {sl['unit']} for a fresh map")
+        if subprocess.run(["sudo", "systemctl", "restart", sl["unit"]]).returncode:
+            return 1
     n = Node()
     rec = None
     try:
         start = None
+        r = profile()["robot"]
         end = time.monotonic() + 60
-        while start is None and time.monotonic() < end:
+        while slam_on() and start is None and time.monotonic() < end:
             time.sleep(1)
-            start = n.pose()
-        if start is None:
-            print("SLAM gave no map -> base_link within 60 s: is /scan up? (`floor-mapping.sh check`)")
+            start = n.pose(r["map_frame"], r["base_frame"])
+        if slam_on() and start is None:
+            print(f"SLAM gave no {r['map_frame']} -> {r['base_frame']} within 60 s: is /scan up? (`floor-mapping.sh check`)")
             return 1
-        print(f"start pose in the new map: {start[0]:.3f} {start[1]:.3f} {start[2]:.4f}")
+        if start:
+            print(f"start pose in the new map: {start[0]:.3f} {start[1]:.3f} {start[2]:.4f}")
         topics = n.topics(0.5)
-        missing = [t for t in NEEDED if t not in topics]
+        missing = [t for t in profile()["topics"]["needed"] if t not in topics]
         if missing:
             print(f"WARNING: not publishing: {' '.join(missing)}")
         if not camera_topics(topics)["thin"]:
@@ -697,7 +735,7 @@ def floor(args) -> int:
         attach(out, args.attach)
         closed(out)
     try:
-        rc = save(args.frame, n, start, name)
+        rc = save(args.frame, n, start, name) if slam_on() else 0
         if rec:
             write_capture(args, n, name, os.path.join(BAGS, name), started, ended)
         return rc
@@ -720,7 +758,7 @@ def segment(args) -> int:
     rec = None
     try:
         topics = n.topics(2.0)
-        missing = [t for t in NEEDED if t not in topics]
+        missing = [t for t in profile()["topics"]["needed"] if t not in topics]
         if missing:
             print(f"WARNING: not publishing: {' '.join(missing)}")
         out = os.path.join(BAGS, name)

@@ -8,12 +8,14 @@
               mode (a rolling buffer). A new line in the capture's marks.txt makes a burst: after_s
               later the buffer is written out as that recorder's next file (heavy/bursts/bursts_<n>.mcap).
 
-Everything robot-specific is in the config (capture_camera.yaml beside this file, or --config /
-OPENDUBS_CAPTURE_CAMERA): the odometry topic, the head's JointState topic and joint names (or none), the
-map and base frames, the data root, the relay prefixes and the burst recorder's node name. OpenDubs's
-values are the defaults; another robot (Spot: base frame `body`, no head) gives its own file.
+Everything robot-specific is in the robot's capture profile (capture_robots/<robot>.yaml beside this
+file, selected with OPENDUBS_CAPTURE_ROBOT=<robot or path>, or --config): the odometry topic or TF frames,
+the head's JointState topic and joint names (or none), the camera's topic patterns, the frames, the data
+root, the relay prefixes and the burst recorder's node name. capture_robots/opendubs2.yaml is the
+default, and fills in whatever another robot's file leaves out.
 
-As a library (floor_mapping.py): load_config, keyframe_due, Relays(node, cfg), cache_bytes, BurstTrigger.
+As a library (floor_mapping.py): load_config, camera_topics, keyframe_due, Relays(node, cfg), cache_bytes,
+BurstTrigger.
 As a program, for a robot with its own recorders:
 
   capture_camera.py relay --marks CAPTURE/marks.txt [--config FILE] [--source LABEL=TOPIC[:pass|jpeg|png]]...
@@ -21,7 +23,7 @@ As a program, for a robot with its own recorders:
 runs the relays (and, with --marks, the burst trigger) until Ctrl-C, and prints the topics its heavy and
 burst recorders should take, and the burst buffer size to give the snapshot recorder:
   ros2 bag record -s mcap --snapshot-mode --max-cache-size <bytes> --node-name <burst.recorder_node> ...
-Without --source, the camera is found by name (.../color/image_raw..., .../depth/image_raw...).
+Without --source, the camera is found by the profile's camera.streams patterns.
 """
 from __future__ import annotations
 
@@ -32,16 +34,18 @@ import sys
 import threading
 import time
 
-CONFIG = os.environ.get("OPENDUBS_CAPTURE_CAMERA",
-                        os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture_camera.yaml"))
-DEFAULTS = {
-    "robot": {"odom": "/odom", "head": "/head/joint_states", "head_joints": ["head_pan", "head_tilt"],
-              "map_frame": "map", "base_frame": "base_link", "data_root": "/var/lib/opendubs/bags",
-              "exclude": ["/tablet/"]},
-    "relay": {"keyframe_prefix": "/mapping/key", "burst_prefix": "/mapping/burst"},
-    "keyframe": {"move_m": 0.5, "turn_deg": 10.0, "head_deg": 5.0, "floor_s": 2.0},
-    "burst": {"hz": 15.0, "before_s": 20.0, "after_s": 20.0, "cache_mb": 200.0, "recorder_node": "opendubs_bursts"},
-}
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROFILES = os.path.join(HERE, "capture_robots")
+DEFAULT_ROBOT = "opendubs2"
+
+
+def profile_path(robot: str | None = None) -> str:
+    """A profile by robot name (capture_robots/<name>.yaml) or path; OPENDUBS_CAPTURE_ROBOT, else opendubs2."""
+    r = robot or os.environ.get("OPENDUBS_CAPTURE_ROBOT") or DEFAULT_ROBOT
+    return r if (os.sep in r or r.endswith(".yaml")) else os.path.join(PROFILES, r + ".yaml")
+
+
+CONFIG = profile_path()
 KEEP_FRACTION = 0.8          # keep a frame 0.8 of a period after the last: 30 Hz in -> 15 out, despite jitter
 RAW_COLOR_HZ = 3.0           # raw colour when nothing can compress it: 2.7 MB a frame
 IMAGE_T = "sensor_msgs/msg/Image"
@@ -50,20 +54,27 @@ COMPRESSED_T = "sensor_msgs/msg/CompressedImage"
 
 # ---- pure (tests/test_floor_mapping.py) ---------------------------------------------------------------
 
-def load_config(path: str = CONFIG) -> dict:
-    """The config over DEFAULTS, key by key. Numbers come back as floats; an empty `head` means none."""
+def load_config(path: str | None = None) -> dict:
+    """The robot's capture profile over the default one (opendubs2), section by section and key by key; a
+    list or a mapping value given in the profile replaces the default's. Numbers come back as floats."""
     import yaml
-    try:
-        got = yaml.safe_load(open(path)) or {}
-    except FileNotFoundError:
-        got = {}
+    def read(p):
+        return yaml.safe_load(open(p)) or {}
+    base = read(profile_path(DEFAULT_ROBOT))
+    path = path or profile_path()
+    got = read(path) if os.path.abspath(path) != os.path.abspath(profile_path(DEFAULT_ROBOT)) else {}
     out = {}
-    for sec, d in DEFAULTS.items():
-        g = got.get(sec) or {}
-        out[sec] = {k: (float(g.get(k, v)) if isinstance(v, float) else g.get(k, v)) for k, v in d.items()}
-    out["robot"]["head"] = out["robot"]["head"] or ""
-    out["robot"]["head_joints"] = list(out["robot"]["head_joints"] or [])
-    out["robot"]["exclude"] = list(out["robot"]["exclude"] or [])
+    for sec in set(base) | set(got):
+        b, g = base.get(sec), got.get(sec)
+        out[sec] = dict(b or {}, **(g or {})) if isinstance(b, dict) and isinstance(g, (dict, type(None))) \
+            else (g if sec in got else b)
+    for sec in ("keyframe", "burst"):
+        out[sec] = {k: (v if isinstance(v, str) else float(v)) for k, v in out[sec].items()}
+    r = out["robot"]
+    r["odom"], r["head"] = r.get("odom") or "", r.get("head") or ""
+    r["head_joints"], r["pose_frames"] = list(r.get("head_joints") or []), list(r.get("pose_frames") or [])
+    out["parts"] = out.get("parts") or {}
+    out["_path"] = path
     return out
 
 
@@ -84,29 +95,33 @@ def keyframe_due(last, now, cfg: dict) -> bool:
     return False
 
 
-def camera_topics(topics: dict[str, str], exclude=("/tablet/",), relay_prefixes=("/mapping/",)) -> dict:
-    """From {topic: type}, a depth camera's streams found by name: "thin" lists (label, topic, how) for
-    colour and depth, how being "pass" (a compressed transport, relayed as it is) or "jpeg" / "png" (only
-    the raw image exists: the relay compresses it), and "whole" the camera's small topics (camera_info,
-    IMU) to record as they are. OPENDUBS_COLOR_FROM_RAW=1 skips a listed compressed colour stream."""
-    def find(suffix, typ):
-        hits = sorted(t for t, ty in topics.items() if t.endswith(suffix) and ty == typ
-                      and not any(t.startswith(e) for e in (*exclude, *relay_prefixes)))
-        return hits[0] if hits else None
-    out = {"thin": [], "whole": []}
-    base = None
-    for kind, transport, enc in (("color", "compressed", "jpeg"), ("depth", "compressedDepth", "png")):
-        topic, how = find(f"/{kind}/image_raw/{transport}", COMPRESSED_T), "pass"
-        if kind == "color" and os.environ.get("OPENDUBS_COLOR_FROM_RAW"):
-            topic = None        # the driver lists a compressed colour stream that sends nothing (Femto, 2026-11-11)
-        if not topic:
-            topic, how = find(f"/{kind}/image_raw", IMAGE_T), enc
-        if topic:
-            out["thin"].append((kind, topic, how))
-            base = base or topic[:topic.index(f"/{kind}/")]
-    if base:
-        out["whole"] = sorted(t for t, ty in topics.items() if t.startswith(base + "/") and
-                              ty in ("sensor_msgs/msg/CameraInfo", "sensor_msgs/msg/Imu"))
+def camera_topics(topics: dict[str, str], cam: dict, relay_prefixes=("/mapping/",)) -> dict:
+    """From {topic: type}, the camera's streams by the profile's camera.streams patterns: "thin" lists
+    (label, topic, how), how being "pass" (a CompressedImage, relayed as it is) or "jpeg" / "png" (a raw
+    Image, compressed by the relay), and "whole" the small topics (camera.whole_types) under any stream's
+    `base` group, recorded as they are."""
+    import re
+    skip = tuple(cam.get("exclude") or ()) + tuple(relay_prefixes)
+    ok = {t: ty for t, ty in topics.items() if not t.startswith(skip)}
+    out, bases, taken = {"thin": [], "whole": []}, [], set()
+    for entry in cam.get("streams") or []:
+        for c in entry["try"]:
+            if c["how"] == "pass" and entry["label"] == "color" and os.environ.get("OPENDUBS_COLOR_FROM_RAW"):
+                continue        # the driver lists a compressed colour stream that sends nothing (Femto, 2026-11-11)
+            want = COMPRESSED_T if c["how"] == "pass" else IMAGE_T
+            for t in sorted(ok):
+                m = re.search(c["match"], t)
+                if not m or ok[t] != want:
+                    continue
+                label = entry["label"].format(**m.groupdict())
+                if label in taken:
+                    continue
+                taken.add(label)
+                out["thin"].append((label, t, c["how"]))
+                if m.groupdict().get("base") and m["base"] not in bases:
+                    bases.append(m["base"])
+    types = set(cam.get("whole_types") or ())
+    out["whole"] = sorted(t for t, ty in ok.items() if ty in types and any(t.startswith(b + "/") for b in bases))
     return out
 
 
@@ -122,13 +137,18 @@ class Relays:
         self.frames: dict[str, str] = {}       # each stream's frame_id
         self.fed_bytes = 0                     # bytes into the burst feed, all streams
         self.pairs: list[tuple[str, str]] = [] # (keyframe topic, burst topic) per stream
+        self.labels: dict[str, tuple[str, str, str]] = {}   # label -> (source, keyframe topic, burst topic)
         self.state = {"pose": None, "head": None}
         self._watch_robot()
 
     def _watch_robot(self):
         from rclpy.qos import qos_profile_sensor_data
         r = self.cfg["robot"]
-        if r["odom"]:
+        if r["pose_frames"]:
+            from tf2_ros import Buffer, TransformListener
+            self._tf = Buffer()
+            self._tfl = TransformListener(self._tf, self.node, spin_thread=False)
+        elif r["odom"]:
             from nav_msgs.msg import Odometry
 
             def odom(m):
@@ -155,6 +175,8 @@ class Relays:
         self.counts[label] = self.kept[label] = 0
 
         def publish(msg):
+            if self.cfg["robot"]["pose_frames"]:
+                self.state["pose"] = self._tf_pose()
             burst.publish(msg)
             self.counts[label] += 1
             self.fed_bytes += len(msg) if isinstance(msg, bytes) else len(msg.data)
@@ -164,6 +186,17 @@ class Relays:
                 key.publish(msg)
                 self.kept[label] += 1
         return publish, (kt, bt)
+
+    def _tf_pose(self):
+        """(x, y, yaw) of pose_frames[1] in pose_frames[0] from TF, or None."""
+        from rclpy.time import Time
+        try:
+            tr = self._tf.lookup_transform(*self.cfg["robot"]["pose_frames"][:2], Time()).transform
+        except Exception:
+            return None
+        q = tr.rotation
+        return (tr.translation.x, tr.translation.y,
+                math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
 
     def _group(self):
         """Each relay in its own callback group: a multi-threaded executor then runs them side by side
@@ -175,7 +208,9 @@ class Relays:
         """One stream: how "pass" (relay as it is, typ its message type) or "jpeg" / "png" (compress a raw
         Image). Returns (keyframe topic, burst topic)."""
         hz = self.cfg["burst"]["hz"]
-        return self.thin(label, topic, typ or COMPRESSED_T, hz) if how == "pass" else self.encode(label, topic, how, hz)
+        out = self.thin(label, topic, typ or COMPRESSED_T, hz) if how == "pass" else self.encode(label, topic, how, hz)
+        self.labels[label] = (topic, *out)
+        return out
 
     def thin(self, label: str, topic: str, typ: str, hz: float):
         """Every message of `topic` at least 1/hz after the last one, as raw bytes (nothing decoded)."""
@@ -321,7 +356,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sp = ap.add_subparsers(dest="cmd", required=True)
     r = sp.add_parser("relay", help="run the keyframe and burst relays (and the burst trigger) until Ctrl-C")
-    r.add_argument("--config", default=CONFIG)
+    r.add_argument("--config", help="the robot's capture profile (default: OPENDUBS_CAPTURE_ROBOT, else opendubs2)")
     r.add_argument("--marks", help="the capture's marks.txt: a new line makes a burst")
     r.add_argument("--source", action="append", default=[], help="LABEL=TOPIC[:pass|jpeg|png] (default: found by name)")
     args = ap.parse_args()
@@ -344,7 +379,7 @@ def main() -> int:
             sources.append((label, topic, how or ("pass" if topics.get(topic) == COMPRESSED_T else "jpeg")))
         whole = []
     else:
-        cam = camera_topics(topics, cfg["robot"]["exclude"], (cfg["relay"]["keyframe_prefix"], cfg["relay"]["burst_prefix"]))
+        cam = camera_topics(topics, cfg["camera"], (cfg["relay"]["keyframe_prefix"], cfg["relay"]["burst_prefix"]))
         sources, whole = cam["thin"], cam["whole"]
     if not sources:
         print("no camera streams found (give --source LABEL=TOPIC)")

@@ -1,7 +1,7 @@
 # mark.py "label": append wall-clock time, label, odometry pose, SLAM map pose and head joints to <current capture>/marks.txt.
 # A new line also makes that mark's camera burst (capture_camera.BurstTrigger, in the recorder's process).
-# Robot-agnostic: the topics, frames and data root come from capture_camera.yaml's `robot:` section
-# (--config FILE, or OPENDUBS_CAPTURE_CAMERA); OpenDubs's are the defaults. --root (or OPENDUBS_BAG_DIR)
+# Robot-agnostic: the topics, frames and data root come from the robot's capture profile's `robot:` section
+# (capture_robots/<robot>.yaml: --config, or OPENDUBS_CAPTURE_ROBOT); opendubs2's are the defaults. --root (or OPENDUBS_BAG_DIR)
 # overrides the data root; a robot with no head (robot.head "") writes head=NONE.
 #   mark.py [--config FILE] [--root DIR] [--capture DIR] label words...
 import argparse, os, sys, glob, time, math, datetime
@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import capture_camera as cc
 
 ap = argparse.ArgumentParser(description="one line in the current capture's marks.txt")
-ap.add_argument("--config", default=cc.CONFIG)
+ap.add_argument("--config", help="the robot's capture profile (default: OPENDUBS_CAPTURE_ROBOT, else opendubs2)")
 ap.add_argument("--root", help="the data root (default: OPENDUBS_BAG_DIR, else robot.data_root)")
 ap.add_argument("--capture", help="the capture directory (default: the one written last under the root)")
 ap.add_argument("label", nargs="*")

@@ -293,12 +293,12 @@ on the robot, in a terminal you can see while driving:
 | `heavy/bursts/` | the camera at full rate around each mark: `bursts_<n>.mcap` for the n-th line of `marks.txt`, from about 20 s before the mark to 20 s after (rosbag2's snapshot mode, a rolling buffer sized from the camera's measured rate) | 0.1 GB a mark |
 | `marks.txt`, `*-odo.txt`, `*.log` | the marks, the StamPLC's text log (`--attach`), each recorder's own log | |
 
-The keyframe and burst settings are in `capture_camera.yaml`. The camera is compressed here when its
+Everything robot-specific (topics, extra bag parts, SLAM or none, the camera's topic patterns, sensors, URDF, frames, keyframe and burst settings) is in the robot's capture profile, `capture_robots/<robot>.yaml`, chosen with `OPENDUBS_CAPTURE_ROBOT=<robot or path>`; `opendubs2.yaml` is the default and fills in what another robot's file leaves out. The camera is compressed here when its
 driver publishes only raw images. On Ctrl-C `floor` saves the map as `bldg_f1-<date>`: the pose graph, a `.pgm`/`.yaml`, and an inactive
 `site.<map>.yaml` holding the start pose that `floorplan.py fit --start` needs. It refuses to start
 while `site.yaml` exists (SLAM would localize, not map) or with too little disk, and stops the
 recording itself before the disk gets low. `check`'s trial measures `light/` and `heavy/`'s GB an hour with the robot
-still, and the rate the camera's burst feed achieved, and warns below 80% of `capture_camera.yaml`'s `hz`. `floor-mapping.sh save bldg_f1` saves the current map alone.
+still, and the rate the camera's burst feed achieved, and warns below 80% of the profile's `burst.hz`. `floor-mapping.sh save bldg_f1` saves the current map alone.
 At the end it writes `capture.yaml` in the capture's directory (the `opendubs.capture/1` manifest: building
 and floor, times, robot, deployed code, operator, start landmark, sensors, and every map file, every file
 of the three bags, `marks.txt` and the `[ODO]` log by sha256; a file's path says which bag it is in) and copies the map's small files beside it. It asks for the operator and the start landmark
@@ -316,8 +316,8 @@ systemd units, so a dropped ssh session doesn't stop them (all in this directory
 | `floor-start.sh FRAME "START" [ROOM]` | `floor-mapping.sh floor` as the unit `opendubs-floor-map`, plus a text log of the StamPLC's `[ODO]`, `[DRIVE]`, `[SAFE]`, `[8SERVO]`, `[BMS]`, `[PDH]`, `[WDT]` and `[SYS]` lines, moved into the capture at the end |
 | `floor-stop.sh` | stops the text log, then one SIGINT to the unit, which writes any waiting burst, saves the map and `capture.yaml`; waits for the save |
 | `exterior-start.sh NAME` / `exterior-stop.sh` | `floor-mapping.sh segment`: a bag-only segment (outdoors, ramps) with the same streams as a floor (colour as JPEG) plus the tablet's GPS and IMU. SLAM is left as it is |
-| `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints. It also makes that mark's camera burst. `mark.py --config FILE` takes another robot's topics, frames and data root from its `capture_camera.yaml` (head optional) |
-| `capture_camera.py` | the keyframe and burst relays and the burst trigger, robot-agnostic (topics, frames, data root and prefixes in `capture_camera.yaml`; Spot gives its own file). `floor-mapping.sh` uses them; `capture_camera.py relay --marks CAPTURE/marks.txt` runs them alone, in front of another robot's own recorders, and prints the topics and buffer size to record with |
+| `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints. It also makes that mark's camera burst. With `OPENDUBS_CAPTURE_ROBOT` (or `--config`) it takes another robot's topics, frames and data root from its profile (head optional) |
+| `capture_camera.py` | the keyframe and burst relays and the burst trigger, robot-agnostic (all from the robot's capture profile). `floor-mapping.sh` uses them; `capture_camera.py relay --marks CAPTURE/marks.txt` runs them alone, in front of another robot's own recorders, and prints the topics and buffer size to record with |
 | `plc_listen.py` | prints the StamPLC's UDP 5005 lines by tag, optionally after one host command; root (raw socket) |
 
 `OPENDUBS_COLOR_FROM_RAW=1` (set by `floor-start.sh`) records colour from the raw image when the
