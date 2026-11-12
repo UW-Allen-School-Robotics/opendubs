@@ -11,5 +11,5 @@ sudo -n systemd-run --unit=opendubs-odo-log --property=StandardOutput=file:$B/$N
 sudo -n systemd-run --unit=opendubs-ext-bag --uid=emmar --gid=emmar \
   --property=KillSignal=SIGINT --property=TimeoutStopSec=120 --property=SendSIGKILL=no \
   --setenv=HOME=/home/emmar --setenv=OPENDUBS_COLOR_FROM_RAW=1 --setenv=OPENDUBS_BAG_DIR=$B \
-  "$HERE/floor-mapping.sh" segment "$N"
+  "$HERE/floor-mapping.sh" segment "$N" --attach $B/$N-$D-odo.txt
 sleep 15; journalctl -u opendubs-ext-bag --no-pager -n 6 -o cat | grep -v pam_unix

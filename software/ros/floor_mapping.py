@@ -15,8 +15,17 @@ Nothing here drives the robot: the operator drives it by RC, as for any mapping 
 as it always does (opendubs-slam, slam_toolbox on the front scan); `floor` only restarts it, so each
 floor starts from an empty map, which is why nothing has to track the robot between floors.
 
-THE RECORDING (a ros2 bag, mcap with zstd chunks, split every 2 GB) is for rebuilding the map offline,
-with or without the dead-wheel odometry and with both LIDARs. It holds:
+THE RECORDING is for rebuilding the map offline, with or without the dead-wheel odometry and with both
+LIDARs. It is three ros2 bags (mcap, zstd chunks, split every 2 GB) in one capture directory, started
+and stopped together, so the small part can be moved first:
+  light/          everything below but the camera's images: small enough to upload over the robot's Wi-Fi
+  heavy/          the camera's colour and depth KEYFRAMES only (capture_camera.yaml: a frame when the robot
+                  has moved 0.5 m or turned 10 degrees, or the head 5 degrees, and one every 2 s regardless)
+  heavy/bursts/   the camera at full rate around each mark: mark.sh writes marks.txt, and about 20 s later
+                  the last ~40 s of frames (a rolling buffer, rosbag2's snapshot mode) go to
+                  bursts_<n>.mcap, the n-th mark's burst
+  marks.txt, the [ODO] log (--attach) and each recorder's .log sit at the capture's root.
+It holds:
   /scan /scan_rear /scan_filtered        both LIDARs raw, and the front one as SLAM sees it
   /scan_rear_filtered /scan_depth        when something publishes them (the rear body filter, the depth
                                          camera flattened to a scan): recorded if present, never needed
@@ -26,11 +35,11 @@ with or without the dead-wheel odometry and with both LIDARs. It holds:
   /head/joint_states, _targets, _limits  the neck's pan and tilt (the dashboard's neck_state.py)
   /opendubs/joint_states                 what robot_state_publisher was told the lift and neck were, so
                                          the camera's TF in the bag can be checked against the real neck
-  the depth camera, if its driver is running: colour and depth at CAM_HZ, enough to judge visual and
-      RGB-D odometry offline, republished under /mapping/... (the bag records only these copies), and
-      its camera_info and IMU at full rate. Its compressed transports are passed through untouched;
+  the depth camera, if its driver is running: colour and depth republished as KEYFRAME_PREFIX/<topic>
+      (heavy/) and, at the burst rate, BURST_PREFIX/<topic> (heavy/bursts/), and its camera_info and IMU at
+      full rate (light/). Its compressed transports are passed through untouched;
       if it publishes only raw images, the relay compresses them itself (colour JPEG on
-      /mapping/<topic>/compressed; depth lossless 16-bit PNG on /mapping/<topic>/png, format
+      <prefix><topic>/compressed; depth lossless 16-bit PNG on <prefix><topic>/png, format
       "16UC1; png", decoded with cv2.imdecode(..., IMREAD_UNCHANGED)). Without OpenCV the raw images
       are recorded instead, colour at RAW_COLOR_HZ. The camera's topics are found by name
       (.../color/image_raw...), so any driver namespace works; with no camera, the recording goes on
@@ -42,8 +51,9 @@ with or without the dead-wheel odometry and with both LIDARs. It holds:
 Colour frames are pictures of whoever is in the corridor. The bag stays on the robot and on the
 project's own machines, never in the repo or anywhere public; --no-color leaves colour out.
 
-THE DISK: `check` measures the recording's rate from its trial (EXPECTED_GB_H, about 30 GB an hour
-with the camera at 15 Hz, is only the estimate it falls back on). `floor` refuses to start with less than MIN_FREE_GB + START_MARGIN_GB free, and stops the
+THE DISK: `check` measures light/ and heavy/'s rate from its trial, with the robot still (EXPECTED_GB_H is
+only the estimate it falls back on). Sized on 2026-11-11's drives: light/ ~0.12 GB an hour, keyframes
+~0.5-0.7 GB an hour, and ~0.1 GB a mark. `floor` refuses to start with less than MIN_FREE_GB + START_MARGIN_GB free, and stops the
 recording itself (and still saves the map) if free space falls to MIN_FREE_GB, so a long drive can
 never fill the robot's disk. Every 30 s it prints the recording's size, its rate and the minutes left.
 
@@ -57,14 +67,14 @@ plan" describes:
 `floor` refuses to start while site.yaml exists, because SLAM would then localize instead of mapping.
 
 THE MANIFEST: at the end, `floor` writes capture.yaml (opendubs.capture/1, the project's site repo
-schemas/capture.schema.json; a copy is in tests/ and the tests validate against it) inside the bag's
+schemas/capture.schema.json; a copy is in tests/ and the tests validate against it) inside the capture
 directory, and copies the map's .pgm, .yaml and site file beside it, so that directory is the capture
 to ingest. It names the building and floor (parsed from FRAME, <building>_f<floor>: bldg_f2 -> floor
 02, bldg_fG -> 0G; the building's FMS number from MAPS/buildings.yaml, {key: "number"}, site data the
 building-model lane owns), the times and whether the clock was NTP-synced, the robot, its URDF's
 sha256, the code /opt/opendubs/DEPLOYED says was deployed, the operator and the start landmark
-(--operator, --start, or asked at the start), the sensors, the map, and every bag file by path,
-sha256 and size. Hashing a long drive's bag takes a minute or so. `floor` checks all of it can be
+(--operator, --start, or asked at the start), the sensors, the map, and every file of the capture by path,
+sha256 and size: light/, heavy/ and heavy/bursts/ (the path says which), marks.txt and the logs. Hashing a long drive's bag takes a minute or so. `floor` checks all of it can be
 filled before it restarts SLAM.
 """
 from __future__ import annotations
@@ -86,12 +96,11 @@ MAPS = os.environ.get("OPENDUBS_MAPS", "/var/lib/opendubs/maps")
 BAGS = os.environ.get("OPENDUBS_BAG_DIR", os.path.expanduser("~/bags"))
 MIN_FREE_GB = float(os.environ.get("OPENDUBS_BAG_MIN_FREE_GB", "20"))
 START_MARGIN_GB = 10.0
-CAM_HZ = 15.0                            # colour and depth: what visual / RGB-D odometry needs
 RAW_COLOR_HZ = 3.0                       # raw colour when nothing can compress it: 2.7 MB a frame
 TRIAL_S = 6.0                            # check's trial recording
-MIN_CAM_HZ = 12.0                        # below this, check warns that the camera came out too slow
+MIN_CAM_FRACTION = 0.8                   # check warns when the burst feed comes out below this share of its hz
 KEEP_FRACTION = 0.8                     # keep a frame 0.8 of a period after the last: 30 Hz in -> 15 out, despite jitter
-EXPECTED_GB_H = 30.0                     # an estimate (JPEG ~0.2 MB, depth PNG ~0.35 MB a frame at 15 Hz)
+EXPECTED_GB_H = 2.0                      # an estimate: light/ ~0.15 GB/h, keyframes ~1 GB/h, plus ~0.1-0.2 GB a mark
 SPLIT_BYTES = 2 * 1024 ** 3
 SLAM_UNIT = "opendubs-slam"
 SLAM_ENABLED = "/etc/opendubs/slam.enabled"
@@ -102,6 +111,13 @@ OPTIONAL = ["/scan_rear_filtered", "/scan_depth", "/opendubs/joint_states",
             "/tablet/fix", "/tablet/imu", "/power/bus_voltage"]   # recorded when present
 NEEDED = ["/scan", "/scan_rear", "/odom", "/tf"]      # without these the drive is not worth recording
 RELAY_PREFIX = "/mapping"
+KEYFRAME_PREFIX = RELAY_PREFIX + "/key"      # heavy/: the camera's keyframes
+BURST_PREFIX = RELAY_PREFIX + "/burst"       # heavy/bursts/: the camera at the burst rate, into the buffer
+BURST_NODE = "opendubs_bursts"               # the snapshot recorder; its service is /<node>/snapshot
+CAMERA_CONFIG = os.environ.get("OPENDUBS_CAPTURE_CAMERA",
+                               os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture_camera.yaml"))
+CAMERA_DEFAULTS = {"keyframe": {"move_m": 0.5, "turn_deg": 10.0, "head_deg": 5.0, "floor_s": 2.0},
+                   "burst": {"hz": 15.0, "before_s": 20.0, "after_s": 20.0, "cache_mb": 200.0}}
 DEPLOYED = os.environ.get("OPENDUBS_DEPLOYED", "/opt/opendubs/DEPLOYED")
 URDF = os.environ.get("OPENDUBS_URDF", "/opt/opendubs/description/opendubs.urdf")
 BUILDINGS = os.path.join(MAPS, "buildings.yaml")
@@ -173,6 +189,34 @@ def camera_topics(topics: dict[str, str]) -> dict:
         out["whole"] = sorted(t for t, ty in topics.items() if t.startswith(base + "/") and
                               ty in ("sensor_msgs/msg/CameraInfo", "sensor_msgs/msg/Imu"))
     return out
+
+
+def camera_config(path: str = CAMERA_CONFIG) -> dict:
+    """capture_camera.yaml over CAMERA_DEFAULTS, key by key."""
+    import yaml
+    try:
+        got = yaml.safe_load(open(path)) or {}
+    except FileNotFoundError:
+        got = {}
+    return {sec: {k: float((got.get(sec) or {}).get(k, v)) for k, v in d.items()} for sec, d in CAMERA_DEFAULTS.items()}
+
+
+def keyframe_due(last, now, cfg: dict) -> bool:
+    """last, now: (time s, x, y, yaw, pan, tilt), any of the pose or head None when not heard yet.
+    True when no frame was kept yet, floor_s has passed, or the robot or head moved far enough."""
+    import math
+    if last is None or now[0] - last[0] >= cfg["floor_s"]:
+        return True
+    if None not in (last[1], now[1]):
+        if math.hypot(now[1] - last[1], now[2] - last[2]) >= cfg["move_m"]:
+            return True
+        turn = (now[3] - last[3] + math.pi) % (2 * math.pi) - math.pi
+        if abs(turn) >= math.radians(cfg["turn_deg"]):
+            return True
+    if None not in (last[4], now[4]):
+        if max(abs(now[4] - last[4]), abs(now[5] - last[5])) >= math.radians(cfg["head_deg"]):
+            return True
+    return False
 
 
 def map_name(frame: str, existing, today: datetime.date) -> str:
@@ -307,7 +351,7 @@ def manifest_inputs(args) -> str:
 
 
 def write_capture(args, n, name: str, out: str, started: datetime.datetime, ended: datetime.datetime) -> None:
-    """capture.yaml in the bag directory, with the map's small files copied beside it."""
+    """capture.yaml in the capture directory, with the map's small files copied beside it."""
     import yaml
     key, floor_code = parse_frame(args.frame)
     host = socket.gethostname().split(".")[0]
@@ -325,10 +369,14 @@ def write_capture(args, n, name: str, out: str, started: datetime.datetime, ende
         print("  capture.yaml NOT written: no map file was saved")
         return
     print("  hashing the recording for capture.yaml")
-    bag_files = [file_entry(os.path.join(out, f), host=host) for f in sorted(os.listdir(out))
-                 if f == "metadata.yaml" or f.endswith(".mcap")]
-    duration, topics = parse_bag_info(subprocess.run(["ros2", "bag", "info", out], capture_output=True,
-                                                     text=True).stdout)
+    bag_files = [file_entry(os.path.join(d, f), host=host) for b in bags_in(out) for d, _, fs in [next(os.walk(b))]
+                 for f in sorted(fs) if f == "metadata.yaml" or f.endswith(".mcap")]
+    bag_files += [file_entry(os.path.join(out, f), host=host) for f in sorted(os.listdir(out))
+                  if f == "marks.txt" or f.endswith("-odo.txt")]
+    duration, topics = 0.0, []
+    for b in bags_in(out):                     # light/ first: its duration is the drive's
+        d, t = parse_bag_info(subprocess.run(["ros2", "bag", "info", b], capture_output=True, text=True).stdout)
+        duration, topics = duration or d, topics + t
     recorded = {t["name"]: t["count"] for t in topics}
     cameras = [(f"{kind}_head", [t for t in recorded if f"/{kind}/" in t and t.startswith(RELAY_PREFIX + "/")]
                 + [t for t in recorded if (f"/{kind}/" in t and t.endswith("camera_info")) or
@@ -388,8 +436,13 @@ class Node:
         self.node = rclpy.create_node("floor_mapping")
         self.tf = Buffer()
         self._tfl = TransformListener(self.tf, self.node, spin_thread=False)
-        self.counts: dict[str, int] = {}
+        self.counts: dict[str, int] = {}               # frames into the burst feed, per stream
+        self.fed_bytes = 0                             # bytes into the burst feed, all streams
+        self.kept: dict[str, int] = {}                 # keyframes kept, per stream
         self.frames: dict[str, str] = {}               # the camera's frame_id per stream, for the manifest
+        self.cam = camera_config()
+        self.state = {"pose": (None, None, None), "head": (None, None)}   # for the keyframe gate
+        self._watch_robot()
         self._exec = MultiThreadedExecutor()
         self._exec.add_node(self.node)
         threading.Thread(target=self._exec.spin, daemon=True).start()
@@ -409,33 +462,71 @@ class Node:
         yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
         return (t.transform.translation.x, t.transform.translation.y, yaw)
 
-    def thin(self, label: str, topic: str, typ: str, hz: float) -> str:
-        """Republish every message of `topic` that comes at least 1/hz after the last one, as raw bytes
-        (nothing is decoded), on RELAY_PREFIX + topic. Returns the new topic."""
-        from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+    def _watch_robot(self):
+        """/odom and the head's angles, for the keyframe gate."""
+        import math
+        from nav_msgs.msg import Odometry
+        from rclpy.qos import qos_profile_sensor_data
+        from sensor_msgs.msg import JointState
+
+        def odom(m):
+            q = m.pose.pose.orientation
+            self.state["pose"] = (m.pose.pose.position.x, m.pose.pose.position.y,
+                                  math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
+
+        def head(m):
+            j = dict(zip(m.name, m.position))
+            if "head_pan" in j and "head_tilt" in j:
+                self.state["head"] = (j["head_pan"], j["head_tilt"])
+        self.node.create_subscription(Odometry, "/odom", odom, qos_profile_sensor_data)
+        self.node.create_subscription(JointState, "/head/joint_states", head, 10)
+
+    def _outputs(self, label: str, cls, suffix: str):
+        """(burst topic, publish(msg_or_bytes)): every frame offered goes to the burst feed, and to the
+        keyframe topic when keyframe_due says so."""
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+        qos = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
+        burst = self.node.create_publisher(cls, BURST_PREFIX + suffix, qos)
+        key = self.node.create_publisher(cls, KEYFRAME_PREFIX + suffix, qos)
+        last = [None]
+        self.counts[label] = self.kept[label] = 0
+
+        def publish(msg):
+            burst.publish(msg)
+            self.counts[label] += 1
+            self.fed_bytes += len(msg) if isinstance(msg, bytes) else len(msg.data)
+            now = (time.monotonic(), *self.state["pose"], *self.state["head"])
+            if keyframe_due(last[0], now, self.cam["keyframe"]):
+                last[0] = now
+                key.publish(msg)
+                self.kept[label] += 1
+        return publish
+
+    def thin(self, label: str, topic: str, typ: str, hz: float) -> list:
+        """Relay every message of `topic` that comes at least 1/hz after the last one, as raw bytes
+        (nothing is decoded). Returns [keyframe topic, burst topic]."""
+        from rclpy.qos import qos_profile_sensor_data
         from rosidl_runtime_py.utilities import get_message
         cls = get_message(typ)
-        out = RELAY_PREFIX + topic
-        pub = self.node.create_publisher(cls, out, QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE))
+        publish = self._outputs(label, cls, topic)
         gap, last = KEEP_FRACTION / hz, [0.0]
-        self.counts[label] = 0
 
         def cb(raw: bytes):
             now = time.monotonic()
             if now - last[0] >= gap:
                 last[0] = now
-                pub.publish(raw)
-                self.counts[label] += 1
+                publish(raw)
                 if label not in self.frames:
                     from rclpy.serialization import deserialize_message
                     self.frames[label] = deserialize_message(raw, cls).header.frame_id
         self.node.create_subscription(cls, topic, cb, qos_profile_sensor_data, raw=True,
                                       callback_group=self._own_group())
-        return out
+        return [KEYFRAME_PREFIX + topic, BURST_PREFIX + topic]
 
-    def encode(self, label: str, topic: str, hz: float) -> str:
+    def encode(self, label: str, topic: str, hz: float) -> list:
         """Compress a raw image topic at hz: colour to JPEG (quality 90), 16-bit depth to lossless PNG.
-        Only the frames kept are decoded. Without OpenCV, relays the raw images (colour at RAW_COLOR_HZ)."""
+        Only the frames kept are decoded. Without OpenCV, relays the raw images (colour at RAW_COLOR_HZ).
+        Returns [keyframe topic, burst topic]."""
         try:
             import cv2
             import numpy as np
@@ -443,13 +534,12 @@ class Node:
             hz = RAW_COLOR_HZ if label == "color" else hz
             print(f"WARNING: no OpenCV (python3-opencv): recording {topic} RAW at {hz:g} Hz")
             return self.thin(label, topic, IMAGE_T, hz)
-        from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+        from rclpy.qos import qos_profile_sensor_data
         from rclpy.serialization import deserialize_message
         from sensor_msgs.msg import CompressedImage, Image
-        out = f"{RELAY_PREFIX}{topic}/" + ("compressed" if label == "color" else "png")
-        pub = self.node.create_publisher(CompressedImage, out, QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE))
+        suffix = f"{topic}/" + ("compressed" if label == "color" else "png")
+        publish = self._outputs(label, CompressedImage, suffix)
         gap, last, warned = KEEP_FRACTION / hz, [0.0], set()
-        self.counts[label] = 0
 
         def cb(raw: bytes):
             now = time.monotonic()
@@ -475,12 +565,26 @@ class Node:
                     print(f"WARNING: {topic} is {m.encoding}, which this relay does not compress: skipped")
                 return
             if ok:
-                pub.publish(CompressedImage(header=m.header, format=fmt, data=buf.tobytes()))
-                self.counts[label] += 1
+                publish(CompressedImage(header=m.header, format=fmt, data=buf.tobytes()))
                 self.frames.setdefault(label, m.header.frame_id)
         self.node.create_subscription(Image, topic, cb, qos_profile_sensor_data, raw=True,
                                       callback_group=self._own_group())
-        return out
+        return [KEYFRAME_PREFIX + suffix, BURST_PREFIX + suffix]
+
+    def snapshot(self, timeout_s: float = 30.0) -> str:
+        """Write the burst recorder's buffer out as the next bursts_<n>.mcap: '' on success, else why not."""
+        from rosbag2_interfaces.srv import Snapshot
+        cli = self.node.create_client(Snapshot, f"/{BURST_NODE}/snapshot")
+        try:
+            if not cli.wait_for_service(timeout_sec=5.0):
+                return "the burst recorder offers no snapshot service"
+            fut = cli.call_async(Snapshot.Request())
+            end = time.monotonic() + timeout_s
+            while not fut.done() and time.monotonic() < end:
+                time.sleep(0.1)
+            return "" if fut.done() and fut.result().success else "the burst recorder did not confirm"
+        finally:
+            self.node.destroy_client(cli)
 
     def _own_group(self):
         """Each relay in its own callback group: the executor's threads then run them side by side
@@ -524,23 +628,26 @@ class Node:
         self.rclpy.try_shutdown()
 
 
-def streams(n: Node, topics: dict, no_color: bool = False) -> list:
-    """Every topic the recording takes, starting the camera's thinning relays."""
-    record = CORE + OPTIONAL
+def streams(n: Node, topics: dict, no_color: bool = False) -> dict:
+    """The topics of each recording, starting the camera's relays: {"light", "heavy", "burst": [topics]}."""
     cam = camera_topics(topics)
+    rec = {"light": CORE + OPTIONAL + cam["whole"], "heavy": [], "burst": []}
+    hz = n.cam["burst"]["hz"]
     for kind, t, how in cam["thin"]:
         if not (kind == "color" and no_color):
-            record.append(n.thin(kind, t, topics[t], CAM_HZ) if how == "pass" else n.encode(kind, t, CAM_HZ))
-    return record + cam["whole"]
+            key, burst = n.thin(kind, t, topics[t], hz) if how == "pass" else n.encode(kind, t, hz)
+            rec["heavy"].append(key)
+            rec["burst"].append(burst)
+    return rec
 
 
-def bag(out: str, record: list) -> subprocess.Popen:
+def bag(out: str, record: list, extra=(), log: str | None = None) -> subprocess.Popen:
     """`ros2 bag record` in its own session (the operator's Ctrl-C reaches this script, which then
     stops the bag cleanly), its chatter in out + '.log' rather than over the progress lines."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    log = open(out + ".log", "w")
+    log = open(log or out + ".log", "w")
     return subprocess.Popen(["ros2", "bag", "record", "-s", "mcap", "--storage-preset-profile", "zstd_fast",
-                             "--max-bag-size", str(SPLIT_BYTES), "-o", out] + record,
+                             "--max-bag-size", str(SPLIT_BYTES), *extra, "-o", out] + record,
                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
 
@@ -553,10 +660,102 @@ def stop(proc: subprocess.Popen) -> None:
             proc.kill()
 
 
+class Recording:
+    """A capture's bags in OUT, started and stopped together: light/, heavy/ and heavy/bursts/ (the last
+    two only with a camera, bursts not in `check`'s trial). A new line in OUT/marks.txt (mark.sh) makes a
+    burst: after_s later the burst recorder's buffer is written out as the next bursts_<n>.mcap."""
+
+    def __init__(self, n: Node, out: str, rec: dict, bursts: bool = True):
+        self.n, self.out, self.procs = n, out, {}
+        os.makedirs(out, exist_ok=True)
+        self.procs["light"] = bag(os.path.join(out, "light"), rec["light"])
+        if rec["heavy"]:
+            heavy = os.path.join(out, "heavy")
+            self.procs["heavy"] = bag(heavy, rec["heavy"])
+            if bursts:
+                cache = self._cache_bytes()          # also gives rosbag2 time to create heavy/ (bursts/ sits inside it)
+                end = time.monotonic() + 15
+                while not os.path.isdir(heavy) and time.monotonic() < end:
+                    time.sleep(0.2)
+                self.procs["bursts"] = bag(os.path.join(heavy, "bursts"), rec["burst"],
+                                           ["--snapshot-mode", "--max-cache-size", str(cache), "--node-name", BURST_NODE],
+                                           log=os.path.join(out, "bursts.log"))
+        self.marks = os.path.join(out, "marks.txt")
+        self.seen = self._lines()
+        self.due: list[float] = []
+        self.burst_count = 0
+        self._stop = threading.Event()
+        if "bursts" in self.procs:
+            threading.Thread(target=self._watch, daemon=True).start()
+
+    def _cache_bytes(self, seconds: float = 5.0) -> int:
+        """The burst buffer, sized by time: the feed's measured bytes a second times before_s + after_s
+        (+10%), at most cache_mb. rosbag2's buffer is in bytes, so a fixed size would hold far more
+        seconds of a slow camera than of a fast one."""
+        b = self.n.cam["burst"]
+        f0 = self.n.fed_bytes
+        time.sleep(seconds)
+        rate = (self.n.fed_bytes - f0) / seconds
+        cap = b["cache_mb"] * 1e6
+        cache = int(min(cap, rate * (b["before_s"] + b["after_s"]) * 1.1)) if rate else int(cap)
+        print(f"burst buffer: {cache / 1e6:.0f} MB (camera feed {rate / 1e6:.2f} MB/s"
+              + (", none yet: the cap" if not rate else ", at the cap" if cache == int(cap) else "") + ")")
+        return cache
+
+    def _lines(self) -> int:
+        try:
+            with open(self.marks) as f:
+                return sum(1 for _ in f)
+        except FileNotFoundError:
+            return 0
+
+    def _burst(self):
+        why = self.n.snapshot()
+        print(f"  burst {self.burst_count}: " + (why or "written"))
+        self.burst_count += 1
+
+    def _watch(self):
+        after = self.n.cam["burst"]["after_s"]
+        while not self._stop.wait(1.0):
+            k = self._lines()
+            self.due += [time.monotonic() + after] * max(k - self.seen, 0)
+            self.seen = max(k, self.seen)
+            while self.due and self.due[0] <= time.monotonic():
+                self.due.pop(0)
+                self._burst()
+
+    def running(self) -> bool:
+        return all(p.poll() is None for p in self.procs.values())
+
+    def stop(self):
+        """Write any burst still waiting for its after_s (shorter after the mark), then stop every bag."""
+        self._stop.set()
+        self.seen, k = self._lines(), self.seen
+        self.due += [0.0] * max(self.seen - k, 0)
+        for _ in self.due:
+            self._burst()
+        self.due = []
+        for p in self.procs.values():
+            if p.poll() is None:
+                p.send_signal(signal.SIGINT)
+        for p in self.procs.values():
+            stop(p)
+
+
 def counts(out: str) -> dict[str, int]:
-    """{topic: messages} from `ros2 bag info`."""
-    info = subprocess.run(["ros2", "bag", "info", out], capture_output=True, text=True).stdout
-    return {t["name"]: t["count"] for t in parse_bag_info(info)[1]}
+    """{topic: messages} from `ros2 bag info`, over the capture's bags."""
+    got = {}
+    for b in bags_in(out):
+        info = subprocess.run(["ros2", "bag", "info", b], capture_output=True, text=True).stdout
+        got.update({t["name"]: t["count"] for t in parse_bag_info(info)[1]})
+    return got
+
+
+def bags_in(out: str) -> list:
+    """The recordings in a capture directory: light/, heavy/, heavy/bursts/, or OUT itself (before 2026-11-12)."""
+    found = [os.path.join(out, d) for d in ("light", "heavy", "heavy/bursts")
+             if os.path.exists(os.path.join(out, d, "metadata.yaml"))]
+    return found or [out]
 
 
 def slam_mode() -> str:
@@ -569,15 +768,19 @@ def check(_args) -> int:
     n = Node()
     try:
         topics = n.topics()
-        trial, gb_h = trial_recording(n, topics)
+        trial, gb_h, fed = trial_recording(n, topics)
+        burst_hz = n.cam["burst"]["hz"]
     finally:
         n.close()
     free = free_gb(BAGS)
     print(f"disk: {free:.0f} GB free for {BAGS}; `floor` needs {MIN_FREE_GB + START_MARGIN_GB:.0f} GB to start "
           f"and stops recording at {MIN_FREE_GB:.0f} GB")
-    rate, how = (gb_h, "measured by the trial below") if gb_h else (EXPECTED_GB_H, "an estimate, not measured")
+    rate, how = (sum(gb_h.values()), "measured by the trial below, robot still") if gb_h else (EXPECTED_GB_H, "an estimate, not measured")
     hours = max(free - MIN_FREE_GB, 0) / rate if rate else float("inf")
     print(f"rate: about {rate:.1f} GB an hour ({how}): {hours:.1f} h of recording before the disk floor")
+    for k, v in gb_h.items():
+        print(f"  {k}/ {v:.2f} GB an hour")
+    print("  plus each mark's burst (heavy/bursts/), and more keyframes while the robot or head moves")
     print(f"SLAM: {slam_mode()}; enabled: {os.path.exists(SLAM_ENABLED)}")
     for t in CORE:
         print(f"  {'ok  ' if t in topics else 'MISSING'} {t}")
@@ -587,7 +790,7 @@ def check(_args) -> int:
     if cam["thin"]:
         print("camera:")
         for kind, t, how in cam["thin"]:
-            print(f"  ok   {t} at {CAM_HZ:g} Hz, " + ("relayed as it is" if how == "pass" else
+            print(f"  ok   {t}: keyframes, and {burst_hz:g} Hz bursts, " + ("relayed as it is" if how == "pass" else
                   "RAW: compressed here (" + ("JPEG" if kind == "color" else "16-bit PNG") + ")"))
         for t in cam["whole"]:
             print(f"  ok   {t}")
@@ -598,31 +801,31 @@ def check(_args) -> int:
         print(f"  {trial[t]:5d}  {t}")
     if not trial:
         print("  NOTHING: `ros2 bag record` did not record (its log is above)")
-    for t in sorted(t for t in trial if t.startswith(RELAY_PREFIX + "/")):
-        hz = trial[t] / TRIAL_S
-        print(f"camera rate achieved: {hz:4.1f} Hz on {t}" + (
-            "  WARNING: no frames: its driver lists the topic but sends nothing" if not trial[t] else
-            f"  WARNING: below {MIN_CAM_HZ:g} Hz, too slow to judge visual odometry" if hz < MIN_CAM_HZ else ""))
+    for kind, c in sorted(fed.items()):
+        hz = c / TRIAL_S
+        print(f"camera burst feed achieved: {hz:4.1f} Hz for {kind}" + (
+            "  WARNING: no frames: its driver lists the topic but sends nothing" if not c else
+            f"  WARNING: below {MIN_CAM_FRACTION * burst_hz:g} Hz, short of the burst rate" if hz < MIN_CAM_FRACTION * burst_hz else ""))
     return 0
 
 
 def trial_recording(n: Node, topics: dict, seconds: float = TRIAL_S):
-    """Record a few seconds: ({topic: messages}, GB an hour), so a recording that would come back
-    empty or without a topic is found here, not after a floor's drive, and the disk is sized by a
-    measured rate."""
+    """Record a few seconds of light/ and heavy/ (no bursts): ({topic: messages}, {bag: GB an hour},
+    {camera stream: frames into the burst feed}), so a recording that would come back empty or without
+    a topic is found here, not after a floor's drive, and the disk is sized by a measured rate."""
     out = os.path.join(BAGS, f".check-{os.getpid()}")
-    proc = bag(out, streams(n, topics))
+    rec = Recording(n, out, streams(n, topics), bursts=False)
     try:
         time.sleep(seconds)
     finally:
-        stop(proc)
+        rec.stop()
     got = counts(out)
-    gb_h = dir_bytes(out) / 1024 ** 3 / seconds * 3600 if got else 0.0
+    gb_h = {d: dir_bytes(os.path.join(out, d)) / 1024 ** 3 / seconds * 3600 for d in ("light", "heavy")
+            if os.path.isdir(os.path.join(out, d))} if got else {}
     if not got:
-        print(open(out + ".log").read()[-1500:])
+        print(open(os.path.join(out, "light.log")).read()[-1500:])
     shutil.rmtree(out, ignore_errors=True)
-    os.remove(out + ".log")
-    return got, gb_h
+    return got, gb_h, dict(n.counts)
 
 
 def save(frame: str, node: Node, start_pose=None, name: str | None = None) -> int:
@@ -675,7 +878,7 @@ def floor(args) -> int:
     if subprocess.run(["sudo", "systemctl", "restart", SLAM_UNIT]).returncode:
         return 1
     n = Node()
-    proc = None
+    rec = None
     try:
         start = None
         end = time.monotonic() + 60
@@ -694,18 +897,18 @@ def floor(args) -> int:
             print("WARNING: no depth camera running: recording without it")
         os.makedirs(BAGS, exist_ok=True)
         out = os.path.join(BAGS, name)
-        proc = bag(out, streams(n, topics, args.no_color))
+        rec = Recording(n, out, streams(n, topics, args.no_color))
         started = datetime.datetime.now().astimezone()
         t0 = time.monotonic()
-        print(f"RECORDING to {out}. Drive the floor; press Ctrl-C ONCE when done.")
+        print(f"RECORDING to {out} ({', '.join(rec.procs)}). Drive the floor; press Ctrl-C ONCE when done.")
         stopped_for_disk = False
-        while proc.poll() is None:
+        while rec.running():
             time.sleep(30)
             size, mins = dir_bytes(out) / 1024 ** 3, (time.monotonic() - t0) / 60
             free = free_gb(BAGS)
             rate = size / mins * 60 if mins else 0
             left = max(free - MIN_FREE_GB, 0) / rate * 60 if rate else float("inf")
-            cams = " ".join(f"{k}={c}" for k, c in n.counts.items())
+            cams = " ".join(f"{k}={n.kept[k]}/{c}" for k, c in n.counts.items()) + f" bursts={rec.burst_count}"
             print(f"  {mins:5.1f} min  {size:5.2f} GB  {rate:4.1f} GB/h  {free:.0f} GB free, ~{left:.0f} min left  {cams}")
             if free <= MIN_FREE_GB:
                 print(f"DISK at {free:.0f} GB free: stopping the recording now")
@@ -713,21 +916,20 @@ def floor(args) -> int:
                 break
         if stopped_for_disk:
             raise KeyboardInterrupt
-        print("the recording stopped by itself: saving the map")
+        print("a recording stopped by itself: saving the map")
     except KeyboardInterrupt:
         pass
     finally:
-        if proc:
-            stop(proc)
+        if rec:
+            rec.stop()
     ended = datetime.datetime.now().astimezone()
-    if proc:
+    if rec:
         out = os.path.join(BAGS, name)
-        got = counts(out)
-        print(f"recording closed: {dir_bytes(out) / 1024 ** 3:.2f} GB in {out}; messages: "
-              + ", ".join(f"{t} {c}" for t, c in sorted(got.items())))
+        attach(out, args.attach)
+        closed(out)
     try:
         rc = save(args.frame, n, start, name)
-        if proc:
+        if rec:
             write_capture(args, n, name, os.path.join(BAGS, name), started, ended)
         return rc
     finally:
@@ -746,34 +948,51 @@ def segment(args) -> int:
     while os.path.exists(os.path.join(BAGS, name)):
         name, k = f"{stem}-{k}", k + 1
     n = Node()
-    proc = None
+    rec = None
     try:
         topics = n.topics(2.0)
         missing = [t for t in NEEDED if t not in topics]
         if missing:
             print(f"WARNING: not publishing: {' '.join(missing)}")
         out = os.path.join(BAGS, name)
-        proc = bag(out, streams(n, topics, args.no_color))
+        rec = Recording(n, out, streams(n, topics, args.no_color))
         t0 = time.monotonic()
-        print(f"RECORDING segment to {out}. Ctrl-C ONCE (or SIGINT) to stop.")
-        while proc.poll() is None:
+        print(f"RECORDING segment to {out} ({', '.join(rec.procs)}). Ctrl-C ONCE (or SIGINT) to stop.")
+        while rec.running():
             time.sleep(30)
             size, mins, free = dir_bytes(out) / 1024 ** 3, (time.monotonic() - t0) / 60, free_gb(BAGS)
-            print(f"  {mins:5.1f} min  {size:5.2f} GB  {free:.0f} GB free  " + " ".join(f"{k}={c}" for k, c in n.counts.items()))
+            print(f"  {mins:5.1f} min  {size:5.2f} GB  {free:.0f} GB free  "
+                  + " ".join(f"{k}={n.kept[k]}/{c}" for k, c in n.counts.items()) + f" bursts={rec.burst_count}")
             if free <= MIN_FREE_GB:
                 print(f"DISK at {free:.0f} GB free: stopping the recording now")
                 break
     except KeyboardInterrupt:
         pass
     finally:
-        if proc:
-            stop(proc)
+        if rec:
+            rec.stop()
         n.close()
     out = os.path.join(BAGS, name)
-    got = counts(out)
-    print(f"recording closed: {dir_bytes(out) / 1024 ** 3:.2f} GB in {out}; messages: "
-          + ", ".join(f"{t} {c}" for t, c in sorted(got.items())))
+    attach(out, args.attach)
+    closed(out)
     return 0
+
+
+def attach(out: str, paths) -> None:
+    """Move each --attach file (the [ODO] log) into the capture's root, once its writer has stopped."""
+    for p in paths or []:
+        if os.path.exists(p):
+            shutil.move(p, os.path.join(out, os.path.basename(p)))
+        else:
+            print(f"  --attach {p}: not found")
+
+
+def closed(out: str) -> None:
+    for b in bags_in(out):
+        got = counts(b)
+        size = sum(os.path.getsize(os.path.join(b, f)) for f in os.listdir(b) if os.path.isfile(os.path.join(b, f)))
+        print(f"recording closed: {os.path.relpath(b, BAGS)} {size / 1024 ** 3:.2f} GB; messages: "
+              + ", ".join(f"{t} {c}" for t, c in sorted(got.items())))
 
 
 def main() -> int:
@@ -788,9 +1007,11 @@ def main() -> int:
     f.add_argument("--room", help="the room number nearest the start, if known")
     f.add_argument("--lift-m", type=float, help="the lift's height during the drive, if fixed")
     f.add_argument("--notes", help="anything the next person needs to know about the drive")
+    f.add_argument("--attach", action="append", help="a file to move into the capture at the end (the [ODO] log)")
     g = sp.add_parser("segment", help="a recording with no map (outdoors, ramps); Ctrl-C once to stop")
     g.add_argument("name", help="e.g. bldg_ext: recorded as NAME-<date>")
     g.add_argument("--no-color", action="store_true", help="leave the camera's colour frames out")
+    g.add_argument("--attach", action="append", help="a file to move into the capture at the end (the [ODO] log)")
     s = sp.add_parser("save", help="save SLAM's current map only")
     s.add_argument("frame")
     args = ap.parse_args()

@@ -283,18 +283,25 @@ on the robot, in a terminal you can see while driving:
 /opt/opendubs/ros/floor-mapping.sh floor bldg_f1    # robot still at the start; Ctrl-C ONCE when done
 ```
 
-`floor` restarts `opendubs-slam` so the floor starts from an empty map, records the drive as a ros2 bag
-in `~/bags/<map>` (both LIDARs, `/odom` and the raw `[ODO]` line on `/odom/raw`, TF, the neck's joint
-states, the rear body filter and the depth scan when they run, and the depth camera at 15 Hz if its
-driver is running, compressed here when it publishes only raw images), and on
-Ctrl-C saves the map as `bldg_f1-<date>`: the pose graph, a `.pgm`/`.yaml`, and an inactive
+`floor` restarts `opendubs-slam` so the floor starts from an empty map, records the drive in
+`~/bags/<map>` as three ros2 bags started and stopped together, and on Ctrl-C saves the map:
+
+| in the capture | holds | about |
+|---|---|---|
+| `light/` | both LIDARs, `/odom` and the raw `[ODO]` line on `/odom/raw`, TF, the neck's joint states, the camera's `camera_info` and IMU, the tablet's GPS and IMU, the bus voltage, the rear body filter and the depth scan when they run | 0.12 GB an hour: small enough to upload over the robot's Wi-Fi first |
+| `heavy/` | the depth camera's colour and depth **keyframes**: one when the robot has moved 0.5 m or turned 10°, or the head 5°, since the last, and one every 2 s regardless | 0.5–0.7 GB an hour |
+| `heavy/bursts/` | the camera at full rate around each mark: `bursts_<n>.mcap` for the n-th line of `marks.txt`, from about 20 s before the mark to 20 s after (rosbag2's snapshot mode, a rolling buffer sized from the camera's measured rate) | 0.1 GB a mark |
+| `marks.txt`, `*-odo.txt`, `*.log` | the marks, the StamPLC's text log (`--attach`), each recorder's own log | |
+
+The keyframe and burst settings are in `capture_camera.yaml`. The camera is compressed here when its
+driver publishes only raw images. On Ctrl-C `floor` saves the map as `bldg_f1-<date>`: the pose graph, a `.pgm`/`.yaml`, and an inactive
 `site.<map>.yaml` holding the start pose that `floorplan.py fit --start` needs. It refuses to start
 while `site.yaml` exists (SLAM would localize, not map) or with too little disk, and stops the
-recording itself before the disk gets low. `check`'s trial measures the GB an hour (about 30 with the
-camera) and the camera rate it actually achieved, and warns below 12 Hz. `floor-mapping.sh save bldg_f1` saves the current map alone.
-At the end it writes `capture.yaml` in the bag's directory (the `opendubs.capture/1` manifest: building
-and floor, times, robot, deployed code, operator, start landmark, sensors, and every map and bag file by
-sha256) and copies the map's small files beside it. It asks for the operator and the start landmark
+recording itself before the disk gets low. `check`'s trial measures `light/` and `heavy/`'s GB an hour with the robot
+still, and the rate the camera's burst feed achieved, and warns below 80% of `capture_camera.yaml`'s `hz`. `floor-mapping.sh save bldg_f1` saves the current map alone.
+At the end it writes `capture.yaml` in the capture's directory (the `opendubs.capture/1` manifest: building
+and floor, times, robot, deployed code, operator, start landmark, sensors, and every map file, every file
+of the three bags, `marks.txt` and the `[ODO]` log by sha256; a file's path says which bag it is in) and copies the map's small files beside it. It asks for the operator and the start landmark
 unless `--operator` and `--start` give them, and needs the building's FMS number in
 `/var/lib/opendubs/maps/buildings.yaml` (`bldg: "1234"`); it checks all that before restarting SLAM.
 Bags and maps are site data: they stay on the robot and the project's machines, never in the repo. The
@@ -306,10 +313,10 @@ systemd units, so a dropped ssh session doesn't stop them (all in this directory
 | script | does |
 |---|---|
 | `pinpoint-reset.sh` | `PPCAL RESET` with the robot still, then 30 s of `[ODO]` and the heading drift. Before each floor |
-| `floor-start.sh FRAME "START" [ROOM]` | `floor-mapping.sh floor` as the unit `opendubs-floor-map`, plus a text log of the StamPLC's `[ODO]`, `[DRIVE]`, `[SAFE]`, `[8SERVO]`, `[BMS]`, `[PDH]`, `[WDT]` and `[SYS]` lines beside the bag |
-| `floor-stop.sh` | one SIGINT to the unit, which saves the map and `capture.yaml`; waits for the save |
+| `floor-start.sh FRAME "START" [ROOM]` | `floor-mapping.sh floor` as the unit `opendubs-floor-map`, plus a text log of the StamPLC's `[ODO]`, `[DRIVE]`, `[SAFE]`, `[8SERVO]`, `[BMS]`, `[PDH]`, `[WDT]` and `[SYS]` lines, moved into the capture at the end |
+| `floor-stop.sh` | stops the text log, then one SIGINT to the unit, which writes any waiting burst, saves the map and `capture.yaml`; waits for the save |
 | `exterior-start.sh NAME` / `exterior-stop.sh` | `floor-mapping.sh segment`: a bag-only segment (outdoors, ramps) with the same streams as a floor (colour as JPEG) plus the tablet's GPS and IMU. SLAM is left as it is |
-| `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints |
+| `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints. It also makes that mark's camera burst |
 | `plc_listen.py` | prints the StamPLC's UDP 5005 lines by tag, optionally after one host command; root (raw socket) |
 
 `OPENDUBS_COLOR_FROM_RAW=1` (set by `floor-start.sh`) records colour from the raw image when the

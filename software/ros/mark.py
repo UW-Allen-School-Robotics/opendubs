@@ -5,9 +5,12 @@ from rclpy.qos import qos_profile_sensor_data
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 from tf2_ros import Buffer, TransformListener
-B = "/var/lib/opendubs/bags"
-dirs = [d for d in glob.glob(B + "/*/") if not d.rstrip("/").endswith("-zaxis") and glob.glob(d + "*.mcap")]
-cap = max(dirs, key=lambda d: max(os.path.getmtime(f) for f in glob.glob(d + "*.mcap"))).rstrip("/")
+B = os.environ.get("OPENDUBS_BAG_DIR", "/var/lib/opendubs/bags")
+# the capture being recorded: the one whose bag (light/*.mcap, or *.mcap before 2026-11-12) was written last.
+# A new line here also makes the camera's burst for this mark (floor_mapping.py's Recording).
+mcaps = lambda d: glob.glob(d + "light/*.mcap") or glob.glob(d + "*.mcap")
+dirs = [d for d in glob.glob(B + "/*/") if not d.rstrip("/").endswith("-zaxis") and mcaps(d)]
+cap = max(dirs, key=lambda d: max(os.path.getmtime(f) for f in mcaps(d))).rstrip("/")
 label = " ".join(sys.argv[1:]).strip() or "mark"
 rclpy.init(); n = Node("mark_ro"); got = {}
 n.create_subscription(Odometry, "/odom", lambda m: got.__setitem__("odom", m), qos_profile_sensor_data)

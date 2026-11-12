@@ -1,6 +1,7 @@
 #!/bin/bash
 HERE=$(dirname "$(readlink -f "$0")")
-# floor-start.sh FRAME "START LANDMARK" [ROOM]: a fresh SLAM map + bag for one floor (the #634 tool), plus the [ODO] log.
+# floor-start.sh FRAME "START LANDMARK" [ROOM]: a fresh SLAM map + the capture (light/, heavy/, heavy/bursts/)
+# for one floor, plus the [ODO] log, which is moved into the capture at the end.
 set -e
 F=$1; START=$2; ROOM=${3:+--room $3}; B=/var/lib/opendubs/bags; D=$(date +%Y%m%d)
 [ -n "$F" ] && [ -n "$START" ] || { echo "usage: floor-start.sh FRAME START [ROOM]"; exit 2; }
@@ -11,5 +12,6 @@ sudo -n systemd-run --unit=opendubs-odo-log --property=StandardOutput=file:$B/$F
 sudo -n systemd-run --unit=opendubs-floor-map --uid=emmar --gid=emmar \
   --property=KillSignal=SIGINT --property=TimeoutStopSec=600 --property=SendSIGKILL=no \
   --setenv=HOME=/home/emmar --setenv=OPENDUBS_COLOR_FROM_RAW=1 --setenv=OPENDUBS_BAG_DIR=$B \
-  "$HERE/floor-mapping.sh" floor $F --operator team --start "$START" $ROOM --notes "drive-to-map, RC in MANUAL"
+  "$HERE/floor-mapping.sh" floor $F --operator team --start "$START" $ROOM --notes "drive-to-map, RC in MANUAL" \
+  --attach $B/$F-$D-odo.txt
 sleep 25; journalctl -u opendubs-floor-map --no-pager -n 15 -o cat | grep -v pam_unix
