@@ -316,7 +316,8 @@ systemd units, so a dropped ssh session doesn't stop them (all in this directory
 | `floor-start.sh FRAME "START" [ROOM]` | `floor-mapping.sh floor` as the unit `opendubs-floor-map`, plus a text log of the StamPLC's `[ODO]`, `[DRIVE]`, `[SAFE]`, `[8SERVO]`, `[BMS]`, `[PDH]`, `[WDT]` and `[SYS]` lines, moved into the capture at the end |
 | `floor-stop.sh` | stops the text log, then one SIGINT to the unit, which writes any waiting burst, saves the map and `capture.yaml`; waits for the save |
 | `exterior-start.sh NAME` / `exterior-stop.sh` | `floor-mapping.sh segment`: a bag-only segment (outdoors, ramps) with the same streams as a floor (colour as JPEG) plus the tablet's GPS and IMU. SLAM is left as it is |
-| `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints. It also makes that mark's camera burst |
+| `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints. It also makes that mark's camera burst. `mark.py --config FILE` takes another robot's topics, frames and data root from its `capture_camera.yaml` (head optional) |
+| `capture_camera.py` | the keyframe and burst relays and the burst trigger, robot-agnostic (topics, frames, data root and prefixes in `capture_camera.yaml`; Spot gives its own file). `floor-mapping.sh` uses them; `capture_camera.py relay --marks CAPTURE/marks.txt` runs them alone, in front of another robot's own recorders, and prints the topics and buffer size to record with |
 | `plc_listen.py` | prints the StamPLC's UDP 5005 lines by tag, optionally after one host command; root (raw socket) |
 
 `OPENDUBS_COLOR_FROM_RAW=1` (set by `floor-start.sh`) records colour from the raw image when the

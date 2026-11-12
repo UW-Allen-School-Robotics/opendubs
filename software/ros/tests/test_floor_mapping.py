@@ -49,11 +49,11 @@ class CameraTopicsTest(unittest.TestCase):
         topics = {k: v for k, v in self.TOPICS.items() if not k.endswith("compressedDepth")}
         self.assertEqual(fm.camera_topics(topics)["thin"],
                          [("color", "/camera/color/image_raw/compressed", "pass"),
-                          ("depth", "/camera/depth/image_raw", "encode")])
+                          ("depth", "/camera/depth/image_raw", "png")])
         topics = {k: v for k, v in self.TOPICS.items() if "compressed" not in k or k.startswith("/tablet")}
         self.assertEqual(fm.camera_topics(topics)["thin"],
-                         [("color", "/camera/color/image_raw", "encode"),
-                          ("depth", "/camera/depth/image_raw", "encode")])
+                         [("color", "/camera/color/image_raw", "jpeg"),
+                          ("depth", "/camera/depth/image_raw", "png")])
 
 
 class NameTest(unittest.TestCase):

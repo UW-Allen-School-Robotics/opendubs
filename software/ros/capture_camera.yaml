@@ -1,5 +1,17 @@
-# The depth camera's share of a capture (floor_mapping.py `floor` and `segment`).
-# A different file: OPENDUBS_CAPTURE_CAMERA=/path/to/it.yaml. A key left out takes the value below.
+# A capture's camera: the keyframe and burst relays (capture_camera.py), used by floor_mapping.py's
+# `floor` and `segment`, and the marks (mark.py). OpenDubs's values; another robot gives its own file
+# (--config, or OPENDUBS_CAPTURE_CAMERA=/path/to/it.yaml). A key left out takes the value shown here.
+robot:
+  odom: /odom                   # nav_msgs/Odometry for the keyframe gate's motion ("" = none)
+  head: /head/joint_states      # sensor_msgs/JointState of a moving camera mount ("" = no head, e.g. Spot)
+  head_joints: [head_pan, head_tilt]
+  map_frame: map                # mark.py's SLAM pose: map_frame -> base_frame
+  base_frame: base_link         # Spot: body
+  data_root: /var/lib/opendubs/bags   # where captures live; mark.py marks the newest (OPENDUBS_BAG_DIR wins)
+  exclude: [/tablet/]           # camera topics never relayed when the camera is found by name
+relay:
+  keyframe_prefix: /mapping/key
+  burst_prefix: /mapping/burst
 #
 # heavy/   KEYFRAMES only: a colour and a depth frame whenever the robot has moved or turned this far,
 #          or the head has turned this far, since the last frame kept, and at least one every floor_s.
@@ -16,6 +28,7 @@ burst:
   hz: 15              # the relay's rate into the buffer (less if the camera, or the colour encoder, is slower)
   before_s: 20
   after_s: 20
+  recorder_node: opendubs_bursts   # the snapshot recorder's --node-name: its service is /<node>/snapshot
   cache_mb: 200       # the buffer's upper bound. It is sized at the start from the camera feed's measured
                       # rate to hold before_s + after_s; 2026-11-11's frames (colour JPEG 138 kB, depth
                       # 157 kB) at 15 Hz would fill those 40 s with 177 MB

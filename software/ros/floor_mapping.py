@@ -35,9 +35,10 @@ It holds:
   /head/joint_states, _targets, _limits  the neck's pan and tilt (the dashboard's neck_state.py)
   /opendubs/joint_states                 what robot_state_publisher was told the lift and neck were, so
                                          the camera's TF in the bag can be checked against the real neck
-  the depth camera, if its driver is running: colour and depth republished as KEYFRAME_PREFIX/<topic>
-      (heavy/) and, at the burst rate, BURST_PREFIX/<topic> (heavy/bursts/), and its camera_info and IMU at
-      full rate (light/). Its compressed transports are passed through untouched;
+  the depth camera, if its driver is running: colour and depth republished as /mapping/key/<topic>
+      (heavy/) and, at the burst rate, /mapping/burst/<topic> (heavy/bursts/), by capture_camera.py (the
+      robot-agnostic keyframe and burst relays, set in capture_camera.yaml), and its camera_info and IMU
+      at full rate (light/). Its compressed transports are passed through untouched;
       if it publishes only raw images, the relay compresses them itself (colour JPEG on
       <prefix><topic>/compressed; depth lossless 16-bit PNG on <prefix><topic>/png, format
       "16UC1; png", decoded with cv2.imdecode(..., IMREAD_UNCHANGED)). Without OpenCV the raw images
@@ -92,14 +93,15 @@ import sys
 import threading
 import time
 
+import capture_camera as cc
+from capture_camera import COMPRESSED_T, IMAGE_T, camera_topics as _camera_topics, keyframe_due  # noqa: F401
+
 MAPS = os.environ.get("OPENDUBS_MAPS", "/var/lib/opendubs/maps")
 BAGS = os.environ.get("OPENDUBS_BAG_DIR", os.path.expanduser("~/bags"))
 MIN_FREE_GB = float(os.environ.get("OPENDUBS_BAG_MIN_FREE_GB", "20"))
 START_MARGIN_GB = 10.0
-RAW_COLOR_HZ = 3.0                       # raw colour when nothing can compress it: 2.7 MB a frame
 TRIAL_S = 6.0                            # check's trial recording
 MIN_CAM_FRACTION = 0.8                   # check warns when the burst feed comes out below this share of its hz
-KEEP_FRACTION = 0.8                     # keep a frame 0.8 of a period after the last: 30 Hz in -> 15 out, despite jitter
 EXPECTED_GB_H = 2.0                      # an estimate: light/ ~0.15 GB/h, keyframes ~1 GB/h, plus ~0.1-0.2 GB a mark
 SPLIT_BYTES = 2 * 1024 ** 3
 SLAM_UNIT = "opendubs-slam"
@@ -111,13 +113,6 @@ OPTIONAL = ["/scan_rear_filtered", "/scan_depth", "/opendubs/joint_states",
             "/tablet/fix", "/tablet/imu", "/power/bus_voltage"]   # recorded when present
 NEEDED = ["/scan", "/scan_rear", "/odom", "/tf"]      # without these the drive is not worth recording
 RELAY_PREFIX = "/mapping"
-KEYFRAME_PREFIX = RELAY_PREFIX + "/key"      # heavy/: the camera's keyframes
-BURST_PREFIX = RELAY_PREFIX + "/burst"       # heavy/bursts/: the camera at the burst rate, into the buffer
-BURST_NODE = "opendubs_bursts"               # the snapshot recorder; its service is /<node>/snapshot
-CAMERA_CONFIG = os.environ.get("OPENDUBS_CAPTURE_CAMERA",
-                               os.path.join(os.path.dirname(os.path.abspath(__file__)), "capture_camera.yaml"))
-CAMERA_DEFAULTS = {"keyframe": {"move_m": 0.5, "turn_deg": 10.0, "head_deg": 5.0, "floor_s": 2.0},
-                   "burst": {"hz": 15.0, "before_s": 20.0, "after_s": 20.0, "cache_mb": 200.0}}
 DEPLOYED = os.environ.get("OPENDUBS_DEPLOYED", "/opt/opendubs/DEPLOYED")
 URDF = os.environ.get("OPENDUBS_URDF", "/opt/opendubs/description/opendubs.urdf")
 BUILDINGS = os.path.join(MAPS, "buildings.yaml")
@@ -132,8 +127,6 @@ SENSORS = [
     ("neck", "M5Dial neck, servo pan and tilt", ["/head/joint_states", "/head/joint_targets",
                                                   "/head/joint_limits", "/opendubs/joint_states"], "head_tilt_link", "none"),
 ]
-IMAGE_T = "sensor_msgs/msg/Image"
-COMPRESSED_T = "sensor_msgs/msg/CompressedImage"
 
 
 # ---- pure helpers (tests/test_floor_mapping.py) ----------------------------------------------------
@@ -166,57 +159,9 @@ def map_yaml(image: str, resolution: float, origin) -> str:
 
 
 def camera_topics(topics: dict[str, str]) -> dict:
-    """From {topic: type}, the depth camera's streams: "thin" lists (kind, topic, how) for colour and
-    depth, how being "pass" (a compressed transport, relayed as it is) or "encode" (only the raw image
-    exists: the relay compresses it), and "whole" the small topics recorded as they are. The tablet's
-    cameras (/tablet/...) are a different thing and are left out."""
-    def find(suffix, typ):
-        hits = sorted(t for t, ty in topics.items() if t.endswith(suffix) and ty == typ
-                      and not t.startswith("/tablet/") and not t.startswith(RELAY_PREFIX + "/"))
-        return hits[0] if hits else None
-    out = {"thin": [], "whole": []}
-    base = None
-    for kind, transport in (("color", "compressed"), ("depth", "compressedDepth")):
-        topic, how = find(f"/{kind}/image_raw/{transport}", COMPRESSED_T), "pass"
-        if kind == "color" and os.environ.get("OPENDUBS_COLOR_FROM_RAW"):
-            topic = None        # the driver lists a compressed colour stream that sends nothing (Femto, 2026-11-11)
-        if not topic:
-            topic, how = find(f"/{kind}/image_raw", IMAGE_T), "encode"
-        if topic:
-            out["thin"].append((kind, topic, how))
-            base = base or topic[:topic.index(f"/{kind}/")]
-    if base:
-        out["whole"] = sorted(t for t, ty in topics.items() if t.startswith(base + "/") and
-                              ty in ("sensor_msgs/msg/CameraInfo", "sensor_msgs/msg/Imu"))
-    return out
-
-
-def camera_config(path: str = CAMERA_CONFIG) -> dict:
-    """capture_camera.yaml over CAMERA_DEFAULTS, key by key."""
-    import yaml
-    try:
-        got = yaml.safe_load(open(path)) or {}
-    except FileNotFoundError:
-        got = {}
-    return {sec: {k: float((got.get(sec) or {}).get(k, v)) for k, v in d.items()} for sec, d in CAMERA_DEFAULTS.items()}
-
-
-def keyframe_due(last, now, cfg: dict) -> bool:
-    """last, now: (time s, x, y, yaw, pan, tilt), any of the pose or head None when not heard yet.
-    True when no frame was kept yet, floor_s has passed, or the robot or head moved far enough."""
-    import math
-    if last is None or now[0] - last[0] >= cfg["floor_s"]:
-        return True
-    if None not in (last[1], now[1]):
-        if math.hypot(now[1] - last[1], now[2] - last[2]) >= cfg["move_m"]:
-            return True
-        turn = (now[3] - last[3] + math.pi) % (2 * math.pi) - math.pi
-        if abs(turn) >= math.radians(cfg["turn_deg"]):
-            return True
-    if None not in (last[4], now[4]):
-        if max(abs(now[4] - last[4]), abs(now[5] - last[5])) >= math.radians(cfg["head_deg"]):
-            return True
-    return False
+    """The depth camera's streams, found by name (capture_camera.camera_topics); the tablet's cameras
+    (/tablet/...) are a different thing and are left out."""
+    return _camera_topics(topics, ("/tablet/",), (RELAY_PREFIX + "/",))
 
 
 def map_name(frame: str, existing, today: datetime.date) -> str:
@@ -436,13 +381,9 @@ class Node:
         self.node = rclpy.create_node("floor_mapping")
         self.tf = Buffer()
         self._tfl = TransformListener(self.tf, self.node, spin_thread=False)
-        self.counts: dict[str, int] = {}               # frames into the burst feed, per stream
-        self.fed_bytes = 0                             # bytes into the burst feed, all streams
-        self.kept: dict[str, int] = {}                 # keyframes kept, per stream
-        self.frames: dict[str, str] = {}               # the camera's frame_id per stream, for the manifest
-        self.cam = camera_config()
-        self.state = {"pose": (None, None, None), "head": (None, None)}   # for the keyframe gate
-        self._watch_robot()
+        self.cam = cc.load_config()
+        self.relays = cc.Relays(self.node, self.cam)   # the camera's keyframe and burst outputs
+        self.counts, self.kept, self.frames = self.relays.counts, self.relays.kept, self.relays.frames
         self._exec = MultiThreadedExecutor()
         self._exec.add_node(self.node)
         threading.Thread(target=self._exec.spin, daemon=True).start()
@@ -461,136 +402,6 @@ class Node:
         q = t.transform.rotation
         yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
         return (t.transform.translation.x, t.transform.translation.y, yaw)
-
-    def _watch_robot(self):
-        """/odom and the head's angles, for the keyframe gate."""
-        import math
-        from nav_msgs.msg import Odometry
-        from rclpy.qos import qos_profile_sensor_data
-        from sensor_msgs.msg import JointState
-
-        def odom(m):
-            q = m.pose.pose.orientation
-            self.state["pose"] = (m.pose.pose.position.x, m.pose.pose.position.y,
-                                  math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)))
-
-        def head(m):
-            j = dict(zip(m.name, m.position))
-            if "head_pan" in j and "head_tilt" in j:
-                self.state["head"] = (j["head_pan"], j["head_tilt"])
-        self.node.create_subscription(Odometry, "/odom", odom, qos_profile_sensor_data)
-        self.node.create_subscription(JointState, "/head/joint_states", head, 10)
-
-    def _outputs(self, label: str, cls, suffix: str):
-        """(burst topic, publish(msg_or_bytes)): every frame offered goes to the burst feed, and to the
-        keyframe topic when keyframe_due says so."""
-        from rclpy.qos import QoSProfile, ReliabilityPolicy
-        qos = QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
-        burst = self.node.create_publisher(cls, BURST_PREFIX + suffix, qos)
-        key = self.node.create_publisher(cls, KEYFRAME_PREFIX + suffix, qos)
-        last = [None]
-        self.counts[label] = self.kept[label] = 0
-
-        def publish(msg):
-            burst.publish(msg)
-            self.counts[label] += 1
-            self.fed_bytes += len(msg) if isinstance(msg, bytes) else len(msg.data)
-            now = (time.monotonic(), *self.state["pose"], *self.state["head"])
-            if keyframe_due(last[0], now, self.cam["keyframe"]):
-                last[0] = now
-                key.publish(msg)
-                self.kept[label] += 1
-        return publish
-
-    def thin(self, label: str, topic: str, typ: str, hz: float) -> list:
-        """Relay every message of `topic` that comes at least 1/hz after the last one, as raw bytes
-        (nothing is decoded). Returns [keyframe topic, burst topic]."""
-        from rclpy.qos import qos_profile_sensor_data
-        from rosidl_runtime_py.utilities import get_message
-        cls = get_message(typ)
-        publish = self._outputs(label, cls, topic)
-        gap, last = KEEP_FRACTION / hz, [0.0]
-
-        def cb(raw: bytes):
-            now = time.monotonic()
-            if now - last[0] >= gap:
-                last[0] = now
-                publish(raw)
-                if label not in self.frames:
-                    from rclpy.serialization import deserialize_message
-                    self.frames[label] = deserialize_message(raw, cls).header.frame_id
-        self.node.create_subscription(cls, topic, cb, qos_profile_sensor_data, raw=True,
-                                      callback_group=self._own_group())
-        return [KEYFRAME_PREFIX + topic, BURST_PREFIX + topic]
-
-    def encode(self, label: str, topic: str, hz: float) -> list:
-        """Compress a raw image topic at hz: colour to JPEG (quality 90), 16-bit depth to lossless PNG.
-        Only the frames kept are decoded. Without OpenCV, relays the raw images (colour at RAW_COLOR_HZ).
-        Returns [keyframe topic, burst topic]."""
-        try:
-            import cv2
-            import numpy as np
-        except ImportError:
-            hz = RAW_COLOR_HZ if label == "color" else hz
-            print(f"WARNING: no OpenCV (python3-opencv): recording {topic} RAW at {hz:g} Hz")
-            return self.thin(label, topic, IMAGE_T, hz)
-        from rclpy.qos import qos_profile_sensor_data
-        from rclpy.serialization import deserialize_message
-        from sensor_msgs.msg import CompressedImage, Image
-        suffix = f"{topic}/" + ("compressed" if label == "color" else "png")
-        publish = self._outputs(label, CompressedImage, suffix)
-        gap, last, warned = KEEP_FRACTION / hz, [0.0], set()
-
-        def cb(raw: bytes):
-            now = time.monotonic()
-            if now - last[0] < gap:
-                return
-            last[0] = now
-            m = deserialize_message(raw, Image)
-            if m.encoding in ("rgb8", "bgr8", "mono8"):
-                ch = 1 if m.encoding == "mono8" else 3
-                img = np.frombuffer(m.data, np.uint8).reshape(m.height, m.step)[:, :m.width * ch]
-                img = img.reshape(m.height, m.width, ch)
-                if m.encoding == "rgb8":
-                    img = img[..., ::-1]
-                ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                fmt = f"{m.encoding}; jpeg compressed {'mono8' if ch == 1 else 'bgr8'}"
-            elif m.encoding in ("16UC1", "mono16"):
-                img = np.frombuffer(m.data, ">u2" if m.is_bigendian else "<u2").reshape(m.height, m.step // 2)
-                ok, buf = cv2.imencode(".png", np.ascontiguousarray(img[:, :m.width]), [cv2.IMWRITE_PNG_COMPRESSION, 1])
-                fmt = f"{m.encoding}; png"
-            else:
-                if m.encoding not in warned:
-                    warned.add(m.encoding)
-                    print(f"WARNING: {topic} is {m.encoding}, which this relay does not compress: skipped")
-                return
-            if ok:
-                publish(CompressedImage(header=m.header, format=fmt, data=buf.tobytes()))
-                self.frames.setdefault(label, m.header.frame_id)
-        self.node.create_subscription(Image, topic, cb, qos_profile_sensor_data, raw=True,
-                                      callback_group=self._own_group())
-        return [KEYFRAME_PREFIX + suffix, BURST_PREFIX + suffix]
-
-    def snapshot(self, timeout_s: float = 30.0) -> str:
-        """Write the burst recorder's buffer out as the next bursts_<n>.mcap: '' on success, else why not."""
-        from rosbag2_interfaces.srv import Snapshot
-        cli = self.node.create_client(Snapshot, f"/{BURST_NODE}/snapshot")
-        try:
-            if not cli.wait_for_service(timeout_sec=5.0):
-                return "the burst recorder offers no snapshot service"
-            fut = cli.call_async(Snapshot.Request())
-            end = time.monotonic() + timeout_s
-            while not fut.done() and time.monotonic() < end:
-                time.sleep(0.1)
-            return "" if fut.done() and fut.result().success else "the burst recorder did not confirm"
-        finally:
-            self.node.destroy_client(cli)
-
-    def _own_group(self):
-        """Each relay in its own callback group: the executor's threads then run them side by side
-        (OpenCV and the middleware release the GIL) instead of one at a time behind TF."""
-        from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-        return MutuallyExclusiveCallbackGroup()
 
     def grid(self, timeout_s: float = 15.0):
         """The latest /map (slam_toolbox latches it)."""
@@ -632,10 +443,9 @@ def streams(n: Node, topics: dict, no_color: bool = False) -> dict:
     """The topics of each recording, starting the camera's relays: {"light", "heavy", "burst": [topics]}."""
     cam = camera_topics(topics)
     rec = {"light": CORE + OPTIONAL + cam["whole"], "heavy": [], "burst": []}
-    hz = n.cam["burst"]["hz"]
     for kind, t, how in cam["thin"]:
         if not (kind == "color" and no_color):
-            key, burst = n.thin(kind, t, topics[t], hz) if how == "pass" else n.encode(kind, t, hz)
+            key, burst = n.relays.add(kind, t, how, topics[t])
             rec["heavy"].append(key)
             rec["burst"].append(burst)
     return rec
@@ -673,68 +483,27 @@ class Recording:
             heavy = os.path.join(out, "heavy")
             self.procs["heavy"] = bag(heavy, rec["heavy"])
             if bursts:
-                cache = self._cache_bytes()          # also gives rosbag2 time to create heavy/ (bursts/ sits inside it)
+                cache = cc.cache_bytes(n.relays)     # also gives rosbag2 time to create heavy/ (bursts/ sits inside it)
                 end = time.monotonic() + 15
                 while not os.path.isdir(heavy) and time.monotonic() < end:
                     time.sleep(0.2)
                 self.procs["bursts"] = bag(os.path.join(heavy, "bursts"), rec["burst"],
-                                           ["--snapshot-mode", "--max-cache-size", str(cache), "--node-name", BURST_NODE],
+                                           ["--snapshot-mode", "--max-cache-size", str(cache),
+                                            "--node-name", n.cam["burst"]["recorder_node"]],
                                            log=os.path.join(out, "bursts.log"))
-        self.marks = os.path.join(out, "marks.txt")
-        self.seen = self._lines()
-        self.due: list[float] = []
-        self.burst_count = 0
-        self._stop = threading.Event()
-        if "bursts" in self.procs:
-            threading.Thread(target=self._watch, daemon=True).start()
+        self.trigger = cc.BurstTrigger(n.node, os.path.join(out, "marks.txt"), n.cam) if "bursts" in self.procs else None
 
-    def _cache_bytes(self, seconds: float = 5.0) -> int:
-        """The burst buffer, sized by time: the feed's measured bytes a second times before_s + after_s
-        (+10%), at most cache_mb. rosbag2's buffer is in bytes, so a fixed size would hold far more
-        seconds of a slow camera than of a fast one."""
-        b = self.n.cam["burst"]
-        f0 = self.n.fed_bytes
-        time.sleep(seconds)
-        rate = (self.n.fed_bytes - f0) / seconds
-        cap = b["cache_mb"] * 1e6
-        cache = int(min(cap, rate * (b["before_s"] + b["after_s"]) * 1.1)) if rate else int(cap)
-        print(f"burst buffer: {cache / 1e6:.0f} MB (camera feed {rate / 1e6:.2f} MB/s"
-              + (", none yet: the cap" if not rate else ", at the cap" if cache == int(cap) else "") + ")")
-        return cache
-
-    def _lines(self) -> int:
-        try:
-            with open(self.marks) as f:
-                return sum(1 for _ in f)
-        except FileNotFoundError:
-            return 0
-
-    def _burst(self):
-        why = self.n.snapshot()
-        print(f"  burst {self.burst_count}: " + (why or "written"))
-        self.burst_count += 1
-
-    def _watch(self):
-        after = self.n.cam["burst"]["after_s"]
-        while not self._stop.wait(1.0):
-            k = self._lines()
-            self.due += [time.monotonic() + after] * max(k - self.seen, 0)
-            self.seen = max(k, self.seen)
-            while self.due and self.due[0] <= time.monotonic():
-                self.due.pop(0)
-                self._burst()
+    @property
+    def burst_count(self) -> int:
+        return self.trigger.count if self.trigger else 0
 
     def running(self) -> bool:
         return all(p.poll() is None for p in self.procs.values())
 
     def stop(self):
         """Write any burst still waiting for its after_s (shorter after the mark), then stop every bag."""
-        self._stop.set()
-        self.seen, k = self._lines(), self.seen
-        self.due += [0.0] * max(self.seen - k, 0)
-        for _ in self.due:
-            self._burst()
-        self.due = []
+        if self.trigger:
+            self.trigger.stop()
         for p in self.procs.values():
             if p.poll() is None:
                 p.send_signal(signal.SIGINT)
