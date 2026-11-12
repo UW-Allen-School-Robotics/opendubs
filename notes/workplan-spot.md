@@ -22,10 +22,10 @@ states the mount, the power or the time sync.
 
 | # | Step | State |
 |---|---|---|
-| C1 | At the robot, read only: the OS1's channel count and profile; the Orin's OS, ROS 2 and free disk; how the Ouster and Orin are powered and connected; the spot_ros2 and ouster-ros topic names and frames | not started |
-| C2 | The Orin (the RL Researcher Kit's) records an MCAP/zstd bag: Spot's odometry, `/joint_states` and `/tf` at full rate (the Ouster rides on the arm), the body cameras, and the Ouster's raw packets and IMU; PTP for the Ouster | not started |
+| C1 | At the robot, read only: the OS1's channel count and profile; the Orin's ROS 2, spot_ros2, ouster-ros and free disk; any recording setup left from the LRN and VAMOS work; the topic and frame names; PTP on the Orin's port | not started |
+| C2 | The Orin records in the split layout. `light/`: odometry, `/tf`, `/tf_static`, `/joint_states`, the Ouster IMU, `camera_info`, power and state. `lidar/`: the Ouster's raw packets, continuous (low-data if enough). `heavy/`: body-camera keyframes (≥0.5 m, ≥10° or 2 s) plus full-rate bursts around each mark (snapshot mode, ±20 s, `heavy/bursts/`). Reuses the Thor lane's throttle node, burst trigger and config, and `mark.py`, set to Spot's topics and `body` frame | not started; waits on the Thor lane's throttle and burst pieces |
 | C2a | The Ouster "helmet" sits on the gripper with the arm STOWED (no arm motion). From the mount CAD (Fusion, Spot > oster hat): `body` → `os_sensor` = (0.466, 0.000, 0.346) m, no rotation (sensor +x forward, +z up, connector aft). One static TF, valid while the arm is stowed | done (from CAD) |
-| C3 | After a walk: replay the packets to a cloud topic for HallPass's derived scan (`derive: pointcloud_band`, `source` = that topic); `marks.txt` from a phone page; capture.yaml with a `topics:` block; copy off by wire, never over Wi-Fi | not started |
+| C3 | After a walk: capture.yaml listing every part with its sha256, a `topics:` block and the static TF; copy off by wire; `sitekit capture push` light, then lidar, then heavy. HallPass's derived scan reads the cloud replayed from the packets | not started |
 
 ## Off the robot
 
