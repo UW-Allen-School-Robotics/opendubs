@@ -98,7 +98,8 @@ SLAM_ENABLED = "/etc/opendubs/slam.enabled"
 
 CORE = ["/scan", "/scan_rear", "/scan_filtered", "/odom", "/odom/raw", "/tf", "/tf_static",
         "/head/joint_states", "/head/joint_targets", "/head/joint_limits"]
-OPTIONAL = ["/scan_rear_filtered", "/scan_depth", "/opendubs/joint_states"]   # recorded when present
+OPTIONAL = ["/scan_rear_filtered", "/scan_depth", "/opendubs/joint_states",
+            "/tablet/fix", "/tablet/imu", "/power/bus_voltage"]   # recorded when present
 NEEDED = ["/scan", "/scan_rear", "/odom", "/tf"]      # without these the drive is not worth recording
 RELAY_PREFIX = "/mapping"
 DEPLOYED = os.environ.get("OPENDUBS_DEPLOYED", "/opt/opendubs/DEPLOYED")
@@ -733,6 +734,48 @@ def floor(args) -> int:
         n.close()
 
 
+def segment(args) -> int:
+    """A recording with no map: outdoors, ramps, a pass-through. Same streams as `floor` (colour as JPEG
+    through the relay, not raw); SLAM is left as it is and nothing is saved but the bag."""
+    free = free_gb(BAGS)
+    if free < MIN_FREE_GB + START_MARGIN_GB:
+        print(f"only {free:.0f} GB free for {BAGS}; need {MIN_FREE_GB + START_MARGIN_GB:.0f}. Move old bags off first.")
+        return 1
+    stem = f"{args.name}-{datetime.date.today():%Y%m%d}"
+    name, k = stem, 2
+    while os.path.exists(os.path.join(BAGS, name)):
+        name, k = f"{stem}-{k}", k + 1
+    n = Node()
+    proc = None
+    try:
+        topics = n.topics(2.0)
+        missing = [t for t in NEEDED if t not in topics]
+        if missing:
+            print(f"WARNING: not publishing: {' '.join(missing)}")
+        out = os.path.join(BAGS, name)
+        proc = bag(out, streams(n, topics, args.no_color))
+        t0 = time.monotonic()
+        print(f"RECORDING segment to {out}. Ctrl-C ONCE (or SIGINT) to stop.")
+        while proc.poll() is None:
+            time.sleep(30)
+            size, mins, free = dir_bytes(out) / 1024 ** 3, (time.monotonic() - t0) / 60, free_gb(BAGS)
+            print(f"  {mins:5.1f} min  {size:5.2f} GB  {free:.0f} GB free  " + " ".join(f"{k}={c}" for k, c in n.counts.items()))
+            if free <= MIN_FREE_GB:
+                print(f"DISK at {free:.0f} GB free: stopping the recording now")
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        if proc:
+            stop(proc)
+        n.close()
+    out = os.path.join(BAGS, name)
+    got = counts(out)
+    print(f"recording closed: {dir_bytes(out) / 1024 ** 3:.2f} GB in {out}; messages: "
+          + ", ".join(f"{t} {c}" for t, c in sorted(got.items())))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -745,6 +788,9 @@ def main() -> int:
     f.add_argument("--room", help="the room number nearest the start, if known")
     f.add_argument("--lift-m", type=float, help="the lift's height during the drive, if fixed")
     f.add_argument("--notes", help="anything the next person needs to know about the drive")
+    g = sp.add_parser("segment", help="a recording with no map (outdoors, ramps); Ctrl-C once to stop")
+    g.add_argument("name", help="e.g. bldg_ext: recorded as NAME-<date>")
+    g.add_argument("--no-color", action="store_true", help="leave the camera's colour frames out")
     s = sp.add_parser("save", help="save SLAM's current map only")
     s.add_argument("frame")
     args = ap.parse_args()
@@ -752,6 +798,8 @@ def main() -> int:
         return check(args)
     if args.cmd == "floor":
         return floor(args)
+    if args.cmd == "segment":
+        return segment(args)
     n = Node()
     try:
         return save(args.frame, n)

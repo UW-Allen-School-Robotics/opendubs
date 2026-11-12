@@ -306,9 +306,9 @@ systemd units, so a dropped ssh session doesn't stop them (all in this directory
 | script | does |
 |---|---|
 | `pinpoint-reset.sh` | `PPCAL RESET` with the robot still, then 30 s of `[ODO]` and the heading drift. Before each floor |
-| `floor-start.sh FRAME "START" [ROOM]` | `floor-mapping.sh floor` as the unit `opendubs-floor-map`, plus the `[ODO]` text log beside the bag |
+| `floor-start.sh FRAME "START" [ROOM]` | `floor-mapping.sh floor` as the unit `opendubs-floor-map`, plus a text log of the StamPLC's `[ODO]`, `[DRIVE]`, `[SAFE]`, `[8SERVO]`, `[BMS]`, `[PDH]`, `[WDT]` and `[SYS]` lines beside the bag |
 | `floor-stop.sh` | one SIGINT to the unit, which saves the map and `capture.yaml`; waits for the save |
-| `exterior-start.sh NAME` / `exterior-stop.sh` | a bag-only segment (outdoors, ramps): scans, odom, TF, the head, raw colour, depth, the camera IMU, the tablet's GPS and IMU. SLAM is left as it is |
+| `exterior-start.sh NAME` / `exterior-stop.sh` | `floor-mapping.sh segment`: a bag-only segment (outdoors, ramps) with the same streams as a floor (colour as JPEG) plus the tablet's GPS and IMU. SLAM is left as it is |
 | `mark.sh "label"` | one line in the current capture's `marks.txt`: time, label, `/odom` and SLAM pose, the head's joints |
 | `plc_listen.py` | prints the StamPLC's UDP 5005 lines by tag, optionally after one host command; root (raw socket) |
 
