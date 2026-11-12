@@ -115,6 +115,7 @@ Every value below was set on opendubs2's mitre-gear drive, which is worn and str
 |---|---|---|
 | `OPENDUBS_NECK_FOLLOW_PAN_SIGN` | **`-1`** | 2026-10-16, at the robot: a pan of 70 turns the head to the **robot's right**, and the face page does not mirror image x. The code's default of +1 turned the head away from people and pinned it at the pan limit |
 | `OPENDUBS_NECK_FOLLOW_TILT_SIGN` | `-1` | 2026-10-15, open-loop with both follow ranges at 0 so the head held centre. The code's default is also −1 |
+| `OPENDUBS_HEAD_PAN_URDF_SIGN` | **`-1`** (to set) | 2026-11-11, from recorded drives: `/head/joint_states`' head_pan is opposite to the URDF's head_pan axis. A depth-vs-lidar check at 10 marks favoured the flipped sign at all 10 (46–99% agreement, against 0–43%). head_tilt matched the URDF (against gravity). Read by `opendubs-head-joints` (`software/ros/head_joints.py`), the camera's TF. Default +1 |
 
 ### Also uncommitted on this robot
 
