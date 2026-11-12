@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenDubs head joints (the neck's /head/joint_states -> /opendubs/joint_states for robot_state_publisher)
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=/etc/opendubs/ros-dds.env
+# Escape hatch only: OPENDUBS_HEAD_PAN_URDF_SIGN (head_joints.py). "-": absent is fine (+1, every robot).
+EnvironmentFile=-/etc/opendubs/robot.env
+ExecStart=/opt/opendubs/ros/head-joints.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
