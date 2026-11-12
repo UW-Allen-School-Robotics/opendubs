@@ -16,14 +16,15 @@ lane. Nothing moves without a person present and the maintainers' GO, step by st
 ## Spot as a capture platform (HallPass)
 
 Spot records walks for HallPass's capture contract (`opendubs.capture/1`, with Spot support in
-opendubs-site #26). Attended, with the arm stowed. The group's earlier Spot work (LRN, arXiv
+opendubs-site #26). Attended; the arm carries the Ouster and holds one pose for the whole walk. The group's earlier Spot work (LRN, arXiv
 2504.13149; VAMOS, arXiv 2510.20818) used an Ouster OS1 and a Jetson Orin AGX on Spot. Neither paper
 states the mount, the power or the time sync.
 
 | # | Step | State |
 |---|---|---|
-| C1 | At the robot, read only: the OS1's channel count and profile; what's on Spot's back (GXP, CORE, the Orin) and how the Ouster and Orin are powered and connected; the spot_ros2 and ouster-ros topic names and frames | not started |
-| C2 | The recording host (the Orin, if it has the disk): an MCAP/zstd bag of Spot's odometry, `/tf`, the body cameras and the Ouster's raw packets and IMU; PTP for the Ouster | not started |
+| C1 | At the robot, read only: the OS1's channel count and profile; the Orin's OS, ROS 2 and free disk; how the Ouster and Orin are powered and connected; the spot_ros2 and ouster-ros topic names and frames | not started |
+| C2 | The Orin (the RL Researcher Kit's) records an MCAP/zstd bag: Spot's odometry, `/joint_states` and `/tf` at full rate (the Ouster rides on the arm), the body cameras, and the Ouster's raw packets and IMU; PTP for the Ouster | not started |
+| C2a | The Ouster "helmet" on the arm: a static TF from the arm link to `os_sensor` from the mount CAD; one fixed arm pose for the whole walk, set only on the maintainers' GO | not started |
 | C3 | After a walk: replay the packets to a cloud topic for HallPass's derived scan (`derive: pointcloud_band`, `source` = that topic); `marks.txt` from a phone page; capture.yaml with a `topics:` block; copy off by wire, never over Wi-Fi | not started |
 
 ## Off the robot
