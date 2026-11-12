@@ -28,6 +28,18 @@ topics:
 # publisher is volatile would make them incompatible, and record nothing.
 parts: {}
 
+# After the stop (and with `floor-mapping.sh derive CAPTURE` later): derive more bags from a part, e.g.
+# Spot's point clouds from the Ouster's raw packets:
+#   points: {from_part: lidar, launch: "<the driver's replay launch> use_sim_time:=true", record: [/ouster/points],
+#            into: derived/points/, settle_s: 5, rate: 1.0}
+# The part is replayed on the BAG'S clock (`ros2 bag play --clock`; the driver must take use_sim_time:=true and
+# the recorder runs with --use-sim-time), so what it derives carries the walk's stamps, not the replay's. The
+# originals' stamps were set live, by the driver's own timestamp_mode (Ouster: PTP time or ROS time); the replay
+# keeps the bag's. It runs on its own ROS domain (derive_domain_id), discovery local only, so the replayed packets
+# never reach the live robot. capture.yaml is then rebuilt with the derived files, by sha256, and re-validated.
+derive: {}
+derive_domain_id: 87
+
 slam:
   kind: slam_toolbox            # or none: `floor` neither restarts SLAM nor saves a map
   unit: opendubs-slam

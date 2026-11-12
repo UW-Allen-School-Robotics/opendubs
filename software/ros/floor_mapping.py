@@ -16,6 +16,7 @@ DDS profile). One floor is one command:
                                          and when you press Ctrl-C ONCE, stops the recording and saves
                                          the map as FRAME-<date>
   floor-mapping.sh save FRAME            save SLAM's current map only (if `floor` was cut short)
+  floor-mapping.sh derive CAPTURE        the profile's derive steps again (they also run after each stop)
 
 Nothing here drives the robot: the operator drives it by RC, as for any mapping drive. Live SLAM runs
 as it always does (opendubs-slam, slam_toolbox on the front scan); `floor` only restarts it, so each
@@ -324,6 +325,20 @@ def camera_sensors(recorded: dict, labels: dict, frames: dict) -> list:
     return out
 
 
+def capture_files(out: str, host: str):
+    """(bag files, duration, topics) of a capture: every bag's metadata.yaml and .mcap files (light/, the
+    parts, heavy/, heavy/bursts/, the derived bags), marks.txt and the [ODO] log, by sha256."""
+    bag_files = [file_entry(os.path.join(d, f), host=host) for b in bags_in(out) for d, _, fs in [next(os.walk(b))]
+                 for f in sorted(fs) if f == "metadata.yaml" or f.endswith(".mcap")]
+    bag_files += [file_entry(os.path.join(out, f), host=host) for f in sorted(os.listdir(out))
+                  if f == "marks.txt" or f.endswith("-odo.txt")]
+    duration, topics = 0.0, []
+    for b in bags_in(out):                     # light/ first: its duration is the drive's
+        d, t = parse_bag_info(subprocess.run(["ros2", "bag", "info", b], capture_output=True, text=True).stdout)
+        duration, topics = duration or d, topics + t
+    return bag_files, duration, topics
+
+
 def write_capture(args, n, name: str, out: str, started: datetime.datetime, ended: datetime.datetime) -> None:
     """capture.yaml in the capture directory, with the map's small files copied beside it."""
     import yaml
@@ -351,14 +366,7 @@ def write_capture(args, n, name: str, out: str, started: datetime.datetime, ende
     if map_kind not in ("slam_toolbox", "graphnav", "other"):
         map_kind = "other" if map_files else None
     print("  hashing the recording for capture.yaml")
-    bag_files = [file_entry(os.path.join(d, f), host=host) for b in bags_in(out) for d, _, fs in [next(os.walk(b))]
-                 for f in sorted(fs) if f == "metadata.yaml" or f.endswith(".mcap")]
-    bag_files += [file_entry(os.path.join(out, f), host=host) for f in sorted(os.listdir(out))
-                  if f == "marks.txt" or f.endswith("-odo.txt")]
-    duration, topics = 0.0, []
-    for b in bags_in(out):                     # light/ first: its duration is the drive's
-        d, t = parse_bag_info(subprocess.run(["ros2", "bag", "info", b], capture_output=True, text=True).stdout)
-        duration, topics = duration or d, topics + t
+    bag_files, duration, topics = capture_files(out, host)
     recorded = {t["name"]: t["count"] for t in topics}
     cameras = camera_sensors(recorded, n.relays.labels, n.frames)
     resolution = None
@@ -565,7 +573,8 @@ def counts(out: str) -> dict[str, int]:
 def bags_in(out: str) -> list:
     """The recordings in a capture directory: light/, the profile's parts, heavy/, heavy/bursts/, or OUT
     itself (before 2026-11-12)."""
-    found = [os.path.join(out, d) for d in ("light", *profile()["parts"], "heavy", "heavy/bursts")
+    derived = [d["into"].strip("/") for d in (profile().get("derive") or {}).values()]
+    found = [os.path.join(out, d) for d in ("light", *profile()["parts"], "heavy", "heavy/bursts", *derived)
              if os.path.exists(os.path.join(out, d, "metadata.yaml"))]
     return found or [out]
 
@@ -750,6 +759,8 @@ def floor(args) -> int:
         rc = save(args.frame, n, start, name) if slam_on() else 0
         if rec:
             write_capture(args, n, name, os.path.join(BAGS, name), started, ended)
+            if profile().get("derive"):
+                rc = rc or derive(os.path.join(BAGS, name))
         return rc
     finally:
         n.close()
@@ -794,7 +805,83 @@ def segment(args) -> int:
     out = os.path.join(BAGS, name)
     attach(out, args.attach)
     closed(out)
-    return 0
+    return derive(out) if profile().get("derive") else 0
+
+
+def derive(out: str, only: str | None = None) -> int:
+    """The profile's post-stop derive steps (Spot: the Ouster's packets -> /ouster/points). Each replays
+    one part of the capture ON THE BAG'S CLOCK (`ros2 bag play --clock`) into its `launch` command, which
+    must take use_sim_time:=true, and records `record` into `into` with --use-sim-time, so what it
+    derives carries the walk's stamps. It runs on its own ROS domain (derive_domain_id, local only), so
+    the replay never reaches the live robot. Then capture.yaml's bag block is rebuilt with the new files."""
+    steps = {k: v for k, v in (profile().get("derive") or {}).items() if not only or k == only}
+    if not steps:
+        print("no derive step in this robot's profile" + (f" named {only}" if only else ""))
+        return 0 if not only else 1
+    env = dict(os.environ, ROS_DOMAIN_ID=str(int(profile().get("derive_domain_id", 87))),
+               ROS_AUTOMATIC_DISCOVERY_RANGE="LOCALHOST")
+    rc = 0
+    for name, st in steps.items():
+        src, dst = os.path.join(out, st["from_part"]), os.path.join(out, st["into"].strip("/"))
+        if not os.path.exists(os.path.join(src, "metadata.yaml")):
+            print(f"derive {name}: no {src}/metadata.yaml: skipped")
+            rc = 1
+            continue
+        if os.path.exists(dst):
+            print(f"derive {name}: {dst} exists: skipped (remove it to derive again)")
+            continue
+        print(f"derive {name}: {st['from_part']}/ -> {st['into']} ({' '.join(st['record'])}), on the bag's clock")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        log = open(os.path.join(out, f"derive-{name}.log"), "w")
+        drv = subprocess.Popen(st["launch"], shell=True, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        time.sleep(float(st.get("settle_s", 5)))
+        recp = subprocess.Popen(["ros2", "bag", "record", "-s", "mcap", "--storage-preset-profile", "zstd_fast",
+                                 "--use-sim-time", "-o", dst] + st["record"], env=env, stdout=log,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+        time.sleep(3)
+        play = subprocess.run(["ros2", "bag", "play", src, "--clock", "-r", str(st.get("rate", 1.0))],
+                              env=env, stdout=log, stderr=subprocess.STDOUT)
+        time.sleep(float(st.get("drain_s", 3)))
+        for p in (recp, drv):
+            if p.poll() is None:
+                os.killpg(p.pid, signal.SIGINT)
+        for p in (recp, drv):
+            try:
+                p.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
+        got = counts(dst) if os.path.exists(os.path.join(dst, "metadata.yaml")) else {}
+        print(f"  {name}: play rc {play.returncode}; recorded " + (", ".join(f"{t} {c}" for t, c in got.items()) or "NOTHING"))
+        rc = rc or (0 if any(got.values()) else 1)
+    refresh_capture(out)
+    return rc
+
+
+def refresh_capture(out: str) -> None:
+    """Rebuild capture.yaml's bag block from what is in the capture now, and re-validate it against the
+    schema (tests/capture.schema.json, when jsonschema is installed)."""
+    import yaml
+    path = os.path.join(out, "capture.yaml")
+    if not os.path.exists(path):
+        print("  no capture.yaml to update")
+        return
+    doc = yaml.safe_load(open(path))
+    print("  hashing the recording for capture.yaml")
+    files, duration, topics = capture_files(out, socket.gethostname().split(".")[0])
+    duration = duration or doc["bag"].get("duration_s", 0.0)
+    doc["bag"] = dict(doc["bag"], files=files, bytes=sum(f["bytes"] for f in files), duration_s=round(duration, 3),
+                      topics=[dict(t, **({"hz": round(t["count"] / duration, 2)} if duration else {})) for t in topics])
+    try:
+        import json
+        import jsonschema
+        schema = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "capture.schema.json")
+        jsonschema.validate(doc, json.load(open(schema)))
+        how = "valid"
+    except ImportError:
+        how = "NOT validated: no jsonschema here"
+    with open(path, "w") as f:
+        yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True)
+    print(f"  capture.yaml updated ({len(files)} files, {how})")
 
 
 def attach(out: str, paths) -> None:
@@ -834,6 +921,9 @@ def main() -> int:
     g.add_argument("name", help="e.g. bldg_ext: recorded as NAME-<date>")
     g.add_argument("--no-color", action="store_true", help="leave the camera's colour frames out")
     g.add_argument("--attach", action="append", help="a file to move into the capture at the end (the [ODO] log)")
+    d = sp.add_parser("derive", help="run the profile's derive steps on a capture again (e.g. Spot's point clouds)")
+    d.add_argument("capture", help="the capture directory")
+    d.add_argument("--only", help="one derive step by name")
     s = sp.add_parser("save", help="save SLAM's current map only")
     s.add_argument("frame")
     args = ap.parse_args()
@@ -843,6 +933,8 @@ def main() -> int:
         return floor(args)
     if args.cmd == "segment":
         return segment(args)
+    if args.cmd == "derive":
+        return derive(args.capture.rstrip("/"), args.only)
     n = Node()
     try:
         return save(args.frame, n)
