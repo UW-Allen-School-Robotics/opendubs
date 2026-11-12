@@ -232,20 +232,23 @@ def sensors_block(recorded: dict, cameras: list) -> list:
 
 def capture_manifest(*, cid, key, fms, floor_code, start, end, ntp, robot, code, operator, landmark,
                      room, sensors, map_name_, resolution, map_files, bag_files, duration_s, topics,
-                     color, notes=None) -> dict:
-    """The opendubs.capture/1 document, in the schema's key order."""
+                     color, notes=None, map_kind=None, topic_map=None) -> dict:
+    """The opendubs.capture/1 document, in the schema's key order. No map_files: no `map` (a walk with
+    no map, e.g. a robot without SLAM). topic_map: the schema's optional `topics` (which topic carries
+    what, where it differs from sitekit's defaults for robot.kind)."""
     doc = {"schema": CAPTURE_SCHEMA, "id": cid, "building": {"key": key, "fms": fms}, "floor": floor_code,
            "time": {"start": start.isoformat(timespec="seconds"), "end": end.isoformat(timespec="seconds"),
                     "clock": "ntp" if ntp else "unsynced"},
            "robot": robot, "code": code, "operator": operator, "sensors": sensors,
            "start": {"landmark": landmark, **({"room": room} if room else {})},
-           "map": {"name": map_name_, **({"resolution_m": round(resolution, 4)} if resolution else {}),
-                   "files": map_files},
+           **({"map": {"name": map_name_, **({"kind": map_kind} if map_kind else {}),
+                       **({"resolution_m": round(resolution, 4)} if resolution else {}), "files": map_files}}
+              if map_files else {}),
            "bag": {"storage": "mcap/zstd_fast", "files": bag_files, "duration_s": round(duration_s, 3),
                    "bytes": sum(f["bytes"] for f in bag_files),
                    "topics": [dict(t, **({"hz": round(t["count"] / duration_s, 2)} if duration_s else {}))
                               for t in topics]},
-           "privacy": {"color": color}}
+           "privacy": {"color": color}, **({"topics": topic_map} if topic_map else {})}
     if notes:
         doc["notes"] = notes
     return doc
@@ -336,10 +339,17 @@ def write_capture(args, n, name: str, out: str, started: datetime.datetime, ende
                  if os.path.exists(os.path.join(out, f))]
     map_files += [file_entry(os.path.join(MAPS, name + s), host=host) for s in (".posegraph", ".data")
                   if os.path.exists(os.path.join(MAPS, name + s))]
-    if not map_files:
-        print("  capture.yaml NOT written: no map file was saved" + ("" if slam_on() else
-              " (slam: none; opendubs.capture/1 needs a map)"))
+    map_name_, map_kind = name, profile()["slam"].get("kind")
+    if getattr(args, "map", None):              # a map made elsewhere (Spot's GraphNav): a file or a directory
+        m = os.path.abspath(args.map.rstrip("/"))
+        paths = [os.path.join(d, f) for d, _, fs in os.walk(m) for f in sorted(fs)] if os.path.isdir(m) else [m]
+        map_files = [file_entry(f, host=host) for f in sorted(paths)]
+        map_name_, map_kind = os.path.basename(m), args.map_kind
+    if slam_on() and not map_files and not getattr(args, "map", None):
+        print("  capture.yaml NOT written: no map file was saved")
         return
+    if map_kind not in ("slam_toolbox", "graphnav", "other"):
+        map_kind = "other" if map_files else None
     print("  hashing the recording for capture.yaml")
     bag_files = [file_entry(os.path.join(d, f), host=host) for b in bags_in(out) for d, _, fs in [next(os.walk(b))]
                  for f in sorted(fs) if f == "metadata.yaml" or f.endswith(".mcap")]
@@ -356,7 +366,7 @@ def write_capture(args, n, name: str, out: str, started: datetime.datetime, ende
         resolution = float(yaml.safe_load(open(os.path.join(MAPS, name + ".yaml")))["resolution"])
     except (OSError, KeyError, TypeError, ValueError):
         pass
-    robot = {"name": host}
+    robot = {"name": host, **({"kind": profile()["robot"]["kind"]} if profile()["robot"].get("kind") else {})}
     if urdf() and os.path.exists(urdf()):
         robot["description_sha256"] = sha256(urdf())
     if args.lift_m is not None:
@@ -368,8 +378,9 @@ def write_capture(args, n, name: str, out: str, started: datetime.datetime, ende
     doc = capture_manifest(cid=capture_id(started.date(), key, floor_code, name), key=key, fms=buildings()[key],
                            floor_code=floor_code, start=started, end=ended, ntp=ntp_synced(), robot=robot,
                            code=code, operator=args.operator, landmark=args.start, room=args.room,
-                           sensors=sensors_block(recorded, cameras), map_name_=name, resolution=resolution,
-                           map_files=map_files, bag_files=bag_files, duration_s=duration, topics=topics,
+                           sensors=sensors_block(recorded, cameras), map_name_=map_name_, resolution=resolution,
+                           map_files=map_files, map_kind=map_kind, topic_map=profile().get("manifest_topics"),
+                           bag_files=bag_files, duration_s=duration, topics=topics,
                            color=color, notes=args.notes)
     with open(os.path.join(out, "capture.yaml"), "w") as f:
         yaml.safe_dump(doc, f, sort_keys=False, allow_unicode=True)
@@ -676,7 +687,8 @@ def floor(args) -> int:
     if why:
         print(f"cannot write the capture manifest: {why}")
         return 1
-    name = map_name(args.frame, saved_maps(), datetime.date.today())
+    taken = saved_maps() | (set(os.listdir(BAGS)) if os.path.isdir(BAGS) else set())   # never reuse a capture
+    name = map_name(args.frame, taken, datetime.date.today())
     print(f"floor {args.frame}: map {name}. KEEP THE ROBOT STILL until it says RECORDING.")
     if slam_on():
         print(f"restarting {sl['unit']} for a fresh map")
@@ -815,6 +827,9 @@ def main() -> int:
     f.add_argument("--lift-m", type=float, help="the lift's height during the drive, if fixed")
     f.add_argument("--notes", help="anything the next person needs to know about the drive")
     f.add_argument("--attach", action="append", help="a file to move into the capture at the end (the [ODO] log)")
+    f.add_argument("--map", help="a map made elsewhere to list in capture.yaml (a file or a directory, e.g. Spot's GraphNav map)")
+    f.add_argument("--map-kind", default="graphnav", choices=["graphnav", "slam_toolbox", "other"],
+                   help="what made --map (default graphnav)")
     g = sp.add_parser("segment", help="a recording with no map (outdoors, ramps); Ctrl-C once to stop")
     g.add_argument("name", help="e.g. bldg_ext: recorded as NAME-<date>")
     g.add_argument("--no-color", action="store_true", help="leave the camera's colour frames out")

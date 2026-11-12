@@ -3,6 +3,7 @@
 # Another robot gives its own file here, <robot>.yaml, selected with OPENDUBS_CAPTURE_ROBOT=<robot> (or a
 # path). A section or key that file leaves out takes the value below; a list given there replaces this one.
 robot:
+  kind: opendubs              # capture.yaml's robot.kind: sitekit's default topic map (opendubs | spot)
   odom: /odom                   # nav_msgs/Odometry: the keyframe gate's motion, and mark.py's odom pose ("" = none)
   pose_frames: []               # or the gate's motion from TF instead of a topic: [odom_frame, base_frame], e.g. [odom, body]
   head: /head/joint_states      # sensor_msgs/JointState of a moving camera mount ("" = no head)
@@ -51,6 +52,10 @@ camera:
   sensor_id: '{label}_head'     # each stream's id in capture.yaml's sensors
   sensor_extra:                 # more recorded topics (regex) listed under a stream's sensor
     depth: ['^/camera/.*/(imu|sample)$', '^/scan_depth$']
+
+# capture.yaml's optional `topics`: which topic carries what, where it differs from sitekit's defaults for
+# robot.kind (the site repo's schemas/capture.schema.json). opendubs2 matches the defaults: none.
+manifest_topics: {}
 
 # capture.yaml's sensors (besides the camera's): listed when any of their topics was recorded
 sensors:

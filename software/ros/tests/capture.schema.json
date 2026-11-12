@@ -4,7 +4,7 @@
   "title": "opendubs.capture/1: one mapping drive",
   "description": "The manifest of one attended mapping drive of one floor, written as captures/<yyyymmdd>-<building>-<floor>[-n]/capture.yaml. It names everything needed to rebuild the map offline later: the robot and code that recorded it, the sensors and their calibration, where the drive started, the saved map and the recording, each large file by host path and sha256.",
   "type": "object",
-  "required": ["schema", "id", "building", "floor", "time", "robot", "code", "operator", "sensors", "start", "map", "bag", "privacy"],
+  "required": ["schema", "id", "building", "floor", "time", "robot", "code", "operator", "sensors", "start", "bag", "privacy"],
   "additionalProperties": false,
   "properties": {
     "schema": { "const": "opendubs.capture/1" },
@@ -47,6 +47,7 @@
       "additionalProperties": false,
       "properties": {
         "name": { "description": "e.g. opendubs2.", "type": "string" },
+        "kind": { "description": "The robot's family, for its default topic map (sitekit/capture/topics.py). Guessed from the name when absent.", "enum": ["opendubs", "spot"] },
         "description_sha256": { "description": "sha256 of the URDF robot_state_publisher was running: the sensor extrinsics.", "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "lift_m": { "description": "Scissor-lift height during the drive, if it was fixed.", "type": "number" }
       }
@@ -106,12 +107,13 @@
       }
     },
     "map": {
-      "description": "The map saved at the end of the drive. Small files are committed beside the manifest; the pose graph is referenced.",
+      "description": "The map saved at the end of the drive, when there is one: a SLAM map, a Spot GraphNav map. Optional: a walk may carry none. Small files are committed beside the manifest; the pose graph is referenced.",
       "type": "object",
       "required": ["name", "files"],
       "additionalProperties": false,
       "properties": {
         "name": { "description": "As saved on the robot, e.g. gates_f2-20261110.", "type": "string" },
+        "kind": { "description": "What made it.", "enum": ["slam_toolbox", "graphnav", "other"] },
         "resolution_m": { "type": "number" },
         "files": { "type": "array", "items": { "$ref": "#/$defs/file" }, "minItems": 1 }
       }
@@ -151,6 +153,34 @@
           "description": "Whether the bag holds colour frames (pictures of people): left out at record time (--no-color), still present, blurred, or deleted afterwards.",
           "enum": ["not_recorded", "present", "blurred", "deleted"]
         }
+      }
+    },
+    "topics": {
+      "description": "Which topic carries what, where it differs from the robot's defaults (sitekit/capture/topics.py). Images and camera_info are found by type and name and need no entry.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "odom": { "description": "nav_msgs/Odometry of the base.", "type": "string" },
+        "scans": {
+          "description": "2D scans: recorded ({topic}), or derived at read time from a 3D cloud ({derive: pointcloud_band, ...}), e.g. from Spot's Ouster, which has no /scan.",
+          "type": "array",
+          "items": { "oneOf": [
+            { "type": "object", "required": ["topic"], "additionalProperties": false, "properties": { "topic": { "type": "string" } } },
+            { "type": "object", "required": ["derive", "source", "z_m", "frame_id"], "additionalProperties": false, "properties": {
+              "derive": { "description": "The cloud's points between z_m above the floor in frame_id, nearest per bearing, as pointcloud_to_laserscan does.", "const": "pointcloud_band" },
+              "source": { "description": "The PointCloud2 topic, or the Ouster packet topic replayed through ouster-ros.", "type": "string" },
+              "z_m": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+              "frame_id": { "type": "string" },
+              "angle_increment_deg": { "type": "number" }
+            } }
+          ] }
+        },
+        "joints": { "description": "sensor_msgs/JointState of the joints the camera chain needs; null when there are none.", "type": ["string", "null"] },
+        "joint_limits": { "type": ["string", "null"] },
+        "imus": { "description": "key -> topic. imu_camera is the one the camera chain and the ramp survey use.", "type": "object", "additionalProperties": { "type": ["string", "null"] } },
+        "imu_frame": { "description": "The frame of imu_camera's samples.", "type": "string" },
+        "fix": { "type": ["string", "null"] },
+        "voltage": { "type": ["string", "null"] }
       }
     },
     "notes": { "description": "Anything the next person needs: doors that were closed, a floor area skipped, SLAM losing track.", "type": "string" }

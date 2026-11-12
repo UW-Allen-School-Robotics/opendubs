@@ -124,7 +124,7 @@ class CaptureManifestTest(unittest.TestCase):
         self.assertEqual(topics[1], {"name": "/odom/raw", "type": "std_msgs/msg/String", "count": 830})
         recorded = {t["name"]: t["count"] for t in topics}
         h = "0" * 64
-        doc = fm.capture_manifest(
+        self._last = dict(
             cid=fm.capture_id(datetime.date(2026, 11, 10), "gates", "0G", "gates_fG-20261110-2"),
             key="gates", fms="6502", floor_code="0G",
             start=datetime.datetime(2026, 11, 10, 9, 0, tzinfo=datetime.timezone.utc),
@@ -138,10 +138,15 @@ class CaptureManifestTest(unittest.TestCase):
             map_files=[{"path": "gates_fG-20261110-2.pgm", "sha256": h, "bytes": 10}],
             bag_files=[{"host": "robot", "path": "/b/metadata.yaml", "sha256": h, "bytes": 5}],
             duration_s=duration, topics=topics, color="present")
+        doc = fm.capture_manifest(**self._last, map_kind="slam_toolbox")
         self.assertEqual(doc["id"], "20261110-gates-0G-2")
         self.assertEqual([s["id"] for s in doc["sensors"]], ["lidar_front", "odom_pinpoint", "color_head"])
         schema = json.loads((pathlib.Path(__file__).parent / "capture.schema.json").read_text())
         jsonschema.validate(yaml.safe_load(yaml.safe_dump(doc, sort_keys=False)), schema)
+        # a robot without SLAM (slam: none, no --map): the manifest has no map, and is still valid
+        bare = fm.capture_manifest(**dict(self._last, map_files=[]))
+        self.assertNotIn("map", bare)
+        jsonschema.validate(yaml.safe_load(yaml.safe_dump(bare, sort_keys=False)), schema)
 
 
 if __name__ == "__main__":
