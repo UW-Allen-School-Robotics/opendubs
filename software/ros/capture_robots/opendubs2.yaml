@@ -1,0 +1,111 @@
+# Capture profile: opendubs2 (an OpenDubs robot). The DEFAULT profile, read by floor_mapping.py (`check`,
+# `floor`, `segment`), capture_camera.py (the camera's keyframe and burst relays) and mark.py.
+# Another robot gives its own file here, <robot>.yaml, selected with OPENDUBS_CAPTURE_ROBOT=<robot> (or a
+# path). A section or key that file leaves out takes the value below; a list given there replaces this one.
+robot:
+  kind: opendubs              # capture.yaml's robot.kind: sitekit's default topic map (opendubs | spot)
+  odom: /odom                   # nav_msgs/Odometry: the keyframe gate's motion, and mark.py's odom pose ("" = none)
+  pose_frames: []               # or the gate's motion from TF instead of a topic: [odom_frame, base_frame], e.g. [odom, body]
+  head: /head/joint_states      # sensor_msgs/JointState of a moving camera mount ("" = no head)
+  head_joints: [head_pan, head_tilt]
+  map_frame: map                # mark.py's SLAM pose: map_frame -> base_frame
+  base_frame: base_link
+  data_root: /var/lib/opendubs/bags   # where captures live; mark.py marks the newest (OPENDUBS_BAG_DIR wins)
+  urdf: /opt/opendubs/description/opendubs.urdf   # hashed into capture.yaml (OPENDUBS_URDF wins)
+
+# light/: these topics, plus the camera's small topics (camera.whole_types)
+topics:
+  core: [/scan, /scan_rear, /scan_filtered, /odom, /odom/raw, /tf, /tf_static,
+         /head/joint_states, /head/joint_targets, /head/joint_limits]
+  optional: [/scan_rear_filtered, /scan_depth, /opendubs/joint_states, /tablet/fix, /tablet/imu, /power/bus_voltage]
+  needed: [/scan, /scan_rear, /odom, /tf]      # warned about when missing: without them a drive is not worth recording
+
+# more bags beside light/ and heavy/, one per name, each with its own topics (taken out of light/), e.g.
+#   lidar: [/ouster/lidar_packets, /ouster/imu_packets]
+# A latched topic (transient-local, published once: /tf_static, Spot's /ouster/metadata) lands in its bag
+# even when published before the recorder started: rosbag2 subscribes with each publisher's own durability
+# (checked 2026-11-12). No QoS override is given on purpose: forcing transient-local on a topic whose
+# publisher is volatile would make them incompatible, and record nothing.
+parts: {}
+
+# After the stop (and with `floor-mapping.sh derive CAPTURE` later): derive more bags from a part, e.g.
+# Spot's point clouds from the Ouster's raw packets:
+#   points: {from_part: lidar, launch: "<the driver's replay launch> use_sim_time:=true", record: [/ouster/points],
+#            into: derived/points/, settle_s: 5, rate: 1.0,
+#            play_args: [--qos-profile-overrides-path, "{share:ouster_ros}/config/metadata-qos-override.yaml"]}
+# play_args are appended to `ros2 bag play`; {share:PKG} is that package's share directory. ouster-ros replays
+# its own bags with that override, so the latched /ouster/metadata reaches its cloud node.
+# The part is replayed on the BAG'S clock (`ros2 bag play --clock`; the driver must take use_sim_time:=true and
+# the recorder runs with --use-sim-time), so what it derives carries the walk's stamps, not the replay's. The
+# originals' stamps were set live, by the driver's own timestamp_mode (Ouster: PTP time or ROS time); the replay
+# keeps the bag's. It runs on its own ROS domain (derive_domain_id), discovery local only, so the replayed packets
+# never reach the live robot. capture.yaml is then rebuilt with the derived files, by sha256, and re-validated.
+derive: {}
+derive_domain_id: 87
+
+slam:
+  kind: slam_toolbox            # or none: `floor` neither restarts SLAM nor saves a map
+  unit: opendubs-slam
+  enabled_flag: /etc/opendubs/slam.enabled
+  description: slam_toolbox (online async) on /scan_filtered, Pinpoint odometry
+
+# The camera's image streams, found by name. Each entry is tried in order, and the first candidate whose
+# topic exists with the right type wins (pass: a sensor_msgs/CompressedImage, relayed as it is; jpeg /
+# png: a raw sensor_msgs/Image, compressed here). A label may use the match's named groups, e.g.
+# "grey_{name}", to make one stream per matching topic. The group `base` is where the camera's small
+# topics live. OPENDUBS_COLOR_FROM_RAW=1 skips the `pass` candidates of the label `color`.
+camera:
+  model: Orbbec Femto Bolt
+  exclude: [/tablet/]           # never relayed
+  streams:
+    - label: color
+      try:
+        - {match: '^(?P<base>.*)/color/image_raw/compressed$', how: pass}
+        - {match: '^(?P<base>.*)/color/image_raw$', how: jpeg}
+    - label: depth
+      try:
+        - {match: '^(?P<base>.*)/depth/image_raw/compressedDepth$', how: pass}
+        - {match: '^(?P<base>.*)/depth/image_raw$', how: png}
+  whole_types: [sensor_msgs/msg/CameraInfo, sensor_msgs/msg/Imu]   # recorded whole (light/) when under a stream's base
+  pictures: '^color$'           # the labels that are pictures of people: --no-color drops them; capture.yaml's privacy
+  sensor_id: '{label}_head'     # each stream's id in capture.yaml's sensors
+  sensor_extra:                 # more recorded topics (regex) listed under a stream's sensor
+    depth: ['^/camera/.*/(imu|sample)$', '^/scan_depth$']
+
+# capture.yaml's optional `topics`: which topic carries what, where it differs from sitekit's defaults for
+# robot.kind (the site repo's schemas/capture.schema.json). opendubs2 matches the defaults: none.
+manifest_topics: {}
+
+# capture.yaml's sensors (besides the camera's): listed when any of their topics was recorded
+sensors:
+  - {id: lidar_front, model: RPLIDAR A1, topics: [/scan, /scan_filtered], frame_id: laser, calibration: urdf}
+  - {id: lidar_rear, model: RPLIDAR A1, topics: [/scan_rear, /scan_rear_filtered], frame_id: laser_rear, calibration: urdf}
+  - {id: odom_pinpoint, model: goBILDA Pinpoint, topics: [/odom, /odom/raw], frame_id: odom, calibration: urdf}
+  - {id: neck, model: "M5Dial neck, servo pan and tilt",
+     topics: [/head/joint_states, /head/joint_targets, /head/joint_limits, /opendubs/joint_states],
+     frame_id: head_tilt_link, calibration: none}
+
+relay:
+  keyframe_prefix: /mapping/key     # heavy/
+  burst_prefix: /mapping/burst      # the burst feed (heavy/bursts/)
+
+# heavy/   KEYFRAMES only: a frame of each stream whenever the robot has moved or turned this far, or the
+#          head has turned this far, since the last frame kept, and at least one every floor_s.
+keyframe:
+  move_m: 0.5         # translation since the last kept frame
+  turn_deg: 10        # heading change since the last kept frame
+  head_deg: 5         # any head joint's change since the last kept frame
+  floor_s: 2.0        # at most this long between kept frames, moving or not
+
+# heavy/bursts/   the camera at full rate around each mark (mark.sh): a rolling buffer, written out
+#          after_s after the mark, so each burst runs from about before_s before it to after_s after.
+#          One file per mark, bursts_<n>.mcap, in the order of marks.txt. A mark less than
+#          before_s + after_s after the last one starts where that burst ended: no frame is written twice.
+burst:
+  hz: 15              # the relay's rate into the buffer (less if the camera, or the colour encoder, is slower)
+  before_s: 20
+  after_s: 20
+  recorder_node: opendubs_bursts   # the snapshot recorder's --node-name: its service is /<node>/snapshot
+  cache_mb: 200       # the buffer's upper bound. It is sized at the start from the camera feed's measured
+                      # rate to hold before_s + after_s; 2026-11-11's frames (colour JPEG 138 kB, depth
+                      # 157 kB) at 15 Hz would fill those 40 s with 177 MB
