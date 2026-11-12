@@ -22,6 +22,10 @@ topics:
 
 # more bags beside light/ and heavy/, one per name, each with its own topics (taken out of light/), e.g.
 #   lidar: [/ouster/lidar_packets, /ouster/imu_packets]
+# A latched topic (transient-local, published once: /tf_static, Spot's /ouster/metadata) lands in its bag
+# even when published before the recorder started: rosbag2 subscribes with each publisher's own durability
+# (checked 2026-11-12). No QoS override is given on purpose: forcing transient-local on a topic whose
+# publisher is volatile would make them incompatible, and record nothing.
 parts: {}
 
 slam:
