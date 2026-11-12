@@ -13,6 +13,19 @@ lane. Nothing moves without a person present and the maintainers' GO, step by st
 | The plan's window length as a `spot_driver.plan()` parameter (about 2 s) | Choreography, made in ENCORE | asked |
 | A reserved address or name for Spot on the robot's router | Network | later, with the maintainers' word and a person at the robot |
 
+## Spot as a capture platform (HallPass)
+
+Spot records walks for HallPass's capture contract (`opendubs.capture/1`, with Spot support in
+opendubs-site #26). Attended, with the arm stowed. The group's earlier Spot work (LRN, arXiv
+2504.13149; VAMOS, arXiv 2510.20818) used an Ouster OS1 and a Jetson Orin AGX on Spot. Neither paper
+states the mount, the power or the time sync.
+
+| # | Step | State |
+|---|---|---|
+| C1 | At the robot, read only: the OS1's channel count and profile; what's on Spot's back (GXP, CORE, the Orin) and how the Ouster and Orin are powered and connected; the spot_ros2 and ouster-ros topic names and frames | not started |
+| C2 | The recording host (the Orin, if it has the disk): an MCAP/zstd bag of Spot's odometry, `/tf`, the body cameras and the Ouster's raw packets and IMU; PTP for the Ouster | not started |
+| C3 | After a walk: replay the packets to a cloud topic for HallPass's derived scan (`derive: pointcloud_band`, `source` = that topic); `marks.txt` from a phone page; capture.yaml with a `topics:` block; copy off by wire, never over Wi-Fi | not started |
+
 ## Off the robot
 
 | # | Step | State |
