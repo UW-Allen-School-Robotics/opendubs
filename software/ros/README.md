@@ -273,6 +273,31 @@ Check `OUT_DIR/<map>.overlay.png` (the plan in grey, the map's walls in red), th
 `<frame>.plan.yaml` and `site.yaml` to the robot's `/var/lib/opendubs/maps/` and restart
 `opendubs-slam` and `opendubs-floor-frames`.
 
+## Nav2 (behind the base lease)
+
+`opendubs-nav2` runs Nav2 on top of our SLAM: it plans on `/map` and localizes through `map -> odom`, so
+there is no AMCL and no map server. It is off unless `/etc/opendubs/nav2.enabled` exists, and it needs
+`opendubs-slam` running.
+
+- **Goals** go to the `navigate_to_pose` or `navigate_through_poses` action, in `map` or in any frame TF
+  joins to `map`: a floor frame from the fitted plan (`<floor> -> map`, `floor_frames.py`) works as is.
+- **Driving:** the controller and behaviours publish `cmd_vel_nav`, and the velocity smoother sends
+  that to `/base/nav/cmd_vel`. `nav2_lease.py` claims the base as `nav` while a goal is active, and
+  sends one zero command and releases it when the last goal ends, so shows and other stacks can claim
+  it between missions. Nothing publishes `/cmd_vel`. `OPENDUBS_NAV_OWNER` changes the owner name.
+- **The robot's gates still apply:** AUTO with the deadman held, the speed cap, the command timeout,
+  the people guard. A released deadman stops the base, and Nav2's progress checker fails the goal
+  after 15 s without progress.
+- **Costmaps** (`nav2.yaml`) read both body-filtered LIDARs (`/scan_filtered`, `/scan_rear_filtered`,
+  from `opendubs-slam`) and `/scan_depth`, the depth camera flattened in `base_link` (`depth_scan.yaml`,
+  0.27–1.07 m above the floor, used to 5 m). These are the sources, ranges and heights of the costmap
+  the 2026-10-30 demo ran. `/scan_depth` needs `base_link -> camera_link`, which the head's joint states
+  give.
+- **Speeds** in `nav2.yaml` stay under the AUTO cap. The drive bridge scales anything faster down to
+  the cap, so they are requests, never a way past it.
+- Packages: `ros-jazzy-navigation2`, `ros-jazzy-depth-image-proc`, `ros-jazzy-pointcloud-to-laserscan`
+  (`provision-ros.sh`).
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts

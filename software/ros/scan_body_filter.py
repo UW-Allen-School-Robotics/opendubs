@@ -15,7 +15,9 @@ mounting comes from TF (robot_state_publisher), looked up once: it is a fixed jo
 laser_filters' box filter does the same job, but its Jazzy build at the time needed a newer
 diagnostic_updater than the robot's, and provisioning never upgrades installed ROS packages.
 
-  OPENDUBS_SCAN_IN / OPENDUBS_SCAN_OUT   topics          (default /scan, /scan_filtered)
+  OPENDUBS_SCAN_IN / OPENDUBS_SCAN_OUT   topics   (default /scan, /scan_filtered)
+  OPENDUBS_SCAN_NODE                    node name (default scan_body_filter; use a
+                                        different name for a second lidar, e.g. rear)
 """
 import math
 import os
@@ -52,12 +54,14 @@ def main():
     from tf2_ros import Buffer, TransformListener
 
     rclpy.init()
-    node = Node("scan_body_filter")
+    node_name = os.environ.get("OPENDUBS_SCAN_NODE", "scan_body_filter").strip() or "scan_body_filter"
+    scan_in = os.environ.get("OPENDUBS_SCAN_IN", "/scan")
+    scan_out = os.environ.get("OPENDUBS_SCAN_OUT", "/scan_filtered")
+    node = Node(node_name)
     log = node.get_logger()
     tf_buffer = Buffer()
     TransformListener(tf_buffer, node)
-    pub = node.create_publisher(LaserScan, os.environ.get("OPENDUBS_SCAN_OUT", "/scan_filtered"),
-                                qos_profile_sensor_data)
+    pub = node.create_publisher(LaserScan, scan_out, qos_profile_sensor_data)
     mount = {}
 
     def on_scan(msg):
@@ -83,8 +87,8 @@ def main():
         out.intensities = msg.intensities
         pub.publish(out)
 
-    node.create_subscription(LaserScan, os.environ.get("OPENDUBS_SCAN_IN", "/scan"), on_scan,
-                             qos_profile_sensor_data)
+    log.info(f"{node_name}: {scan_in} -> {scan_out}")
+    node.create_subscription(LaserScan, scan_in, on_scan, qos_profile_sensor_data)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
