@@ -107,11 +107,14 @@ def test_it_settles_within_reach_of_the_necks_deadband_and_holds(rig):
     assert neck.sent[-1] == "OFF" and not la.active()
 
 
-def test_out_of_reach_moves_nothing_and_says_what_it_needs(rig):
+def test_out_of_reach_holds_the_nearest_aim_and_says_so(rig):
+    """HallPass's request: aim as near as the head can, hold, and flag it, so its check can still judge
+    the frame (or choose to drive closer)."""
     client, neck, _ = rig
-    r = client.post("/api/head/look_at", json={**AIM, "x": -3.0, "y": 0.0, "z": 1.5}).json()   # behind it
-    assert r["settled"] is False and r["reason"] == "out_of_range" and r["limits"]["pan_deg"] == [-150.0, 150.0]
-    assert neck.sent == [] and not la.active()
+    r = client.post("/api/head/look_at", json={**AIM, "x": -3.0, "y": -0.3, "z": 1.5}).json()   # behind it
+    assert r["settled"] is False and r["reason"] == "out_of_range" and r["head_at_limit"] is True
+    assert r["limits"]["pan_deg"] == [-150.0, 150.0] and r["need"]["pan_deg"] < -150
+    assert r["pan_deg"] == pytest.approx(-150.0, abs=1.2) and la.active() and la.session["holding"]
 
 
 def test_a_closed_gate_blocks_it_and_while_it_holds_tracking_sends_nothing(rig, tmp_path, monkeypatch):

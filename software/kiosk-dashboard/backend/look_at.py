@@ -10,7 +10,8 @@ runner releases it (or `hold_s` runs out, so a runner that dies frees the neck).
       Blocks until the head settles or `timeout_s` passes:
         {"settled": true, "pan_deg", "tilt_deg", "err_deg", "t_settled"}
         {"settled": false, "reason", "pan_deg", "tilt_deg", "err_deg", ...}
-      reason: "out_of_range" (nothing moved; `need` and `limits` say why), "timeout", "stopped_short"
+      reason: "out_of_range" (the head holds the nearest aim it has, at the edge of its reach:
+      `head_at_limit`, `need` and `limits` say how far off), "timeout", "stopped_short"
       (the head stopped, `err_deg` off: PRECISION below), "neck_silent", or "blocked: <why>" (a gate
       below). The head holds its aim either way until the release.
   POST /api/head/look_at/release {"owner"}     the head is free again (GAZE OFF)
@@ -20,7 +21,7 @@ runner releases it (or `hold_s` runs out, so a runner that dies frees the neck).
 Angles are the REAL joint angles in the robot description's signs, in degrees, the same quantities as
 /head/joint_states (neck_state.py): head_pan + turns the head to the robot's left, head_tilt + tips the
 face down, 0 is straight ahead and level. `err_deg` is the larger of the two joints' distances from
-the solution, read from the neck's own report (what /head/joint_states carries).
+the aim it holds (the nearest reachable one when the point is out of reach), read from the neck's own report (what /head/joint_states carries).
 
 THE POINT: `frame_id` is `base_link` or `lift_platform`. A runner holding the point in `map` or a
 floor frame transforms it to `base_link` with its own tf2. From there to the camera is the robot's
@@ -240,15 +241,12 @@ def to_real_deg(pan_cmd: float, tilt_cmd: float, k: float):
     return (pan_cmd - CENTRE) * k, -(tilt_cmd - CENTRE) * k
 
 
-def limits(tilt_band, k: float, joints: dict | None = None) -> dict:
+def limits(tilt_band, k: float) -> dict:
     """The head's reach in real degrees: the neck's travel (pan) and this robot's commissioned tilt band,
-    inside the description's joint limits."""
+    as the neck reports and enforces them. Not the description's joint limits: those are the Tab5
+    bracket's, unmeasured on the tablet head (workplan-thor-stack L.3b), and the neck tilts past them."""
     p = sorted(to_real_deg(c, CENTRE, k)[0] for c in PAN_CMD)
     t = sorted(to_real_deg(CENTRE, c, k)[1] for c in tilt_band)
-    for name, rng in ((PAN_JOINT, p), (TILT_JOINT, t)):
-        j = next((v for v in (joints or {}).values() if v["name"] == name), None)
-        if j and j["lower"] is not None and j["upper"] is not None:
-            rng[0], rng[1] = max(rng[0], math.degrees(j["lower"])), min(rng[1], math.degrees(j["upper"]))
     return {"pan_deg": [round(p[0], 2), round(p[1], 2)], "tilt_deg": [round(t[0], 2), round(t[1], 2)]}
 
 
@@ -337,10 +335,7 @@ def _snapshot() -> dict:
     if neck:
         pd, td = to_real_deg(neck["pan"], neck["tilt"], k)
         out.update(pan_deg=round(pd, 2), tilt_deg=round(td, 2), moving=neck["moving"], neck_owner=neck["owner"])
-        try:
-            out["limits"] = limits(neck["tilt_band"], k, description())
-        except (OSError, ET.ParseError):
-            out["limits"] = limits(neck["tilt_band"], k)
+        out["limits"] = limits(neck["tilt_band"], k)
     else:
         out.update(pan_deg=None, tilt_deg=None, limits=None)
     return out
@@ -426,20 +421,25 @@ async def post_look_at(request: Request) -> JSONResponse:
     if neck is None:
         return answer(False, reason="neck_silent")
     sol = solve(ch, xyz, lift_m)
-    lim = limits(neck["tilt_band"], k, joints)
+    lim = limits(neck["tilt_band"], k)
     if sol is None:
         return answer(False, reason="out_of_range", need=None, limits=lim,
                       why="no aim reaches that point (too close to the camera?)")
     need = [round(math.degrees(sol[0]), 2), round(math.degrees(sol[1]), 2)]
-    if not (lim["pan_deg"][0] <= need[0] <= lim["pan_deg"][1] and lim["tilt_deg"][0] <= need[1] <= lim["tilt_deg"][1]):
-        return answer(False, reason="out_of_range", need={"pan_deg": need[0], "tilt_deg": need[1]}, limits=lim)
+    # OUT OF REACH: the nearest aim the head has, each joint clamped to its reach, held there and reported
+    # as out_of_range with head_at_limit (HallPass's request, 2026-11-15: its check accepts a target in
+    # the middle of the frame, so a near miss at the edge is often still a usable picture).
+    held = [min(lim["pan_deg"][1], max(lim["pan_deg"][0], need[0])),
+            min(lim["tilt_deg"][1], max(lim["tilt_deg"][0], need[1]))]
+    edge = {} if held == need else {"head_at_limit": True, "need": {"pan_deg": need[0], "tilt_deg": need[1]},
+                                    "limits": lim}
     why = await loop.run_in_executor(None, gate, neck)
     if why:
-        return answer(False, reason=f"blocked: {why}")
+        return answer(False, reason=f"blocked: {why}", **edge)
 
-    aim = tuple(round(v, 2) for v in to_cmd(sol[0], sol[1], k))
+    aim = tuple(round(v, 2) for v in to_cmd(math.radians(held[0]), math.radians(held[1]), k))
     session.update(active=True, owner=owner, until=t0 + hold_s, settled=False, err_deg=None, t_settled=None,
-                   aim_cmd=aim, cmd=aim, aim_deg={"pan_deg": need[0], "tilt_deg": need[1]}, holding=False, blocked=None,
+                   aim_cmd=aim, cmd=aim, aim_deg={"pan_deg": held[0], "tilt_deg": held[1]}, holding=False, blocked=None,
                    target={"frame_id": frame, "x": xyz[0], "y": xyz[1], "z": xyz[2], "camera": camera, "lift_m": lift_m},
                    why="aiming")
     _ensure_hold_task()
@@ -457,22 +457,25 @@ async def post_look_at(request: Request) -> JSONResponse:
         session["holding"] = True
         still = await _wait_still(sent_at + 0.1, deadline)
         if still == "silent":
-            return answer(False, reason="neck_silent")
+            return answer(False, reason="neck_silent", **edge)
         if still is None:
             session["why"] = "timeout"
-            return answer(False, reason="timeout")
+            return answer(False, reason="timeout", **edge)
         ep, et = _errors(aim, still, k)
         session["err_deg"] = round(max(ep, et), 2)
         if max(ep, et) <= tol:
-            session.update(cmd=aim, settled=True, t_settled=time.time(), why="settled")
             # Renewals carry the aim itself: inside the deadband, so the head stays where it stopped.
             await loop.run_in_executor(None, _send, *aim)
+            if edge:                                 # there, but "there" is the edge of its reach
+                session.update(cmd=aim, why="holding at the edge of the head's reach")
+                return answer(False, session["err_deg"], reason="out_of_range", **edge)
+            session.update(cmd=aim, settled=True, t_settled=time.time(), why="settled")
             return answer(True, session["err_deg"], t_settled=session["t_settled"])
         if attempt == 0:
             sends.append((nudge(aim[0], still["pan"]), nudge(aim[1], still["tilt"])))
     session.update(cmd=aim, why=f"stopped {session['err_deg']} deg from the aim (the neck's deadband)")
     await loop.run_in_executor(None, _send, *aim)
-    return answer(False, session["err_deg"], reason="stopped_short", why=session["why"])
+    return answer(False, session["err_deg"], reason="stopped_short", why=session["why"], **edge)
 
 
 @router.post("/api/head/look_at/release")
