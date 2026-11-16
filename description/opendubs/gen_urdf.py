@@ -56,6 +56,24 @@ def known(v):
     return isinstance(v, list) and len(v) == 3 and all(isinstance(c, (int, float)) for c in v)
 
 
+ARMS_URDF = HERE.parent / "openarm" / "urdf" / "v1.urdf"
+
+
+def arm_root_inverse(arms):
+    """(xyz_mm, rpy_deg) of arm_mount -> tf_root: the inverse of the arms URDF's fixed tf_root -> root_body joint.
+    Only an identity joint is supported (v1.urdf's is); anything else stops the build rather than guessing."""
+    root, body = arms["tf_root"], arms["root_body"]
+    js = [j for j in ET.parse(ARMS_URDF).getroot().iter("joint")
+          if j.find("parent").get("link") == root and j.find("child").get("link") == body]
+    if len(js) != 1 or js[0].get("type") != "fixed":
+        sys.exit(f"{ARMS_URDF.name}: no single fixed joint {root} -> {body}")
+    o = js[0].find("origin")
+    vals = [float(v) for v in ((o.get("xyz") or "0 0 0").split() + (o.get("rpy") or "0 0 0").split())] if o is not None else [0.0] * 6
+    if any(abs(v) > 1e-9 for v in vals):
+        sys.exit(f"{ARMS_URDF.name}: {root} -> {body} is {vals}, not identity: arm_root_inverse must compose its inverse")
+    return (0, 0, 0), (0, 0, 0)
+
+
 class Urdf:
     def __init__(self):
         self.parts, self.missing, self.links = [], [], set()
@@ -146,6 +164,13 @@ def build(d, femto_variant=None):
     u.link("arm_mount")
     u.joint("arm_mount_joint", "fixed", "lift_platform", "arm_mount",
             mount["xyz_mm"], mount.get("rpy_deg", (0, 0, 0)))
+    # The arms' container runs its own robot_state_publisher, whose tree is rooted at `tf_root` (`world`), not at
+    # openarm_body_link0. Joining arm_mount -> tf_root puts both arms and grippers in the robot's TF
+    # (base_link -> ... -> openarm_<side>_hand_tcp). The offset is the inverse of the arms' own
+    # tf_root -> root_body joint, read from the vendored arms URDF (enactic/openarm_description, which the container builds).
+    if d["arms"].get("tf_root"):
+        u.link(d["arms"]["tf_root"])
+        u.joint("arm_tf_root_joint", "fixed", "arm_mount", d["arms"]["tf_root"], *arm_root_inverse(d["arms"]))
 
     ha = d["head_assembly"]
     fitted = ha["fitted"]
