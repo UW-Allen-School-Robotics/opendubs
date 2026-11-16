@@ -221,7 +221,31 @@ SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove op
 echo "== service status on $HOST =="
 ssh "$HOST" "for s in $SERVICES; do printf '  %-28s %s\n' \"\$s\" \"\$(systemctl is-active \$s 2>/dev/null)\"; done"
 
+# rosbridge has no authentication: :9090 may listen on loopback and, where robot.env sets
+# OPENDUBS_ROSBRIDGE_ADDRESS, on that robot-network address. Anything else (0.0.0.0, ::, another
+# interface) is a wrong bind and fails this deploy's exit status (software/ros/README.md).
+echo "== rosbridge listener on $HOST =="
+ROSBRIDGE_BIND_OK=1
+ssh "$HOST" 'bash -s' <<'EOF' || ROSBRIDGE_BIND_OK=0
+set -f   # a listener printed as *:9090 must not glob
+env_get() { sed -n "s/^$1=//p" /etc/opendubs/robot.env 2>/dev/null | tail -1 | tr -d "\"'"; }
+want=$(env_get OPENDUBS_ROSBRIDGE_ADDRESS); url=$(env_get OPENDUBS_ROSBRIDGE_URL)
+for _ in $(seq 20); do listen=$(ss -ltnH 'sport = :9090' | awk '{print $4}'); [ -n "$listen" ] && break; sleep 0.5; done
+[ -n "$listen" ] || { echo "!! rosbridge is not listening on :9090 (journalctl -u opendubs-rosbridge)"; exit 1; }
+bad=0
+for a in $listen; do
+  h=${a%:9090}; h=${h#[}; h=${h%]}; h=${h%%\%*}
+  case "$h" in 127.0.0.1|::1) ;; *) [ -n "$want" ] && [ "$h" = "$want" ] || { echo "!! rosbridge listens on $a, outside loopback and the robot network"; bad=1; } ;; esac
+done
+if [ -n "$want" ] && [ "$url" != "ws://$want:9090" ]; then
+  echo "!! robot.env has rosbridge on $want but OPENDUBS_ROSBRIDGE_URL='${url:-unset}': the dashboard cannot reach ROS"; bad=1
+fi
+[ "$bad" = 0 ] && echo "  :9090 on" $listen "(ok)"
+exit "$bad"
+EOF
+
 printf 'source=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\nhallpass_sitekit=%s\n' "$SOURCE" "$SRC_SHA" "$SRC_BRANCH" \
   "$MAIN_SHA" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(hostname -s)" "$SITEKIT_SHA" | ssh "$HOST" "cat > $DEST/DEPLOYED"
 echo "== deployed from $SOURCE =="
 echo "== deployed. Reboot the Thor to (re)launch kiosk + ROS:  ssh $HOST sudo reboot =="
+[ "$ROSBRIDGE_BIND_OK" = 1 ] || { echo "!! rosbridge :9090 is bound wrongly (see above): fix it before HallPass or anyone uses the robot network"; exit 1; }

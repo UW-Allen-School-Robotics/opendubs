@@ -53,14 +53,25 @@ dashboard's `/rosbridge`:**
 
 It speaks the ordinary rosbridge protocol, relayed unchanged, so a rosbridge client (roslibjs,
 roslibpy, ros-sharp) only needs its URL changed. rosbridge itself has no authentication and gives
-full access to the ROS graph, so the raw port is not on the LAN. Instead, the dashboard refuses a
+full access to the ROS graph, so by default the raw port is not on the LAN. Instead, the dashboard refuses a
 connection opened by a web page from another site, which is the dashboard's Origin check. Tools and
 scripts that send no `Origin` are let through: the robot's network is the first protection, not a
-login. On the Thor itself, `ws://127.0.0.1:9090` still works. Foxglove has its own bridge on `:8765`
+login. On the Thor itself, `ws://127.0.0.1:9090` works by default. Foxglove has its own bridge on `:8765`
 and is unaffected.
 
-`OPENDUBS_ROSBRIDGE_ADDRESS` overrides the bind address, for an isolated bench network only, as a
-per-robot drop-in.
+A web page served from somewhere other than the dashboard is refused by that Origin check, so a
+robot whose LAN viewers need the raw port (HallPass's live viewer) opens `:9090` on the robot's own
+network only. In `/etc/opendubs/robot.env` on that robot, set the Thor's address on the robot's
+network, and point the dashboard at it, because `127.0.0.1:9090` then no longer answers:
+
+```
+OPENDUBS_ROSBRIDGE_ADDRESS=<the Thor's robot-network address>
+OPENDUBS_ROSBRIDGE_URL=ws://<that address>:9090
+```
+
+`rosbridge.sh` refuses a wildcard address (`0.0.0.0`, `::`), and `deploy-all.sh` ends every deploy by
+checking that `:9090` listens only on loopback or that configured address, and that the dashboard's
+URL matches it. A wrong bind fails the deploy's exit status with a `!! rosbridge` line.
 
 - The dashboard **LIDAR tab** has a minimal vanilla-JS rosbridge client (no
   roslibjs) that subscribes `/scan` and renders the **front** scan live (left
