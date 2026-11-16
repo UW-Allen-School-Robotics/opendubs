@@ -407,7 +407,7 @@ class Runner:
                 verdict = {"verdict": "skip", "reason": f"no TF {frame} -> base_link"}
                 break
             la = self.look_at(point)
-            head_limit = la.get("reason") == "out_of_range"
+            head_limit = bool(la.get("head_at_limit")) or la.get("reason") == "out_of_range"   # aimed as near as it can
             if not la.get("settled") and not head_limit and la.get("reason") != "stopped_short":
                 verdict = {"verdict": "skip", "reason": f"look-at: {la.get('reason') or la.get('error') or la}"}
                 break
