@@ -298,6 +298,49 @@ there is no AMCL and no map server. It is off unless `/etc/opendubs/nav2.enabled
 - Packages: `ros-jazzy-navigation2`, `ros-jazzy-depth-image-proc`, `ros-jazzy-pointcloud-to-laserscan`
   (`provision-ros.sh`).
 
+## HallPass capture missions (`hallpass_runner.py`)
+
+`opendubs-hallpass-runner` runs a capture mission stop by stop. It is off unless
+`/etc/opendubs/hallpass.enabled` exists, and it waits for a start from the dashboard's mission panel.
+A mission is a `sitekit.navgoals/1` file in `/var/lib/opendubs/hallpass/missions/<id>.navgoals.yaml`,
+written on the robot by HallPass: poses in a floor frame, each with a dwell and targets
+`{site, kind, xyz, size_m}`.
+
+For each stop:
+1. A Nav2 goal in the floor frame (`opendubs-nav2`, through the base lease), then the dwell.
+2. For each target: the dashboard's look-at, then one colour frame with K and `T_floor_camera` at
+   its stamp.
+3. HallPass's stop check (`OPENDUBS_STOPCHECK`, run in `OPENDUBS_SITEKIT`, default
+   `/opt/hallpass/opendubs-site`), which answers
+   ok | closer | reaim | retake | skip.
+4. One action on that answer, then one more check. Anything but ok goes on the redrive list.
+
+A failed goal is logged and its stop skipped. Letting go of the deadman (or leaving AUTO) pauses the
+mission: the goal is cancelled and sent again once the deadman is held. Everything goes to
+`/var/lib/opendubs/hallpass/<session>/`: `mission.jsonl`, each frame, and the stop check's crops and
+attempts.
+
+The stop check is HallPass's code, not this repo's. On a robot with `hallpass.enabled`, `deploy-all.sh`
+copies `sitekit/` and `calibration/` from the Mac's opendubs-site checkout (`OPENDUBS_SITE_REPO`, default next to the main checkout) at
+the commit `software/ros/hallpass-sitekit.ref` pins, and records that commit in `DEPLOYED`. The robot needs
+no key and no checkout, only NumPy, SciPy, Pillow, PyYAML and OpenCV (`provision-ros.sh`). Depth comes from `/camera/depth/image_raw`, which the Femto
+registers to the colour image (`OPENDUBS_CAMERA_DEPTH`).
+
+It moves the base only through Nav2 and the lease, and the head only through look-at. Both keep their
+own gates.
+
+Topics, all read-only for a viewer (rosbridge `:9090` on the LAN):
+
+| topic | type | what |
+|---|---|---|
+| `/hallpass/mission/state` | `std_msgs/String` JSON, latched, 2 Hz | `{t, state (idle, running, paused, done, failed), phase (driving, dwelling, aiming, checking), session, mission, missions, floor, frame, stop_n, stop_count, stop {n, of, mark}, target, look_at {site, xyz}, head {pan_deg, tilt_deg, settled, reason}, last_check {site, verdict, px_on_target, sharpness}, redrive, deadman, lease, why}` |
+| `/hallpass/runner/plan` | `std_msgs/String` JSON, latched | the mission being run, as read |
+| `/hallpass/runner/pose` | `geometry_msgs/PoseStamped`, 5 Hz | `base_link` in the floor frame |
+| `/hallpass/stopcheck/result` | `std_msgs/String` JSON | each stop check's answer, with `site` and `attempt` |
+| `/hallpass/mission/cmd` | `std_msgs/String` JSON, in | `{"op": "start", "mission"}`, `pause`, `resume`, `skip`: the dashboard's mission panel only |
+
+`/robot/rc` (`stamplc_bridge.py`) carries CH5 and the deadman, `{"ch5", "deadman", "live"}`.
+
 ## Notes / next
 
 - DDS is default (localhost, `ROS_DOMAIN_ID=0`, FastDDS). When more nodes/hosts

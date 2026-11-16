@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenDubs HallPass mission runner (capture drives: Nav2 goals, look-at, the stop check)
+After=network.target opendubs-nav2.service opendubs-stamplc-bridge.service
+# Off until a robot opts in: sudo touch /etc/opendubs/hallpass.enabled && sudo systemctl start opendubs-hallpass-runner
+# It waits for a start from the dashboard's mission panel; the base moves only through Nav2 and the lease,
+# in AUTO with the deadman held.
+ConditionPathExists=/etc/opendubs/hallpass.enabled
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=/etc/opendubs/ros-dds.env
+# Per robot (where HallPass's checkout is, the lift height): /etc/opendubs/robot.env, optional
+EnvironmentFile=-/etc/opendubs/robot.env
+ExecStart=/opt/opendubs/ros/hallpass-runner.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

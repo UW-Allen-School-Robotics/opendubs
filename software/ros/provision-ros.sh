@@ -12,7 +12,7 @@ SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-fox
 opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge \
 opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay \
 opendubs-robot-state-publisher opendubs-head-joints opendubs-slam opendubs-nav2 opendubs-floor-frames opendubs-dance-tracker \
-opendubs-base-selector"
+opendubs-base-selector opendubs-hallpass-runner"
 # Units this stack no longer runs. Provisioning stops, disables and removes each one a robot still has,
 # so an old install cannot start it again at boot. opendubs-camera drove the original Orbbec Astra,
 # which has been removed from the robot (notes/history/astra-camera/).
@@ -70,6 +70,9 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-navigation2" \
   "ros-${ROS_DISTRO}-depth-image-proc" "ros-${ROS_DISTRO}-pointcloud-to-laserscan" >/dev/null \
   || echo "  !! Nav2 or the depth scan not installed (offline?): opendubs-nav2 cannot start until they are"
+# The HallPass mission runner's stop check (HallPass's sitekit) needs NumPy, PIL, SciPy, PyYAML and OpenCV.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-numpy python3-pil python3-scipy python3-yaml python3-opencv >/dev/null \
+  || echo "  !! python3-pil / python3-scipy / python3-opencv not installed (offline?): the HallPass stop check cannot run until they are"
 
 # --- the service user ---------------------------------------------------------
 # The ROS units and the sudoers rule name the account the nodes run as with placeholders
