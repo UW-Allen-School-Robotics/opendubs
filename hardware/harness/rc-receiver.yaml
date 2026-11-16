@@ -1,0 +1,28 @@
+# The RC receiver's pigtail. Source of the wiring card on docs/build/rc-receiver.md;
+# run `python3 tools/harness.py --inject` after editing. Schema: the top of tools/harness.py.
+schema: opendubs.harness/0
+assembly: rc-receiver
+status: robot
+page: docs/build/rc-receiver.md
+connectors:
+  blue:
+    board: stamplc
+    ref: BLUE
+  sbus:
+    name: Receiver SBUS pins
+    part: sys-rc
+    numbered: false
+    pins: {SIG: Signal, VCC: VCC (+), GND: GND (−)}
+cables:
+  - id: pigtail
+    title: Grove-to-servo pigtail
+    what: Joins the StamPLC's blue Grove port to the receiver's 3-pin SBUS socket, and powers the receiver from the port.
+    build: a Grove 4-pin cable joined to a 3-pin servo lead by WAGO, solder and heat-shrink, or crimp
+    wires:
+      - {from: blue.G5, to: sbus.SIG, signal: SBUS, colour: yellow}
+      - {from: blue.5V, to: sbus.VCC, signal: +5 V, colour: red}
+      - {from: blue.GND, to: sbus.GND, signal: GND, colour: black}
+      - {from: blue.G4, to: null, signal: unused, colour: white}
+    notes:
+      - Wire by function. Grove pin order and servo colours vary between cables and brands.
+      - Meter the pigtail before you plug in the receiver; +5 V and GND reversed can destroy it.
