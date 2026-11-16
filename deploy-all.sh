@@ -168,6 +168,41 @@ except Exception:
   ssh "$HOST" rm -rf "$tmp"
 }
 
+# HallPass's stop check (sitekit/ from opendubs-site), on a robot whose /etc/opendubs/hallpass.enabled exists:
+# COPIED from the Mac's opendubs-site checkout (OPENDUBS_SITE_REPO) at the commit software/ros/hallpass-sitekit.ref
+# pins, to /opt/hallpass/opendubs-site/sitekit (the runner's OPENDUBS_SITEKIT). No key or checkout on the robot;
+# it needs only numpy and Pillow there (provision-ros.sh). The sha goes in /opt/hallpass/opendubs-site/SITEKIT_SHA
+# and in DEPLOYED. A robot already on that sha is left alone.
+SITEKIT_SHA=none
+deploy_sitekit() {
+  ssh "$HOST" "test -e /etc/opendubs/hallpass.enabled" || return 0
+  local site="${OPENDUBS_SITE_REPO:-$REPO/../opendubs-site}" ref sha have
+  ref=$(grep -v '^#' "$REPO/software/ros/hallpass-sitekit.ref" | tr -d '[:space:]')
+  if [ -z "$ref" ]; then
+    echo "!! HallPass is enabled on $HOST but software/ros/hallpass-sitekit.ref pins no opendubs-site commit: sitekit NOT deployed"
+    return 0
+  fi
+  git -C "$site" cat-file -e "$ref^{commit}" 2>/dev/null || git -C "$site" fetch -q origin 2>/dev/null
+  if ! sha=$(git -C "$site" rev-parse --short=12 "$ref^{commit}" 2>/dev/null); then
+    echo "!! opendubs-site commit $ref is not in $site (set OPENDUBS_SITE_REPO): sitekit NOT deployed"
+    return 0
+  fi
+  have=$(ssh "$HOST" "cat /opt/hallpass/opendubs-site/SITEKIT_SHA 2>/dev/null")
+  SITEKIT_SHA=$sha
+  if [ "$have" = "$sha" ]; then
+    echo "== HallPass sitekit: $HOST already runs opendubs-site $sha =="
+    return 0
+  fi
+  echo "== HallPass sitekit: $HOST ${have:-none} -> opendubs-site $sha =="
+  ssh -t "$HOST" "sudo mkdir -p /opt/hallpass && sudo chown \$(id -un):\$(id -gn) /opt/hallpass" || return 0
+  git -C "$site" archive "$sha" sitekit | ssh "$HOST" "rm -rf /opt/hallpass/opendubs-site.new && mkdir -p /opt/hallpass/opendubs-site.new \
+    && tar -x -C /opt/hallpass/opendubs-site.new && echo $sha > /opt/hallpass/opendubs-site.new/SITEKIT_SHA \
+    && rm -rf /opt/hallpass/opendubs-site.old && { [ ! -e /opt/hallpass/opendubs-site ] || mv /opt/hallpass/opendubs-site /opt/hallpass/opendubs-site.old; } \
+    && mv /opt/hallpass/opendubs-site.new /opt/hallpass/opendubs-site" \
+    || echo "!! HallPass sitekit was NOT copied (see above); the rest of the deploy is unaffected"
+}
+deploy_sitekit
+
 echo "== provisioning $HOST (idempotent) =="
 ssh -t "$HOST" "sudo bash $DEST/provision-all.sh"
 deploy_kiosk
@@ -179,7 +214,7 @@ SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove op
 echo "== service status on $HOST =="
 ssh "$HOST" "for s in $SERVICES; do printf '  %-28s %s\n' \"\$s\" \"\$(systemctl is-active \$s 2>/dev/null)\"; done"
 
-printf 'source=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\n' "$SOURCE" "$SRC_SHA" "$SRC_BRANCH" "$MAIN_SHA" \
-  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(hostname -s)" | ssh "$HOST" "cat > $DEST/DEPLOYED"
+printf 'source=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\nhallpass_sitekit=%s\n' "$SOURCE" "$SRC_SHA" "$SRC_BRANCH" \
+  "$MAIN_SHA" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(hostname -s)" "$SITEKIT_SHA" | ssh "$HOST" "cat > $DEST/DEPLOYED"
 echo "== deployed from $SOURCE =="
 echo "== deployed. Reboot the Thor to (re)launch kiosk + ROS:  ssh $HOST sudo reboot =="

@@ -285,7 +285,8 @@ For each stop:
 1. A Nav2 goal in the floor frame (`opendubs-nav2`, through the base lease), then the dwell.
 2. For each target: the dashboard's look-at, then one colour frame with K and `T_floor_camera` at
    its stamp.
-3. HallPass's stop check (`OPENDUBS_STOPCHECK`, run in `OPENDUBS_SITEKIT`), which answers
+3. HallPass's stop check (`OPENDUBS_STOPCHECK`, run in `OPENDUBS_SITEKIT`, default
+   `/opt/hallpass/opendubs-site`), which answers
    ok | closer | reaim | retake | skip.
 4. One action on that answer, then one more check. Anything but ok goes on the redrive list.
 
@@ -293,6 +294,12 @@ A failed goal is logged and its stop skipped. Letting go of the deadman (or leav
 mission: the goal is cancelled and sent again once the deadman is held. Everything goes to
 `/var/lib/opendubs/hallpass/<session>/`: `mission.jsonl`, each frame, and the stop check's crops and
 attempts.
+
+The stop check is HallPass's code, not this repo's. On a robot with `hallpass.enabled`, `deploy-all.sh`
+copies `sitekit/` from the Mac's opendubs-site checkout (`OPENDUBS_SITE_REPO`, default next to this repo) at
+the commit `software/ros/hallpass-sitekit.ref` pins, and records that commit in `DEPLOYED`. The robot needs
+no key and no checkout, only NumPy and Pillow. Depth comes from `/camera/depth/image_raw`, which the Femto
+registers to the colour image (`OPENDUBS_CAMERA_DEPTH`).
 
 It moves the base only through Nav2 and the lease, and the head only through look-at. Both keep their
 own gates.

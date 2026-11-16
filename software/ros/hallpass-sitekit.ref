@@ -1,0 +1,4 @@
+# The opendubs-site commit whose sitekit/ (HallPass's stop check) deploy-all.sh copies to a robot with
+# /etc/opendubs/hallpass.enabled, as /opt/hallpass/opendubs-site/sitekit. Site code stays in opendubs-site;
+# this file only pins which commit runs. Put one full or short sha on the line below (a merged commit of
+# opendubs-site main); no sha = sitekit is not deployed.

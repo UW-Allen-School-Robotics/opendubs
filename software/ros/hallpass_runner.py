@@ -36,7 +36,8 @@ Settings (environment): OPENDUBS_HALLPASS_DIR (/var/lib/opendubs/hallpass: missi
 OPENDUBS_DASHBOARD (http://127.0.0.1:8080), OPENDUBS_STOPCHECK (the command, default
 "python3 -m sitekit.capture.stopcheck") run in OPENDUBS_SITEKIT (the opendubs-site checkout),
 OPENDUBS_CAMERA_IMAGE (/camera/color/image_raw), OPENDUBS_CAMERA_INFO (/camera/color/camera_info),
-OPENDUBS_CAMERA_DEPTH (empty: depth aligned to the colour image, when the driver registers it),
+OPENDUBS_CAMERA_DEPTH (/camera/depth/image_raw: the Femto's depth is registered to colour, frame
+camera_color_optical_frame, 1280x720; empty = none),
 OPENDUBS_LIFT_M (0: the lift's travel for look-at when /zaxis/travel_m is silent).
 """
 from __future__ import annotations
@@ -56,10 +57,10 @@ ROOT = os.environ.get("OPENDUBS_HALLPASS_DIR", "/var/lib/opendubs/hallpass")
 MISSIONS = os.path.join(ROOT, "missions")
 DASH = os.environ.get("OPENDUBS_DASHBOARD", "http://127.0.0.1:8080")
 STOPCHECK = os.environ.get("OPENDUBS_STOPCHECK", "python3 -m sitekit.capture.stopcheck")
-SITEKIT = os.environ.get("OPENDUBS_SITEKIT", "")
+SITEKIT = os.environ.get("OPENDUBS_SITEKIT", "/opt/hallpass/opendubs-site")   # deploy-all.sh copies sitekit/ here
 IMAGE = os.environ.get("OPENDUBS_CAMERA_IMAGE", "/camera/color/image_raw")
 INFO = os.environ.get("OPENDUBS_CAMERA_INFO", "/camera/color/camera_info")
-DEPTH = os.environ.get("OPENDUBS_CAMERA_DEPTH", "")
+DEPTH = os.environ.get("OPENDUBS_CAMERA_DEPTH", "/camera/depth/image_raw")   # the Femto's, registered to colour
 LIFT_M = float(os.environ.get("OPENDUBS_LIFT_M", "0"))
 OWNER = "hallpass"
 LOOK_TIMEOUT_S, LOOK_HOLD_S = 8.0, 120.0
