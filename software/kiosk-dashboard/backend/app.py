@@ -179,7 +179,11 @@ def stamplc_status() -> JSONResponse:
     """Lightweight StamPLC view (io / safety / encoder / power) for the ROS bridge
     (opendubs-stamplc-bridge) — avoids the heavy full snapshot on a fast poll."""
     f = status_mod.collect_fast()
+    rc = status_mod.stamplc.reader.snapshot().get("rc") or {}
     return JSONResponse({"io": f["io"], "safety": f["safety"],
+                         # CH5 and the deadman, for the ROS bridge's /robot/rc (a mission runner pauses on it)
+                         "rc": {"ch5": status_mod.ch5_position(rc), "deadman": bool(rc.get("dead")),
+                                "live": bool(rc.get("live"))},
                          "encoder": f["encoder"], "power": f["power"],
                          # Z-axis state, so the Tab5 bridge can report real lift height and
                          # guard state instead of running its own StamPLC reader.

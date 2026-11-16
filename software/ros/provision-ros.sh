@@ -12,7 +12,7 @@ SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-fox
 opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge \
 opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay \
 opendubs-robot-state-publisher opendubs-slam opendubs-floor-frames opendubs-dance-tracker \
-opendubs-base-selector"
+opendubs-base-selector opendubs-hallpass-runner"
 # Units this stack no longer runs. Provisioning stops, disables and removes each one a robot still has,
 # so an old install cannot start it again at boot. opendubs-camera drove the original Orbbec Astra,
 # which has been removed from the robot (notes/history/astra-camera/).
@@ -64,6 +64,9 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-websocket
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" >/dev/null \
   || echo "  !! slam_toolbox not installed (offline?): opendubs-slam cannot start until it is"
+# The HallPass mission runner's stop check (HallPass's sitekit) needs NumPy, PIL and OpenCV.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-numpy python3-pil python3-opencv >/dev/null \
+  || echo "  !! python3-pil / python3-opencv not installed (offline?): the HallPass stop check cannot run until they are"
 
 # --- the service user ---------------------------------------------------------
 # The ROS units and the sudoers rule name the account the nodes run as with placeholders
