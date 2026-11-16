@@ -11,7 +11,7 @@ ROSDIR=/opt/opendubs/ros
 SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-foxglove \
 opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge \
 opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay \
-opendubs-robot-state-publisher opendubs-slam opendubs-floor-frames opendubs-dance-tracker \
+opendubs-robot-state-publisher opendubs-slam opendubs-nav2 opendubs-floor-frames opendubs-dance-tracker \
 opendubs-base-selector"
 # Units this stack no longer runs. Provisioning stops, disables and removes each one a robot still has,
 # so an old install cannot start it again at boot. opendubs-camera drove the original Orbbec Astra,
@@ -64,6 +64,12 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-websocket
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" >/dev/null \
   || echo "  !! slam_toolbox not installed (offline?): opendubs-slam cannot start until it is"
+# Nav2 (opendubs-nav2, off unless /etc/opendubs/nav2.enabled) and the depth scan its costmaps read. Its own
+# line, so a missing package does not take SLAM down with it.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
+  "ros-${ROS_DISTRO}-navigation2" \
+  "ros-${ROS_DISTRO}-depth-image-proc" "ros-${ROS_DISTRO}-pointcloud-to-laserscan" >/dev/null \
+  || echo "  !! Nav2 or the depth scan not installed (offline?): opendubs-nav2 cannot start until they are"
 
 # --- the service user ---------------------------------------------------------
 # The ROS units and the sudoers rule name the account the nodes run as with placeholders
