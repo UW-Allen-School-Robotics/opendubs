@@ -36,14 +36,14 @@ Joins the StamPLC's blue Grove port to the receiver's 3-pin SBUS socket, and pow
 
 ![Grove-to-servo pigtail wiring](../assets/wiring/rc-receiver-pigtail.svg)
 
-| Signal | BLUE · StamPLC blue port (Grove) | Wire | Receiver SBUS pins |
+| Signal | StamPLC blue port (Grove) | Wire | Receiver SBUS pins |
 |---|---|---|---|
 | SBUS | G5 (RX) | yellow | Signal |
 | +5 V | +5 V | red | VCC (+) |
 | GND | GND | black | GND (−) |
 | unused | G4 | white | — (insulate) |
 
-**Build:** a Grove 4-pin cable joined to a 3-pin servo lead by WAGO, solder and heat-shrink, or crimp
+**Build:** a Grove 4-pin cable joined to a 3-pin servo lead by WAGO, solder and heat-shrink, or crimp.
 
 - Wire by function. Grove pin order and servo colours vary between cables and brands.
 - Meter the pigtail before you plug in the receiver; +5 V and GND reversed can destroy it.

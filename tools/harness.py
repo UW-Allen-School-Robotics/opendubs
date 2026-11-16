@@ -65,6 +65,7 @@ Schema opendubs.harness/0: hardware/harness/<assembly>.yaml
 
 Board pin files: hardware/harness/boards/<board>.pins.json
   {"board": <id>, "rev": <text>, "source": "<repo>@<commit>:<path>" or "<path in this repo>",
+   "refs_on_board": <bool>,
    "connectors": {<ref>: {"name": <text>, "part": <parts.csv id>, "numbered": <bool>,
                           "pins": {<pin-id>: <label> | null}}},
    "jumpers": {<ref>: {"name": <text>, "pins": {...}}},
@@ -74,7 +75,9 @@ Board pin files: hardware/harness/boards/<board>.pins.json
   Optional per connector: "kind", "mpn", "footprint", "note" (a trap a person wiring to it must
   know; printed on every card that uses the connector). `verify` lines tie a pin to this
   repository's firmware: --check fails when the text is gone, so a moved pin cannot leave stale
-  wiring.
+  wiring. `refs_on_board: true` says the refs are printed on the board (J5 on a PCB's silkscreen),
+  so a reader can find them: the drawing and tables then show "J5 · <name>". Without it a ref is
+  this file's own key and is never shown; the connector goes by its name alone.
 
 What --check enforces: the schema; every wire end names a declared connector and one of its
 pins; no pin is used twice in one cable; a twisted pair is two wires; every part id is in
@@ -156,7 +159,7 @@ def resolve(h, boards, errors):
         where = f"{h.get('assembly')}: connector {cid}"
         for k in set(c) - CONN_KEYS:
             errors.append(f"{where}: unknown key {k!r}")
-        src = None
+        src = tag = None
         if "board" in c:
             b = boards.get(c["board"])
             if not b:
@@ -171,14 +174,16 @@ def resolve(h, boards, errors):
             src = (c["board"], c["ref"])
             c = {**bc, **{k: v for k, v in c.items() if k not in ("board", "ref")}}
             c.setdefault("name", src[1])
-            if src[1] not in str(c["name"]):
-                c["name"] = f"{src[1]} · {c['name']}"
+            if b.get("refs_on_board"):
+                tag = src[1]
+                if tag not in str(c["name"]):
+                    c["name"] = f"{tag} · {c['name']}"
         if not c.get("pins"):
             errors.append(f"{where}: no pins")
             continue
         pins = {str(k): v for k, v in c["pins"].items()}
         out[cid] = {"name": str(c.get("name", cid)), "kind": c.get("kind"), "part": c.get("part"),
-                    "bare": bool(c.get("bare")), "numbered": c.get("numbered", True), "src": src,
+                    "bare": bool(c.get("bare")), "numbered": c.get("numbered", True), "src": src, "tag": tag,
                     "note": c.get("note"), "nc": {k for k, v in pins.items() if v is None},
                     "pins": {k: ("no connection" if v is None else str(v)) for k, v in pins.items()}}
     return out
@@ -300,13 +305,45 @@ def cable_ends(cab):
     return lefts, rights
 
 
+def text_width(text, px, bold=False):
+    """Roughly how wide `text` draws, erring wide: the drawing is read in whatever font the reader has."""
+    em = sum(0.36 if ch in "iljtfrI.,:;'|!()[] ·" else 0.92 if ch in "mwMW@" else
+             0.70 if ch.isupper() or ch.isdigit() else 0.58 for ch in text)
+    return em * px * (1.06 if bold else 1)
+
+
+def wrap(text, px, width, bold=False):
+    """`text` as lines no wider than `width`, broken at spaces; a single word that is too wide is split."""
+    lines, cur = [], ""
+    for word in str(text).split():
+        if cur and text_width(f"{cur} {word}", px, bold) > width:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}".strip()
+        while text_width(cur, px, bold) > width and len(cur) > 1:
+            n = len(cur) - 1
+            while n > 1 and text_width(cur[:n], px, bold) > width:
+                n -= 1
+            lines.append(cur[:n])
+            cur = cur[n:]
+    return lines + [cur] if cur else lines
+
+
 def cable_svg(cab, conns, t=FILE):
     lefts, rights = cable_ends(cab)
     shown = shown_pins(cab, conns)
-    row, head, bw, W, gap = 22, 34, 232, 760, 14
+    row, bw, W, gap = 22, 232, 760, 14
     fit = lambda text, n: text if len(text) <= n else text[: n - 1].rstrip() + "…"
     lx, rx = 8, W - 8 - bw
-    box_h = lambda cid: head + len(shown[cid]) * row + 6
+    # A connector's name is never cut short: it wraps, and the box grows a line. Under it, what the
+    # mating end is, or how many pins are left out of the drawing; nothing when every pin is drawn.
+    title = {cid: wrap(conns[cid]["name"], 13, bw - 20, bold=True) for cid in shown}
+    under = {cid: wrap(conns[cid]["kind"] or (f"{len(shown[cid])} of its {len(conns[cid]['pins'])} pins"
+                                             if len(shown[cid]) < len(conns[cid]["pins"]) else ""), 11, bw - 20)
+             for cid in shown}
+    head = lambda cid: 15 * len(title[cid]) + 13 * len(under[cid]) + (6 if under[cid] else 9)
+    box_h = lambda cid: head(cid) + len(shown[cid]) * row + 6
     stack = lambda ids: sum(box_h(c) for c in ids) + gap * max(0, len(ids) - 1)
     H = max(stack(lefts), stack(rights)) + 28
     tops = {}
@@ -315,17 +352,18 @@ def cable_svg(cab, conns, t=FILE):
         for c in ids:
             tops[c] = y
             y += box_h(c) + gap
-    pin_y = lambda cid, pin: tops[cid] + head + shown[cid].index(pin) * row + row / 2 + 2
+    pin_y = lambda cid, pin: tops[cid] + head(cid) + shown[cid].index(pin) * row + row / 2 + 2
 
     def box(cid, x, side):
         c, top = conns[cid], tops[cid]
         dash = ' stroke-dasharray="5 4"' if c["bare"] else ""
-        sub = c["kind"] or ("all of its pins" if len(shown[cid]) == len(c["pins"]) else f"{len(shown[cid])} of its {len(c['pins'])} pins")
-        out = (f'<rect x="{x}" y="{top:.1f}" width="{bw}" height="{box_h(cid)}" rx="8" fill="{t["surface"]}" stroke="{t["ink"]}" stroke-width="1.5"{dash}/>'
-               f'<text x="{x + 10}" y="{top + 15:.1f}" font-family="{t["display"]}" font-weight="700" font-size="13" fill="{t["ink"]}">{e(fit(c["name"], 30))}</text>'
-               f'<text x="{x + 10}" y="{top + 28:.1f}" font-family="{t["body"]}" font-size="11" fill="{t["muted"]}">{e(fit(sub, 40))}</text>')
+        out = f'<rect x="{x}" y="{top:.1f}" width="{bw}" height="{box_h(cid)}" rx="8" fill="{t["surface"]}" stroke="{t["ink"]}" stroke-width="1.5"{dash}/>'
+        for i, text in enumerate(title[cid]):
+            out += f'<text x="{x + 10}" y="{top + 15 * (i + 1):.1f}" font-family="{t["display"]}" font-weight="700" font-size="13" fill="{t["ink"]}">{e(text)}</text>'
+        for i, text in enumerate(under[cid]):
+            out += f'<text x="{x + 10}" y="{top + 15 * len(title[cid]) + 13 * (i + 1):.1f}" font-family="{t["body"]}" font-size="11" fill="{t["muted"]}">{e(text)}</text>'
         for i, pid in enumerate(shown[cid]):
-            py = top + head + i * row + row / 2 + 2
+            py = top + head(cid) + i * row + row / 2 + 2
             nx = x + bw - 18 if side == "L" else x + 8
             nc = pid in c["nc"]
             out += (f'<line x1="{x + 6}" x2="{x + bw - 6}" y1="{py - row / 2 + 1:.1f}" y2="{py - row / 2 + 1:.1f}" stroke="{t["line"]}"/>'
@@ -429,9 +467,9 @@ def block(h, parts, repo):
             row = [w["signal"], side(a_ids, a), w["colour"]] + ([w.get("awg", "")] if awg else []) + [side(b_ids, b) if b else "— (insulate)"]
             out.append("| " + " | ".join(md_escape(c) for c in row) + " |")
         out.append("")
-        fs = facts(cab)
-        if fs:
-            out += [" · ".join(f"**{k}:** {v}" for k, v in fs if k != "Wire"), ""]
+        line = " · ".join(f"**{k}:** {v}" for k, v in facts(cab) if k != "Wire")
+        if line:
+            out += [line if line.endswith((".", "!", "?")) else line + ".", ""]
         notes = cable_notes(cab, conns)
         out += [f"- {n}" for n in notes] + ([""] if notes else [])
         ends = [c for side_ in cable_ends(cab) for c in side_ if conns[c]["part"]]
@@ -513,7 +551,7 @@ def page_html(h, boards, parts):
     out.append(f'<section><h2>The cables</h2><p class="muted">{len(h["cables"])} cable(s). Each drawing, pin list and note comes from one file, so they cannot disagree.</p><div class="cablecards" style="margin-top:12px">')
     for cab in h["cables"]:
         lefts, _ = cable_ends(cab)
-        chip = " · ".join(conns[c]["src"][1] if conns[c]["src"] else conns[c]["name"] for c in lefts)
+        chip = " · ".join(conns[c]["tag"] or conns[c]["name"] for c in lefts)
         out.append(f'<article class="cablecard" id="{e(cab["id"])}"><header><div><h3>{e(cab["title"])}</h3><p>{e(cab["what"])}</p></div><span class="chip">{e(chip)}</span></header>')
         out.append(f'<div class="cdraw">{cable_svg(cab, conns, PAGE)}</div>')
         fs = facts(cab, conns)
@@ -531,7 +569,7 @@ def page_html(h, boards, parts):
         free = [r for r in boards[b]["connectors"] if (b, r) not in wired]
         if free:
             out.append(f'<section class="panel"><h2>{e(b)}: connectors no cable here uses</h2><div class="unused">'
-                       + "".join(f'<span class="chip">{e(r)} {e(str(boards[b]["connectors"][r].get("name", "")))}</span>' for r in free) + "</div></section>")
+                       + "".join(f'<span class="chip">{e(r + " " if boards[b].get("refs_on_board") else "")}{e(str(boards[b]["connectors"][r].get("name", r)))}</span>' for r in free) + "</div></section>")
     out.append("</main>")
     return "\n".join(out) + "\n"
 
