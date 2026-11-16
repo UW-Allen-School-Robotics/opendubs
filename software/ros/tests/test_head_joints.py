@@ -18,6 +18,7 @@ class HeadJointsTest(unittest.TestCase):
     def test_default_sign_and_missing_joint(self):
         self.assertEqual(hj.pan_sign({}), 1.0)
         self.assertIsNone(hj.map_joints(["head_pan"], [0.1], 1.0))
+        self.assertEqual(hj.map_joints(["head_pan", "head_tilt"], [0.0, 0.0], 1.0, 0.12)[1][2], 0.12)   # the lift's travel
 
 
 if __name__ == "__main__":
