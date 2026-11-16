@@ -14,6 +14,9 @@ Topics published:
   /zaxis/encoder            std_msgs/Int32     (ExtEncoder count)
   /robot/estopped           std_msgs/Bool
   /robot/motion_enabled     std_msgs/Bool
+  /zaxis/travel_m           std_msgs/Float32   the lift's travel above the bottom, metres (the URDF's zaxis), from
+                            its ToF less OPENDUBS_LIFT_TOF_ZERO_MM (robot.env: the reading with the lift fully down,
+                            per robot). Not published without that zero, or while the reading is stale
   /robot/rc                 std_msgs/String JSON {"ch5": "AUTO|MANUAL|OFF"|null, "deadman": bool, "live": bool}
                             (the RC receiver's mode switch and CH6 deadman, as the StamPLC reads them)
   /power/pdh/{voltage,current,power}    std_msgs/Float32
@@ -72,6 +75,9 @@ class StamPLCBridge(Node):
         self.p_estop = self.create_publisher(Bool, "/robot/estopped", 10)
         self.p_motion = self.create_publisher(Bool, "/robot/motion_enabled", 10)
         self.p_rc = self.create_publisher(String, "/robot/rc", 10)
+        self.p_travel = self.create_publisher(Float32, "/zaxis/travel_m", 10)
+        z = os.environ.get("OPENDUBS_LIFT_TOF_ZERO_MM", "").strip()
+        self.lift_zero_mm = float(z) if z else None
         self.p_pv = self.create_publisher(Float32, "/power/pdh/voltage", 10)
         self.p_pi = self.create_publisher(Float32, "/power/pdh/current", 10)
         self.p_pp = self.create_publisher(Float32, "/power/pdh/power", 10)
@@ -160,6 +166,10 @@ class StamPLCBridge(Node):
         self.p_motion.publish(Bool(data=bool(saf.get("motion_enabled"))))
         if d.get("rc") is not None:
             self.p_rc.publish(String(data=json.dumps(d["rc"])))
+        lift = d.get("lift") or {}
+        if self.lift_zero_mm is not None and lift.get("fresh") and lift.get("height_mm") is not None:
+            travel = min(max((float(lift["height_mm"]) - self.lift_zero_mm) / 1000.0, 0.0), 0.2751)   # URDF zaxis limits
+            self.p_travel.publish(Float32(data=travel))
         if pdh.get("v") is not None:
             self.p_pv.publish(Float32(data=float(pdh["v"])))
         if pdh.get("i") is not None:

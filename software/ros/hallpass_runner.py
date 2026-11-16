@@ -37,7 +37,7 @@ OPENDUBS_DASHBOARD (http://127.0.0.1:8080), OPENDUBS_STOPCHECK (the command, def
 "python3 -m sitekit.capture.stopcheck") run in OPENDUBS_SITEKIT (the opendubs-site checkout),
 OPENDUBS_CAMERA_IMAGE (/camera/color/image_raw), OPENDUBS_CAMERA_INFO (/camera/color/camera_info),
 OPENDUBS_CAMERA_DEPTH (empty: depth aligned to the colour image, when the driver registers it),
-OPENDUBS_LIFT_M (0: the lift's height for look-at; nothing publishes it yet).
+OPENDUBS_LIFT_M (0: the lift's travel for look-at when /zaxis/travel_m is silent).
 """
 from __future__ import annotations
 
@@ -155,13 +155,17 @@ class Runner:
         self.rc = {"deadman": False, "ch5": None, "at": 0.0}
         self.cam = {"image": None, "info": None, "depth": None}
         self.cmds: list[dict] = []
-        self.st = {"state": "idle", "session": None, "mission": None, "missions": list(missions()), "floor": None,
+        self.st = {"state": "idle", "phase": None, "session": None, "mission": None, "missions": list(missions()), "floor": None,
                    "frame": None, "stop_n": None, "stop_count": None, "stop": None, "target": None, "look_at": None,
                    "redrive": [], "last_check": None, "deadman": False, "lease": None, "why": None}
         self.lock = threading.Lock()
         self.node.create_subscription(String, "/hallpass/mission/cmd", self._cmd, 10)
         self.node.create_subscription(String, "/robot/rc", self._rc, 10)
         self.node.create_subscription(String, "/base/owner", self._owner, latched)
+        from std_msgs.msg import Float32
+        self.lift = {"m": None, "at": 0.0}
+        self.node.create_subscription(Float32, "/zaxis/travel_m",
+                                      lambda m: self.lift.update(m=float(m.data), at=time.monotonic()), 10)
         self.node.create_subscription(Image, IMAGE, lambda m: self.cam.__setitem__("image", m), qos_profile_sensor_data)
         self.node.create_subscription(CameraInfo, INFO, lambda m: self.cam.__setitem__("info", m), qos_profile_sensor_data)
         if DEPTH:
@@ -259,7 +263,7 @@ class Runner:
         while True:
             if not self.hold_while_paused():
                 return "skipped"
-            self.publish_state(state="driving", why=None)
+            self.publish_state(state="running", phase="driving", why=None)
             if not self.nav.wait_for_server(timeout_sec=5.0):
                 return "failed: no navigate_to_pose server (is opendubs-nav2 running?)"
             g = self.NavigateToPose.Goal()
@@ -318,10 +322,14 @@ class Runner:
 
     def look_at(self, point) -> dict:
         r = post("/api/head/look_at", {"owner": OWNER, "frame_id": "base_link", "x": point[0], "y": point[1], "z": point[2],
-                                       "lift_m": LIFT_M, "timeout_s": LOOK_TIMEOUT_S, "hold_s": LOOK_HOLD_S},
+                                       "lift_m": self.lift_m(), "timeout_s": LOOK_TIMEOUT_S, "hold_s": LOOK_HOLD_S},
                  LOOK_TIMEOUT_S + 5)
         self.publish_state(head={k: r.get(k) for k in ("pan_deg", "tilt_deg", "settled", "reason")})
         return r
+
+    def lift_m(self) -> float:
+        """The lift's travel: /zaxis/travel_m when heard in the last 2 s, else OPENDUBS_LIFT_M."""
+        return self.lift["m"] if self.lift["m"] is not None and time.monotonic() - self.lift["at"] < 2.0 else LIFT_M
 
     def camera_in_base(self):
         """The colour camera's optical origin in base_link now, for reaim, or None."""
@@ -391,7 +399,7 @@ class Runner:
     def target(self, frame: str, stop: dict, tg: dict) -> str:
         """Aim, check, act once, check again: the final verdict."""
         site = tg["site"]
-        self.publish_state(state="aiming", target=site, look_at={"site": site, "xyz": tg["xyz"]})
+        self.publish_state(phase="aiming", target=site, look_at={"site": site, "xyz": tg["xyz"]})
         aim, verdict, attempt, head_limit = list(tg["xyz"]), None, 0, False
         while attempt < 2:
             point = self.to_base(frame, aim)
@@ -403,7 +411,7 @@ class Runner:
             if not la.get("settled") and not head_limit and la.get("reason") != "stopped_short":
                 verdict = {"verdict": "skip", "reason": f"look-at: {la.get('reason') or la.get('error') or la}"}
                 break
-            self.publish_state(state="checking")
+            self.publish_state(phase="checking")
             req, why = self.grab(frame, self.session_dir, f"S{stop['n']:03d}-{site}-a{attempt}")
             if req is None:
                 verdict = {"verdict": "skip", "reason": why}
@@ -485,14 +493,14 @@ class Runner:
             if got != "ok":
                 self.st["redrive"].append({"stop": stop["n"], "site": None, "verdict": "skip", "reason": got})
                 continue
-            self.publish_state(state="dwelling")
+            self.publish_state(phase="dwelling")
             time.sleep(float(stop.get("dwell_s", 0)))
             for tg in stop.get("targets") or []:
                 if isinstance(tg, dict) and "xyz" in tg:
                     self.target(frame, stop, tg)
         post("/api/head/look_at/release", {"owner": OWNER}, 5)
         self.record("done", redrive=self.st["redrive"])
-        self.publish_state(state="done", target=None, look_at=None, why=None)
+        self.publish_state(state="done", phase=None, target=None, look_at=None, why=None)
 
     def loop(self):
         while True:

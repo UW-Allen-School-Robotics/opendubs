@@ -301,7 +301,7 @@ Topics, all read-only for a viewer (rosbridge `:9090` on the LAN):
 
 | topic | type | what |
 |---|---|---|
-| `/hallpass/mission/state` | `std_msgs/String` JSON, latched, 2 Hz | `{t, state (idle, running, paused, driving, dwelling, aiming, checking, done, failed), session, mission, missions, floor, frame, stop_n, stop_count, stop {n, of, mark}, target, look_at {site, xyz}, head {pan_deg, tilt_deg, settled, reason}, last_check {site, verdict, px_on_target, sharpness}, redrive, deadman, lease, why}` |
+| `/hallpass/mission/state` | `std_msgs/String` JSON, latched, 2 Hz | `{t, state (idle, running, paused, done, failed), phase (driving, dwelling, aiming, checking), session, mission, missions, floor, frame, stop_n, stop_count, stop {n, of, mark}, target, look_at {site, xyz}, head {pan_deg, tilt_deg, settled, reason}, last_check {site, verdict, px_on_target, sharpness}, redrive, deadman, lease, why}` |
 | `/hallpass/runner/plan` | `std_msgs/String` JSON, latched | the mission being run, as read |
 | `/hallpass/runner/pose` | `geometry_msgs/PoseStamped`, 5 Hz | `base_link` in the floor frame |
 | `/hallpass/stopcheck/result` | `std_msgs/String` JSON | each stop check's answer, with `site` and `attempt` |

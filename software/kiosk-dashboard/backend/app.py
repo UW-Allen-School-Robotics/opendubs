@@ -184,6 +184,8 @@ def stamplc_status() -> JSONResponse:
                          # CH5 and the deadman, for the ROS bridge's /robot/rc (a mission runner pauses on it)
                          "rc": {"ch5": status_mod.ch5_position(rc), "deadman": bool(rc.get("dead")),
                                 "live": bool(rc.get("live"))},
+                         # the lift's ToF reading, for the ROS bridge's /zaxis/travel_m (the camera's TF)
+                         "lift": {k: status_mod._lift().get(k) for k in ("fresh", "height_mm")},
                          "encoder": f["encoder"], "power": f["power"],
                          # Z-axis state, so the Tab5 bridge can report real lift height and
                          # guard state instead of running its own StamPLC reader.
