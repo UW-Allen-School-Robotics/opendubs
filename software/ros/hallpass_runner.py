@@ -38,6 +38,7 @@ OPENDUBS_DASHBOARD (http://127.0.0.1:8080), OPENDUBS_STOPCHECK (the command, def
 OPENDUBS_CAMERA_IMAGE (/camera/color/image_raw), OPENDUBS_CAMERA_INFO (/camera/color/camera_info),
 OPENDUBS_CAMERA_DEPTH (/camera/depth/image_raw: the Femto's depth is registered to colour, frame
 camera_color_optical_frame, 1280x720; empty = none),
+OPENDUBS_HALLPASS_ROBOT (opendubs2: whose head calibration HallPass's stop check applies),
 OPENDUBS_LIFT_M (0: the lift's travel for look-at when /zaxis/travel_m is silent).
 """
 from __future__ import annotations
@@ -63,12 +64,31 @@ INFO = os.environ.get("OPENDUBS_CAMERA_INFO", "/camera/color/camera_info")
 DEPTH = os.environ.get("OPENDUBS_CAMERA_DEPTH", "/camera/depth/image_raw")   # the Femto's, registered to colour
 LIFT_M = float(os.environ.get("OPENDUBS_LIFT_M", "0"))
 OWNER = "hallpass"
+ROBOT = os.environ.get("OPENDUBS_HALLPASS_ROBOT", "opendubs2")   # whose calibration HallPass applies
 LOOK_TIMEOUT_S, LOOK_HOLD_S = 8.0, 120.0
 FRAME_TIMEOUT_S = 3.0
 GOAL_TIMEOUT_S = 300.0
 
 
 # ---- pure (tests/test_hallpass_runner.py) --------------------------------------------------------------
+
+def matrix(tf) -> "list":
+    """A geometry_msgs/Transform as a 4 x 4 numpy matrix."""
+    import numpy as np
+    q, p = tf.rotation, tf.translation
+    M = np.eye(4)
+    M[:3, :3] = [[1 - 2 * (q.y ** 2 + q.z ** 2), 2 * (q.x * q.y - q.z * q.w), 2 * (q.x * q.z + q.y * q.w)],
+                 [2 * (q.x * q.y + q.z * q.w), 1 - 2 * (q.x ** 2 + q.z ** 2), 2 * (q.y * q.z - q.x * q.w)],
+                 [2 * (q.x * q.z - q.y * q.w), 2 * (q.y * q.z + q.x * q.w), 1 - 2 * (q.x ** 2 + q.y ** 2)]]
+    M[:3, 3] = [p.x, p.y, p.z]
+    return M
+
+
+def nearest(history, t: float, max_gap_s: float = 0.25):
+    """The (t, value) in history nearest t, or None when none is within max_gap_s."""
+    best = min(history, key=lambda h: abs(h[0] - t), default=None)
+    return best[1] if best is not None and abs(best[0] - t) <= max_gap_s else None
+
 
 def missions(folder: str = MISSIONS) -> dict:
     """{id: path} of the navgoals files in folder (<id>.navgoals.yaml)."""
@@ -167,6 +187,10 @@ class Runner:
         self.lift = {"m": None, "at": 0.0}
         self.node.create_subscription(Float32, "/zaxis/travel_m",
                                       lambda m: self.lift.update(m=float(m.data), at=time.monotonic()), 10)
+        from collections import deque
+        from sensor_msgs.msg import JointState
+        self.head_hist = deque(maxlen=200)                 # (t, {head_pan, head_tilt}) from /head/joint_states, ~20 Hz
+        self.node.create_subscription(JointState, "/head/joint_states", self._head, 10)
         self.node.create_subscription(Image, IMAGE, lambda m: self.cam.__setitem__("image", m), qos_profile_sensor_data)
         self.node.create_subscription(CameraInfo, INFO, lambda m: self.cam.__setitem__("info", m), qos_profile_sensor_data)
         if DEPTH:
@@ -200,6 +224,15 @@ class Runner:
         except (ValueError, AttributeError):
             return
         self.st["lease"] = o
+
+    def _head(self, m):
+        j = dict(zip(m.name, m.position))
+        if "head_pan" in j and "head_tilt" in j:
+            self.head_hist.append((m.header.stamp.sec + m.header.stamp.nanosec / 1e9,
+                                   {"head_pan": float(j["head_pan"]), "head_tilt": float(j["head_tilt"])}))
+
+    def joints_at(self, t: float):
+        return nearest(list(self.head_hist), t)
 
     def deadman(self) -> bool:
         """Held, in AUTO, and heard within the last second: anything else is released."""
@@ -367,12 +400,9 @@ class Runner:
                                           Time.from_msg(im.header.stamp), timeout=self.rclpy.duration.Duration(seconds=1.0))
         except Exception as e:
             return None, f"no TF {frame} -> camera at the frame's stamp: {e}"
-        q, p = tr.transform.rotation, tr.transform.translation
-        R = np.array([[1 - 2 * (q.y ** 2 + q.z ** 2), 2 * (q.x * q.y - q.z * q.w), 2 * (q.x * q.z + q.y * q.w)],
-                      [2 * (q.x * q.y + q.z * q.w), 1 - 2 * (q.x ** 2 + q.z ** 2), 2 * (q.y * q.z - q.x * q.w)],
-                      [2 * (q.x * q.z - q.y * q.w), 2 * (q.y * q.z + q.x * q.w), 1 - 2 * (q.x ** 2 + q.y ** 2)]])
-        T = np.eye(4)
-        T[:3, :3], T[:3, 3] = R, [p.x, p.y, p.z]
+        T = matrix(tr.transform)
+        optical = im.header.frame_id or info.header.frame_id
+        stamp = Time.from_msg(im.header.stamp)
         ch = {"rgb8": 3, "bgr8": 3, "mono8": 1}.get(im.encoding)
         if not ch:
             return None, f"{IMAGE} is {im.encoding}, not rgb8/bgr8/mono8"
@@ -380,7 +410,18 @@ class Runner:
         path = os.path.join(out_dir, f"{tag}.png")
         cv2.imwrite(path, img[..., ::-1] if im.encoding == "rgb8" else img)
         req = {"frame": path, "K": [list(info.k[0:3]), list(info.k[3:6]), list(info.k[6:9])], "T_floor_camera": T.tolist(),
-               "stamp": Time.from_msg(im.header.stamp).nanoseconds / 1e9}
+               "stamp": stamp.nanoseconds / 1e9}
+        # HallPass's head calibration (stopcheck.calibrated): the raw neck angles at the frame's time and the two
+        # fixed transforms below the tilt joint, so it can put its per-robot offsets on TF's camera pose
+        joints = self.joints_at(stamp.nanoseconds / 1e9)
+        try:
+            a = self.tf.lookup_transform("head_tilt_link", "camera_link", Time()).transform
+            b = self.tf.lookup_transform("camera_link", optical, Time()).transform
+        except Exception:
+            a = b = None
+        if joints and a is not None:
+            req["head"] = {"joints": joints, "T_tilt_camlink": matrix(a).tolist(), "T_camlink_camera": matrix(b).tolist(),
+                           "robot": ROBOT}
         d = self.cam["depth"]
         if DEPTH and d is not None and d.encoding in ("16UC1", "32FC1"):
             arr = np.frombuffer(d.data, np.uint16 if d.encoding == "16UC1" else np.float32).reshape(d.height, -1)[:, :d.width]
@@ -424,7 +465,8 @@ class Runner:
             self.publish_state(last_check={"target": site, "site": site, "verdict": verdict.get("verdict"),
                                            "px_on_target": verdict.get("px_on_target"), "sharpness": verdict.get("sharpness")})
             self.record("check", stop=stop["n"], site=site, attempt=attempt, verdict=verdict.get("verdict"),
-                        reason=verdict.get("reason"), suggest=verdict.get("suggest"))
+                        reason=verdict.get("reason"), suggest=verdict.get("suggest"),
+                        calibration=verdict.get("calibration"), head="head" in req)
             if attempt == 1:
                 break
             what, arg = act_on(verdict)
@@ -491,6 +533,12 @@ class Runner:
             pos = stop["pose"]["position"]
             got = self.drive(pos["x"], pos["y"], yaw_of(stop["pose"]["orientation"]), frame, f"stop {stop['n']}")
             self.record("drive", stop=stop["n"], result=got)
+            if got.startswith(("failed: goal not accepted", "failed: no navigate_to_pose")):
+                # Nav2 itself is down (not this stop's fault): stop the mission instead of skipping every stop
+                post("/api/head/look_at/release", {"owner": OWNER}, 5)
+                self.record("failed", why=got)
+                self.publish_state(state="failed", phase=None, why=f"Nav2: {got[len('failed: '):]}")
+                return
             if got != "ok":
                 self.st["redrive"].append({"stop": stop["n"], "site": None, "verdict": "skip", "reason": got})
                 continue

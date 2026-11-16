@@ -168,9 +168,9 @@ except Exception:
   ssh "$HOST" rm -rf "$tmp"
 }
 
-# HallPass's stop check (sitekit/ from opendubs-site), on a robot whose /etc/opendubs/hallpass.enabled exists:
+# HallPass's stop check (sitekit/ and calibration/ from opendubs-site), on a robot whose /etc/opendubs/hallpass.enabled exists:
 # COPIED from the Mac's opendubs-site checkout (OPENDUBS_SITE_REPO) at the commit software/ros/hallpass-sitekit.ref
-# pins, to /opt/hallpass/opendubs-site/sitekit (the runner's OPENDUBS_SITEKIT). No key or checkout on the robot;
+# pins, to /opt/hallpass/opendubs-site/{sitekit,calibration} (the runner's OPENDUBS_SITEKIT). No key or checkout on the robot;
 # it needs only numpy and Pillow there (provision-ros.sh). The sha goes in /opt/hallpass/opendubs-site/SITEKIT_SHA
 # and in DEPLOYED. A robot already on that sha is left alone.
 SITEKIT_SHA=none
@@ -195,7 +195,11 @@ deploy_sitekit() {
   fi
   echo "== HallPass sitekit: $HOST ${have:-none} -> opendubs-site $sha =="
   ssh -t "$HOST" "sudo mkdir -p /opt/hallpass && sudo chown \$(id -un):\$(id -gn) /opt/hallpass" || return 0
-  git -C "$site" archive "$sha" sitekit | ssh "$HOST" "rm -rf /opt/hallpass/opendubs-site.new && mkdir -p /opt/hallpass/opendubs-site.new \
+  # sitekit/ and the per-robot calibration/ beside it (stopcheck.calibrated() reads calibration/<robot>.yaml
+  # from the checkout's root: without it the head offsets are silently not applied)
+  local paths
+  paths=$(git -C "$site" ls-tree --name-only "$sha" sitekit calibration | tr '\n' ' ')
+  git -C "$site" archive "$sha" $paths | ssh "$HOST" "rm -rf /opt/hallpass/opendubs-site.new && mkdir -p /opt/hallpass/opendubs-site.new \
     && tar -x -C /opt/hallpass/opendubs-site.new && echo $sha > /opt/hallpass/opendubs-site.new/SITEKIT_SHA \
     && rm -rf /opt/hallpass/opendubs-site.old && { [ ! -e /opt/hallpass/opendubs-site ] || mv /opt/hallpass/opendubs-site /opt/hallpass/opendubs-site.old; } \
     && mv /opt/hallpass/opendubs-site.new /opt/hallpass/opendubs-site" \

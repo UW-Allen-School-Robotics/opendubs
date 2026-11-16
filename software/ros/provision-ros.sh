@@ -64,9 +64,9 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-websocket
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade \
   "ros-${ROS_DISTRO}-robot-state-publisher" "ros-${ROS_DISTRO}-slam-toolbox" >/dev/null \
   || echo "  !! slam_toolbox not installed (offline?): opendubs-slam cannot start until it is"
-# The HallPass mission runner's stop check (HallPass's sitekit) needs NumPy, PIL and OpenCV.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-numpy python3-pil python3-opencv >/dev/null \
-  || echo "  !! python3-pil / python3-opencv not installed (offline?): the HallPass stop check cannot run until they are"
+# The HallPass mission runner's stop check (HallPass's sitekit) needs NumPy, PIL, SciPy, PyYAML and OpenCV.
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-upgrade python3-numpy python3-pil python3-scipy python3-yaml python3-opencv >/dev/null \
+  || echo "  !! python3-pil / python3-scipy / python3-opencv not installed (offline?): the HallPass stop check cannot run until they are"
 
 # --- the service user ---------------------------------------------------------
 # The ROS units and the sudoers rule name the account the nodes run as with placeholders
