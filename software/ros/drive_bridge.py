@@ -18,6 +18,9 @@ Subscribes:
 
 Publishes:
   /odom           nav_msgs/Odometry       ← the `[ODO]` line (mm, rad → m, rad)
+  /odom/raw       std_msgs/String         every `[ODO]` line verbatim, ok=0 ones too: the raw pod counts
+                  (ex, ey), the status bits and the read failures, for rebuilding odometry offline
+                  (floor_mapping.py records it). Nothing on the robot reads it
   TF odom→base_link
 
 ## Authority is NOT this node's business
@@ -134,6 +137,7 @@ class DriveBridge(Node):
         self._sock.bind(("", PLC_PORT))
 
         self.odom_pub = self.create_publisher(Odometry, "odom", qos_profile_sensor_data)
+        self.odom_raw_pub = self.create_publisher(String, "odom/raw", 10)
         self.tf = TransformBroadcaster(self)
         self.create_subscription(Twist, CMD_IN, self._on_cmd, 10)
         self._writers = 0                       # publishers on CMD_IN, checked at 1 Hz
@@ -272,6 +276,7 @@ class DriveBridge(Node):
             for line in data.decode("utf-8", "replace").splitlines():
                 if line.startswith("[ODO] "):
                     try:
+                        self.odom_raw_pub.publish(String(data=line))
                         self._publish_odom(dict(_KV.findall(line)))
                     except Exception as e:      # never let one malformed line kill the thread
                         self.get_logger().warn(f"bad [ODO] line: {e}")
