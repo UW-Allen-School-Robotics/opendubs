@@ -191,6 +191,11 @@ class Runner:
         from sensor_msgs.msg import JointState
         self.head_hist = deque(maxlen=200)                 # (t, {head_pan, head_tilt}) from /head/joint_states, ~20 Hz
         self.node.create_subscription(JointState, "/head/joint_states", self._head, 10)
+        # what TF's head already carries (head_joints.py, from the robot's head-calibration file): HallPass's check
+        # applies its own offsets only when this says "none", so they are applied exactly once
+        self.tf_calibration = None
+        self.node.create_subscription(String, "/opendubs/head_calibration",
+                                      lambda m: setattr(self, "tf_calibration", json.loads(m.data)), latched)
         self.node.create_subscription(Image, IMAGE, lambda m: self.cam.__setitem__("image", m), qos_profile_sensor_data)
         self.node.create_subscription(CameraInfo, INFO, lambda m: self.cam.__setitem__("info", m), qos_profile_sensor_data)
         if DEPTH:
@@ -419,9 +424,12 @@ class Runner:
             b = self.tf.lookup_transform("camera_link", optical, Time()).transform
         except Exception:
             a = b = None
-        if joints and a is not None:
-            req["head"] = {"joints": joints, "T_tilt_camlink": matrix(a).tolist(), "T_camlink_camera": matrix(b).tolist(),
-                           "robot": ROBOT}
+        if self.tf_calibration is None:
+            return None, "no /opendubs/head_calibration: can't tell whether TF carries the head calibration (opendubs-head-joints)"
+        if not joints or a is None:
+            return None, "no head joints or TF below the tilt joint at the frame's time"
+        req["head"] = {"joints": joints, "T_tilt_camlink": matrix(a).tolist(), "T_camlink_camera": matrix(b).tolist(),
+                       "robot": ROBOT, "tf_calibration": self.tf_calibration}
         d = self.cam["depth"]
         if DEPTH and d is not None and d.encoding in ("16UC1", "32FC1"):
             arr = np.frombuffer(d.data, np.uint16 if d.encoding == "16UC1" else np.float32).reshape(d.height, -1)[:, :d.width]
