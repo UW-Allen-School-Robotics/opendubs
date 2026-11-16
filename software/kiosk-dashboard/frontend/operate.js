@@ -206,6 +206,61 @@
     set("osArms", at, ac); set("osArmsWhy", aw ? "· " + aw : "", "op-why");
     set("osSpeed", d.spd == null ? "—" : Math.round(d.spd * 100) + "%", d.spd === 0 ? "bad" : d.spd == null ? "dim" : "");
   }
+  /* ---------- capture mission (HallPass): the runner's state, and start / pause / skip ----------
+     mission.py relays to the runner, which drives through its own base lease. Hidden while no runner
+     answers. A refusal (CH5, the deadman) is said in one line, never silently. */
+  (function () {
+    const box = $("opMission"); if (!box) return;
+    const set = (id, txt, cls) => { const e = $(id); if (e) { e.textContent = txt; if (cls !== undefined) e.className = cls; } };
+    const STATE = { idle: ["IDLE", "dim"], running: ["RUNNING", "ok"], paused: ["PAUSED", "warn"],
+                    done: ["DONE", "ok"], failed: ["FAILED", "bad"] };
+    let said = "", saidAt = 0, picked = "";
+    async function send(op, body) {
+      try {
+        const r = await fetch("/api/mission/" + op, { method: "POST", headers: { "Content-Type": "application/json" },
+                                                     body: JSON.stringify(body || {}) });
+        const j = await r.json().catch(() => ({}));
+        said = r.ok ? "" : (j.error || "refused"); saidAt = Date.now();
+      } catch (e) { said = "the dashboard did not answer"; saidAt = Date.now(); }
+      poll();
+    }
+    $("omPick").addEventListener("change", (e) => { picked = e.target.value; });
+    $("omStart").addEventListener("click", () => send("start", { mission: $("omPick").value }));
+    $("omPause").addEventListener("click", () => send($("omPause").dataset.op || "pause"));
+    $("omSkip").addEventListener("click", () => send("skip"));
+    function render(st) {
+      const m = st && st.answering ? st.mission || {} : null;
+      box.hidden = !m;
+      if (!m) return;
+      const [label, cls] = STATE[m.state] || [String(m.state || "—").toUpperCase(), "dim"];
+      set("omState", label, cls);
+      set("omWhy", m.why ? "· " + m.why : (m.session ? "· " + m.session : ""), "op-why");
+      set("omStop", m.stop_count ? `${m.stop_n ?? 0} of ${m.stop_count}` : "—", "");
+      set("omTarget", m.target || "—", "");
+      const c = m.last_check;
+      set("omCheck", c && c.verdict ? `· ${c.target || ""} ${c.verdict}` : "", "op-why");
+      const rd = Array.isArray(m.redrive) ? m.redrive : [];
+      set("omRedrive", rd.length ? rd.join(", ") : "none", rd.length ? "warn" : "dim");
+      const pick = $("omPick"), list = Array.isArray(m.missions) ? m.missions : [];
+      if (pick.dataset.list !== list.join("\n")) {
+        pick.dataset.list = list.join("\n");
+        pick.innerHTML = "";
+        for (const id of list) { const o = document.createElement("option"); o.value = o.textContent = id; pick.appendChild(o); }
+        if (list.includes(picked)) pick.value = picked;
+      }
+      const busy = m.state === "running" || m.state === "paused";
+      $("omStart").disabled = busy || !list.length; pick.disabled = busy;
+      $("omPause").disabled = !busy; $("omSkip").disabled = !busy;
+      $("omPause").textContent = m.state === "paused" ? "RESUME" : "PAUSE";
+      $("omPause").dataset.op = m.state === "paused" ? "resume" : "pause";
+      set("omMsg", said && Date.now() - saidAt < 6000 ? said : "", "op-why");
+    }
+    async function poll() {
+      try { render(await (await fetch("/api/mission", { cache: "no-store" })).json()); } catch (e) { render(null); }
+    }
+    poll(); setInterval(poll, 1000);
+  })();
+
   if (typeof window.renderDrive === "function") {
     const _rd = window.renderDrive;
     // try/finally: the strip must not depend on the rest of the drive page drawing cleanly.

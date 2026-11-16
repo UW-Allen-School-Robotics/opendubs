@@ -567,7 +567,11 @@ body {
 .op-tile.wide .op-cap{ flex-basis:100%; }
 .op-why{ color:var(--dim); font-size:13px; }
 .op-cap{ font-size:10px; letter-spacing:.12em; color:var(--dim); align-self:flex-start; }
-@media (max-width: 760px){ .op-status{ grid-template-columns:1fr 1fr; } .op-tile.wide{ grid-column:1 / -1; } }
+.op-mission{ display:grid; grid-template-columns:2fr 1fr 2fr 2fr 2fr; gap:var(--gap); padding:0 var(--gap) var(--gap); }
+.op-mission[hidden]{ display:none; }
+.op-mctl{ flex-direction:row; flex-wrap:wrap; align-items:center; gap:6px; }
+.op-mctl select{ font:inherit; padding:8px 10px; background:var(--panel-2); color:var(--txt); border:1px solid var(--line); border-radius:6px; }
+@media (max-width: 760px){ .op-status, .op-mission{ grid-template-columns:1fr 1fr; } .op-tile.wide{ grid-column:1 / -1; } }
 
 #opScrim{ position:fixed; inset:0; background:rgba(0,0,0,.5); opacity:0; pointer-events:none; transition:.18s; z-index:40; }
 #opScrim.open{ opacity:1; pointer-events:auto; }

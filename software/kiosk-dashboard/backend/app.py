@@ -59,6 +59,13 @@ async def _start_airplay_relay() -> None:
 
 
 @app.on_event("startup")
+async def _start_mission() -> None:
+    """The capture mission's panel: the runner's state in, start / pause / skip out (mission.py)."""
+    import mission
+    await mission.start()
+
+
+@app.on_event("startup")
 async def _start_neck_follow() -> None:
     """The head follows the person the face sees (neck_follow.py): it moves the neck by itself."""
     import neck_follow
@@ -534,6 +541,12 @@ app.include_router(_tablet_relay_router)
 # The neck's HOLD, shown and released from the dashboard (neck_state.py; head protocol v9).
 from neck_state import router as _neck_hold_router  # noqa: E402
 app.include_router(_neck_hold_router)
+# A capture mission aims a head camera at a point and holds it (look_at.py; HallPass).
+from look_at import router as _look_at_router  # noqa: E402
+app.include_router(_look_at_router)
+# The capture mission's panel on Operate: the runner's state, and start / pause / skip (mission.py).
+from mission import router as _mission_router  # noqa: E402
+app.include_router(_mission_router)
 # The kiosk app's next build, signed on the Thor, which the tablet installs itself (kiosk_update.py).
 from kiosk_update import router as _kiosk_update_router  # noqa: E402
 app.include_router(_kiosk_update_router)

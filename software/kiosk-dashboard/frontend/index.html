@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="OpenDubs" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="assets/icon.svg" />
-  <link rel="stylesheet" href="style.css?v=d13025ec" />
+  <link rel="stylesheet" href="style.css?v=339534a9" />
 </head>
 <body>
   <div id="app">
@@ -58,6 +58,21 @@
         <div class="op-tile wide"><span class="op-cap">DRIVE</span><b id="osDrive">—</b><span class="op-why" id="osWhy"></span></div>
         <div class="op-tile wide" title="Energized: the arm motors are powered and holding. Whether they may MOVE follows CH5 (arms plan DEC-21/24)."><span class="op-cap">ARMS</span><b id="osArms">—</b><span class="op-why" id="osArmsWhy"></span></div>
         <div class="op-tile"><span class="op-cap">SPEED · CH8</span><b id="osSpeed">—</b></div>
+      </div>
+      <!-- A capture mission (HallPass), shown only while its runner answers (mission.py). The runner
+           drives through its own base lease; START needs CH5 in AUTO and the deadman held. -->
+      <div class="op-mission" id="opMission" hidden>
+        <div class="op-tile wide"><span class="op-cap">CAPTURE MISSION</span><b id="omState">—</b><span class="op-why" id="omWhy"></span></div>
+        <div class="op-tile"><span class="op-cap">STOP</span><b id="omStop">—</b></div>
+        <div class="op-tile wide"><span class="op-cap">TARGET</span><b id="omTarget">—</b><span class="op-why" id="omCheck"></span></div>
+        <div class="op-tile wide"><span class="op-cap">REDRIVE</span><b id="omRedrive">—</b></div>
+        <div class="op-tile op-mctl">
+          <select id="omPick" aria-label="Mission"></select>
+          <button id="omStart" class="sysbtn">START</button>
+          <button id="omPause" class="sysbtn">PAUSE</button>
+          <button id="omSkip" class="sysbtn">SKIP</button>
+          <span class="op-why" id="omMsg"></span>
+        </div>
       </div>
     </main>
 
@@ -651,7 +666,7 @@
     <div class="ditem" data-view="info">Subsystem status grid<span class="ch">›</span></div>
   </nav>
   <script src="app.js?v=8c2fceb6"></script>
-  <script src="operate.js?v=9fc851ed"></script>
+  <script src="operate.js?v=eff93698"></script>
   <script type="module" src="teleop.js?v=4f3be772"></script>
   <script src="show_audio.js?v=6ae749a1"></script>
   <script type="module" src="architect.js?v=cd084c5c"></script>

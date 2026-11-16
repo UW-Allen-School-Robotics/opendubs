@@ -205,11 +205,22 @@ def robot_state():
 
 def why_not_now():
     """Why the head must not follow right now (a reason), or None. Blocking: run in an executor."""
-    import head
     import head_settings
     if head_settings.load().get("tracking") != "tablet":
         state["limit_since"] = None
         return "tracking is not set to the tablet"
+    # A capture mission aims the head itself (look_at.py), from its first look-at to its release:
+    # the head follows nobody meanwhile, so the two never fight over the neck.
+    import look_at
+    if look_at.active():
+        return "a capture mission is aiming the head (look-at)"
+    return motion_gate()
+
+
+def motion_gate():
+    """Why software may not move the neck at all right now (a reason), or None: the gates neck_follow
+    and look_at share. Blocking: run in an executor."""
+    import head
     if head.neck_host() is None:
         return "no neck is fitted"
     # Never while a shoulder is raised, or the arms' positions are unknown (arm_clearance.py, #523's cap):
@@ -399,6 +410,8 @@ async def start() -> None:
     await neck_state.start()
     import arm_clearance                             # the arms' shoulders, so the head keeps out of their way
     await arm_clearance.start()
+    import look_at                                   # a capture mission's aim, held (and on ROS)
+    await look_at.start()
 
 
 def status() -> dict:
