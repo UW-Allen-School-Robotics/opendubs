@@ -25,25 +25,9 @@ inverted in firmware). You make a short **Grove-to-servo pigtail** to bridge the
 
 ## Pin / wire map
 
-| Function | StamPLC **blue port** (Grove) | Wire | RC receiver **SBUS** pin |
-|---|---|---|---|
-| **Signal** | **G5** (RX, inverted) | yellow | **Signal** |
-| **Power** | **+5 V** | red | **VCC (+)** |
-| **Ground** | **GND** | black | **GND (−)** |
-| *(unused)* | G4 | white | — |
-
-The receiver's SBUS output is the **S.BUS / CH1** pin group (on the RadioLink R8EF shown, the bottom
-row = Signal / VCC+ / GND−). Servo colors vary by brand, so wire by **function** and confirm against
-your receiver's silkscreen.
-
-!!! note "Confirm the blue-port pin positions"
-    Check the exact GND / 5 V / G5 pin order against the StamPLC silkscreen and the
-    [M5StamPLC pinout](https://docs.m5stack.com/en/core/StamPLC) before crimping — get GND and
-    +5 V right first.
-
-## Wiring card
-
-Generated from `hardware/harness/rc-receiver.yaml` by `tools/harness.py`; edit that file, not this block.
+!!! note "Generated from `hardware/harness/rc-receiver.yaml`"
+    Edit that file, then run `python3 tools/harness.py --inject`. The drawing and the table
+    below are both made from it.
 
 <!-- WIRING-AUTO:rc-receiver -->
 ### Grove-to-servo pigtail
@@ -66,6 +50,15 @@ Joins the StamPLC's blue Grove port to the receiver's 3-pin SBUS socket, and pow
 
 **Connects:** [M5Stack StamPLC controller](https://www.digikey.com/en/products/detail/m5stack-technology-co-ltd/K141/26459381) · [RadioLink T8S transmitter + R8EF receiver](https://a.co/d/0cFzagC4)
 <!-- /WIRING-AUTO:rc-receiver -->
+
+The receiver's SBUS output is the **S.BUS / CH1** pin group (on the RadioLink R8EF shown, the bottom
+row = Signal / VCC+ / GND−). Servo colors vary by brand, so wire by **function** and confirm against
+your receiver's silkscreen.
+
+!!! note "Confirm the blue-port pin positions"
+    Check the exact GND / 5 V / G5 pin order against the StamPLC silkscreen and the
+    [M5StamPLC pinout](https://docs.m5stack.com/en/core/StamPLC) before crimping — get GND and
+    +5 V right first.
 
 ## Make the pigtail
 

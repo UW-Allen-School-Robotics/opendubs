@@ -14,6 +14,8 @@ on:
       - "hardware/parts.csv"
       - "tools/bom.py"
       - "tools/faults.py"
+      - "tools/harness.py"
+      - "hardware/harness/**"
       - ".github/workflows/docs.yml"
   pull_request:
     # A draft runs nothing: CI starts when the PR is marked ready, and re-runs on its pushes.
@@ -25,6 +27,8 @@ on:
       - "hardware/parts.csv"
       - "tools/bom.py"
       - "tools/faults.py"
+      - "tools/harness.py"
+      - "hardware/harness/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch: {}
 
@@ -55,6 +59,7 @@ jobs:
       - run: pip install mkdocs-material
       - run: python3 tools/bom.py --check   # validate parts.csv + fail if BOM tables are stale (run `bom.py --inject`)
       - run: python3 tools/faults.py --check   # troubleshooting registry + generated pages (run `faults.py --inject`)
+      - run: python3 tools/harness.py --check   # wiring harnesses + generated cards and drawings (run `harness.py --inject`); PyYAML comes with MkDocs
       - run: mkdocs build --strict
       # Only main's build is ever published, so a pull request skips the upload.
       - uses: actions/upload-pages-artifact@v3
