@@ -11,7 +11,7 @@ ROSDIR=/opt/opendubs/ros
 SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-foxglove \
 opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge \
 opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay \
-opendubs-robot-state-publisher opendubs-slam opendubs-floor-frames opendubs-dance-tracker \
+opendubs-robot-state-publisher opendubs-head-joints opendubs-slam opendubs-floor-frames opendubs-dance-tracker \
 opendubs-base-selector"
 # Units this stack no longer runs. Provisioning stops, disables and removes each one a robot still has,
 # so an old install cannot start it again at boot. opendubs-camera drove the original Orbbec Astra,
