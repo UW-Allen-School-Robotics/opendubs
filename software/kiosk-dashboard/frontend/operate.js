@@ -212,7 +212,8 @@
   (function () {
     const box = $("opMission"); if (!box) return;
     const set = (id, txt, cls) => { const e = $(id); if (e) { e.textContent = txt; if (cls !== undefined) e.className = cls; } };
-    // The runner's states (hallpass_runner.py): running, then driving / aiming / checking / dwelling at a stop.
+    // The runner's `state` (idle|running|paused|done|failed) and, while running, its `phase` at a stop
+    // (driving|dwelling|aiming|checking: hallpass_runner.py). Running shows the phase.
     const STATE = { idle: ["IDLE", "dim"], running: ["RUNNING", "ok"], driving: ["DRIVING", "ok"],
                     aiming: ["AIMING", "ok"], checking: ["CHECKING", "ok"], dwelling: ["DWELLING", "ok"],
                     paused: ["PAUSED", "warn"], done: ["DONE", "ok"], failed: ["FAILED", "bad"] };
@@ -235,7 +236,8 @@
       const m = st && st.answering ? st.mission || {} : null;
       box.hidden = !m;
       if (!m) return;
-      const [label, cls] = STATE[m.state] || [String(m.state || "—").toUpperCase(), "dim"];
+      const shown = m.state === "running" && STATE[m.phase] ? m.phase : m.state;
+      const [label, cls] = STATE[shown] || [String(shown || "—").toUpperCase(), "dim"];
       set("omState", label, cls);
       set("omWhy", m.why ? "· " + m.why : (m.session ? "· " + m.session : ""), "op-why");
       set("omStop", m.stop_count ? `${m.stop_n ?? 0} of ${m.stop_count}` : "—", "");
