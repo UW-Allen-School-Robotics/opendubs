@@ -1,0 +1,15 @@
+# Depth image -> LaserScan in base_link, for the costmap. Started by costmap.launch.py.
+# z is in base_link. The floor is 0.07 m below base_link, so 0.2..1.0 here is about
+# 0.27..1.07 m above the floor. The camera's range is 7 m; the costmap clips this
+# scan at 5 m (costmap.yaml, the depth source) because the camera can be tilted.
+depth_scan:
+  ros__parameters:
+    target_frame: base_link
+    transform_tolerance: 0.2
+    min_height: 0.2
+    max_height: 1.0
+    range_min: 0.05              # drops the invalid-depth points the converter puts at the origin
+    range_max: 7.0
+    queue_size: 1                # a 720p cloud is about 15 MB; do not queue them
+    # shortcut: converting the whole 720p frame is slower than the camera, so most frames are
+    # dropped. Lower the depth resolution when that lag matters.

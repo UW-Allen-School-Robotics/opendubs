@@ -18,11 +18,18 @@ Highest first. The control law (`neck/pantilt_core.cpp`) enforces it, not the se
 | **HOLD** | a person at the knob, the dashboard, or software: the head stays where it is | the knob; `HOLD` over UDP 4242 | **latch** (§3) |
 | **touch** | someone working at the tablet: a brief pause | `TOUCH HOLD`, renewed by the dashboard while touched, lapsing about 4 s after the last touch | lease |
 | **RC** | the operator's stick | the StamPLC's `0x107` rate frames, UDP 4242, 20 Hz | lease (600 ms) |
-| **GAZE** | a show, or the dashboard's tracking (`neck_follow.py`) | `GAZE <pan> <tilt> <lease>` | lease (≤ 1000 ms) |
+| **GAZE** | a show, a capture mission's look-at (`look_at.py`), or the dashboard's tracking (`neck_follow.py`) | `GAZE <pan> <tilt> <lease>` | lease (≤ 1000 ms) |
 | **tracker** | a tracker beside the head | `TRACK` (agreed, not built on the Dial) | lease |
 
 **On a lease's expiry the head never jumps**: the next live source down takes it at the slew rate, or
 it stays where it is (head-protocol.md §4).
+
+**Look-at and tracking never share the neck.** Both send `GAZE`, from the same dashboard. A capture
+mission owns the neck from its first look-at until it releases it, or until its `hold_s` runs out (so a
+runner that dies frees the head): tracking sends nothing meanwhile (`neck_follow.why_not_now`). Look-at
+keeps tracking's gates exactly (`neck_follow.motion_gate`: a neck fitted, the arms' shoulders clear, not
+DEGRADED or E_STOP, no show loaded) and adds a person: RC, touch or HOLD on the neck, or the tablet being
+touched. A show still wins, as a gate.
 
 ## 2. HOLD — the neck's one job for a person
 

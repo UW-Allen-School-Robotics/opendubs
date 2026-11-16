@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenDubs Nav2 (behind the base lease; goals in map or a floor frame)
+After=network.target opendubs-slam.service opendubs-base-selector.service
+# Off until a robot opts in: sudo touch /etc/opendubs/nav2.enabled && sudo systemctl start opendubs-nav2
+# Needs opendubs-slam (its map and map -> odom). It moves the base only while it has a goal and holds the
+# base lease, in AUTO with the deadman held.
+ConditionPathExists=/etc/opendubs/nav2.enabled
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=/etc/opendubs/ros-dds.env
+ExecStart=/opt/opendubs/ros/nav2.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
