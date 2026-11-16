@@ -212,8 +212,11 @@
   (function () {
     const box = $("opMission"); if (!box) return;
     const set = (id, txt, cls) => { const e = $(id); if (e) { e.textContent = txt; if (cls !== undefined) e.className = cls; } };
-    const STATE = { idle: ["IDLE", "dim"], running: ["RUNNING", "ok"], paused: ["PAUSED", "warn"],
-                    done: ["DONE", "ok"], failed: ["FAILED", "bad"] };
+    // The runner's states (hallpass_runner.py): running, then driving / aiming / checking / dwelling at a stop.
+    const STATE = { idle: ["IDLE", "dim"], running: ["RUNNING", "ok"], driving: ["DRIVING", "ok"],
+                    aiming: ["AIMING", "ok"], checking: ["CHECKING", "ok"], dwelling: ["DWELLING", "ok"],
+                    paused: ["PAUSED", "warn"], done: ["DONE", "ok"], failed: ["FAILED", "bad"] };
+    const IDLE = new Set(["idle", "done", "failed"]);
     let said = "", saidAt = 0, picked = "";
     async function send(op, body) {
       try {
@@ -239,7 +242,9 @@
       set("omTarget", m.target || "—", "");
       const c = m.last_check;
       set("omCheck", c && c.verdict ? `· ${c.target || ""} ${c.verdict}` : "", "op-why");
-      const rd = Array.isArray(m.redrive) ? m.redrive : [];
+      // Each redrive entry is {stop, site, verdict, reason}: "stop 3 push_plate_204 (closer)".
+      const rd = (Array.isArray(m.redrive) ? m.redrive : []).map((r) => r && typeof r === "object"
+        ? `stop ${r.stop ?? "?"}${r.site ? " " + r.site : ""}${r.verdict ? " (" + r.verdict + ")" : ""}` : String(r));
       set("omRedrive", rd.length ? rd.join(", ") : "none", rd.length ? "warn" : "dim");
       const pick = $("omPick"), list = Array.isArray(m.missions) ? m.missions : [];
       if (pick.dataset.list !== list.join("\n")) {
@@ -248,7 +253,7 @@
         for (const id of list) { const o = document.createElement("option"); o.value = o.textContent = id; pick.appendChild(o); }
         if (list.includes(picked)) pick.value = picked;
       }
-      const busy = m.state === "running" || m.state === "paused";
+      const busy = !IDLE.has(m.state);
       $("omStart").disabled = busy || !list.length; pick.disabled = busy;
       $("omPause").disabled = !busy; $("omSkip").disabled = !busy;
       $("omPause").textContent = m.state === "paused" ? "RESUME" : "PAUSE";
