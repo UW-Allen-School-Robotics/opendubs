@@ -1,0 +1,17 @@
+{
+  "board": "stamplc",
+  "rev": "M5Stack K141",
+  "source": "firmware/rc_serial_probe/src/main.cpp; the blue port's pin order is the docs/build/rc-receiver.md diagram's, not yet checked against the silkscreen",
+  "connectors": {
+    "BLUE": {
+      "name": "StamPLC blue port (Grove)",
+      "part": "ureb-stamplc",
+      "numbered": false,
+      "pins": {"G4": "G4", "G5": "G5 (RX)", "5V": "+5 V", "GND": "GND"}
+    }
+  },
+  "verify": [
+    {"file": "firmware/rc_serial_probe/src/main.cpp", "pattern": "kBluePortRxPin = 5;",
+     "why": "SBUS is read on G5 of the blue port"}
+  ]
+}
