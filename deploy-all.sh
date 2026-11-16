@@ -171,12 +171,15 @@ except Exception:
 # HallPass's stop check (sitekit/ and calibration/ from opendubs-site), on a robot whose /etc/opendubs/hallpass.enabled exists:
 # COPIED from the Mac's opendubs-site checkout (OPENDUBS_SITE_REPO) at the commit software/ros/hallpass-sitekit.ref
 # pins, to /opt/hallpass/opendubs-site/{sitekit,calibration} (the runner's OPENDUBS_SITEKIT). No key or checkout on the robot;
-# it needs only numpy and Pillow there (provision-ros.sh). The sha goes in /opt/hallpass/opendubs-site/SITEKIT_SHA
+# it needs only numpy, scipy, Pillow and PyYAML there (provision-ros.sh). The sha goes in /opt/hallpass/opendubs-site/SITEKIT_SHA
 # and in DEPLOYED. A robot already on that sha is left alone.
 SITEKIT_SHA=none
 deploy_sitekit() {
   ssh "$HOST" "test -e /etc/opendubs/hallpass.enabled" || return 0
-  local site="${OPENDUBS_SITE_REPO:-$REPO/../opendubs-site}" ref sha have
+  # beside the main checkout, not beside $REPO: a deploy from a worktree (.claude/worktrees/<name>) has no ../opendubs-site
+  local main site ref sha have
+  main=$(dirname "$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)")
+  site="${OPENDUBS_SITE_REPO:-$main/../opendubs-site}"
   ref=$(grep -v '^#' "$REPO/software/ros/hallpass-sitekit.ref" | tr -d '[:space:]')
   if [ -z "$ref" ]; then
     echo "!! HallPass is enabled on $HOST but software/ros/hallpass-sitekit.ref pins no opendubs-site commit: sitekit NOT deployed"
