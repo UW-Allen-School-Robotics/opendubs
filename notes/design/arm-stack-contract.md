@@ -19,7 +19,9 @@ first.
   knows.
 - **gafro refuses to start** while `ros2_control_node` runs, or while another sender puts command or
   register-write frames on the bus (`gafro/guards.py`). It checks once, at start.
-- **`openarm-up` does not refuse while the gafro service runs.** That is gap A1.
+- **`openarm-up` refuses to start or activate** while an `opendubs-arm@` unit is active, or another
+  sender is on the bus (gap A1, closed by [`arm-controller-handover.md`](arm-controller-handover.md)).
+  One controller has both arms, chosen robot-wide, and the handover between them is the dashboard's.
 - Which stack runs is read the same way by every tool:
   - the ROS stack: `ros2_control_node` running in the `openarm` container;
   - gafro: `systemctl is-active opendubs-arm@left` (or `@right`).
@@ -172,8 +174,8 @@ owner is a lane, or the gafro service's author (T):
 
 | # | Gap | Owner |
 |---|---|---|
-| A1 | `openarm-up` does not refuse to start or activate while an `opendubs-arm@` unit is active, and gafro checks only at its own start. Add the check to `openarm-up` (start, activate, park, hold). | Arms |
-| A2 | The gafro units were installed on opendubs2 as systemd units from an unmerged checkout, outside any deploy. Either the deploy installs them from `main`, or they are not installed. Whichever stack is not running is never left enabled to start on its own. | the maintainers; Arms for the deploy side |
+| A1 | **Closed 2026-11-04** ([`arm-controller-handover.md`](arm-controller-handover.md)): `openarm-up` refuses to start or activate beside an `opendubs-arm@` unit or another sender, and one controller has both arms. | Arms |
+| A2 | The gafro units were installed on opendubs2 as systemd units from an unmerged checkout, outside any deploy. Either the deploy installs them from `main`, or they are not installed. **The boot half is closed 2026-11-04:** no controller starts at boot, and `provision-arm-service.sh` removes a hand-made `.wants/` link ([`arm-controller-handover.md`](arm-controller-handover.md)). | the maintainers; Arms for the deploy side |
 | A3 | Under gafro, nothing restarts a bus-off link. Either the service restarts its own link when no arm is energized on it (as `openarm-up` does), or the dashboard says `down` with "link off" as the reason. | gafro author, with Arms |
 | T11 | `opendubs-arm@<side>` doesn't check that its `--side` and its config's real bus are that side. It should refuse to start otherwise. | gafro author |
 | T1 | gafro refuses paths over 1.0 rad/s on every joint ("the driver tops out at 1.0"). Is that the driver's ceiling, or a setting? Either reach the measured caps (90/180/135 deg/s), or publish each joint's ceiling for the runner and the validator. | gafro author |

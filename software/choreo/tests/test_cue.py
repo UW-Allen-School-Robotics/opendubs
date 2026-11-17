@@ -100,9 +100,15 @@ check("an unknown sound name is caught",
 check("SOUND plays named sounds only",
       [{"t": 1.0, "slot": "SOUND", "do": "beep"}], "sound do must be play")
 
-check("a show may not acknowledge the pinch guard",
+check("a show may not acknowledge the pinch guard by itself",
       [{"t": 1.0, "slot": "LIFT", "do": "down", "secs": 4, "ack_pinch": True}],
       "human's decision")
+
+check("a lowering may ask for the operator's consent: ack_pinch: deadman on a down cue",
+      [{"t": 1.0, "slot": "LIFT", "do": "down", "secs": 4, "ack_pinch": "deadman"}], None)
+
+check("ack_pinch belongs on a down cue only",
+      [{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 2, "ack_pinch": "deadman"}], "belongs on a lift `down`")
 
 check("an over-long lift command is caught",
       [{"t": 1.0, "slot": "LIFT", "do": "up", "secs": 30}], "outside")

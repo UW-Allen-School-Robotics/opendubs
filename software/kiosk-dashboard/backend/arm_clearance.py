@@ -31,14 +31,26 @@ J2_MAX_DEG = 142.0             # either shoulder above this: no GAZE (the cap is
 STALE_S = 2.0
 THROTTLE_MS = 200
 JOINTS = {"left": "openarm_left_joint2", "right": "openarm_right_joint2"}
+# A gripper's finger joint is on /joint_states only while the arm service's driver has that side's gripper and reads it (ros_actions.serve_gripper),
+# so the time it was last seen is the gripper's liveness, for openarm.effector_status. Kept here because this is the dashboard's one /joint_states reader.
+FINGERS = {"left": "openarm_left_finger_joint1", "right": "openarm_right_finger_joint1"}
 
-last = {"j2": {}, "at": None}  # j2: side -> degrees; at: monotonic time of the last message with either
+last = {"j2": {}, "at": None, "fingers": {}}  # j2: side -> degrees; at: monotonic time of the last message with either; fingers: side -> monotonic time last seen
 _task = None
 
 
+def finger_age(side: str, now: float | None = None) -> float | None:
+    """Seconds since `side`'s gripper finger was last on /joint_states, or None if it never was."""
+    at = last["fingers"].get(side)
+    return None if at is None else (time.monotonic() if now is None else now) - at
+
+
 def note(msg: dict, now: float | None = None) -> None:
-    """A JointState from rosbridge: keep the shoulders' angles, if it carries them."""
+    """A JointState from rosbridge: keep the shoulders' angles, if it carries them, and when each gripper's finger was seen."""
     names, pos = msg.get("name") or [], msg.get("position") or []
+    for side, joint in FINGERS.items():
+        if joint in names:
+            last["fingers"][side] = time.monotonic() if now is None else now
     got = {}
     for side, joint in JOINTS.items():
         if joint in names:

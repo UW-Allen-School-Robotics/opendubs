@@ -6,7 +6,8 @@ ONE origin — which is what lets the same page work over plain HTTP and over HT
 12) with no cross-origin rules.
 
 Read-only except "run a routine" (with how it starts: `start` deadman|countdown|now and
-`countdown_s`, nothing else) and "stop". What a routine may do is the runner's business: on the
+`countdown_s`, nothing else), "stop", and a show's consent through the lift's pinch zone, which it
+grants only while the deadman is held (/api/choreo/lift/ack, below). What a routine may do is the runner's business: on the
 robot it drives the real arms (plan 5.6); without arm output it drives only the twins, and the page
 says which.
 
@@ -183,6 +184,37 @@ def note_operator_mast() -> None:
 def operator_mast_seq() -> int:
     with _mast_lock:
         return _mast_operator["seq"]
+
+
+# ---- a show's consent through the lift's pinch zone (decided 2026-11-05) ------------------------
+# The StamPLC holds any descent into its pinch zone (the last ~60 mm) until a human consents: the
+# operator's release-and-press at the stick, or the host's `MAST ACK` (mast.h: "for an automated
+# lowering"). In a show the robot announces the descent out loud, and the operator's CONTINUING deadman
+# hold is the consent. So `MAST ACK` is sent only if, at this moment, CH5 is AUTO and the deadman reads
+# held on a fresh RC link, with no e-stop; anything else is refused and nothing is sent. The firmware
+# spends the consent when that descent stops and drops it unused after 15 s, and in AUTO it moves the
+# lift only while the deadman is held, so letting go stops the descent as well.
+def lift_ack_refusal(view: dict) -> str | None:
+    """Why a show's pinch-zone consent is refused right now, or None to grant it. Pure, for the tests."""
+    if view.get("deadman") is not True:
+        return "the deadman is not held" if view.get("deadman") is False else "the deadman's state is unknown"
+    if view.get("ch5") != "AUTO":
+        return f"CH5 is {view.get('ch5') or 'unknown'}, not AUTO"
+    if view.get("estop") is not False:
+        return "e-stop pressed" if view.get("estop") else "the e-stop's state is unknown"
+    return None
+
+
+@router.post("/api/choreo/lift/ack")
+def lift_ack():
+    import stamplc
+    import status
+    why = lift_ack_refusal(robot_view(status._robot_state(), status._safety(), status._rc_link()))
+    if why:
+        return JSONResponse({"ok": False, "error": why}, status_code=409)
+    if not stamplc.reader.send("MAST ACK"):
+        return JSONResponse({"ok": False, "error": "no link to the StamPLC"}, status_code=503)
+    return JSONResponse({"ok": True})
 
 
 def robot_view(rs: dict, saf: dict, rc: dict, arms=None, head=None, effectors=None) -> dict:

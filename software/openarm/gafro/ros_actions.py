@@ -1,5 +1,5 @@
 """The ROS side of arm_service.py's slices 3 and 4: the actions the show runner sends each arm's routine and gripper cues to,
-`/<side>_controller/follow_joint_trajectory` and `/<side>_gripper_controller/gripper_cmd`, and this arm's joints and the gripper's finger joints on `/joint_states`.
+`/<side>_controller/follow_joint_trajectory` and `/<side>_gripper_controller/gripper_cmd`, and this arm's joints and the gripper's finger joints on `/<side>/joint_states` (joint_states_merge.py makes `/joint_states` of both arms).
 
 Also the one command action of commands.py (`serve_command`). Only the adapters: the trajectory one checks the goal's joint names, turns the points into arrays and calls `ArmService.follow` (trajectory.py), which gates and plays it, a cancel
 being `ArmService.hold`; the gripper one calls `ArmService.grip` (gripper.py): a close that stops on something aborts as stalled, the signal the runner reads as "something is in there".
@@ -135,7 +135,7 @@ def serve_trajectory(service):
 
 
 def serve_gripper(service, node=None, finger_rate: float = 20.0):
-    """The gripper's action server on `/<side>_gripper_controller/gripper_cmd`, and its finger joints (`openarm_<side>_finger_joint1`, `..2`, metres) on `/joint_states`,
+    """The gripper's action server on `/<side>_gripper_controller/gripper_cmd`, and its finger joints (`openarm_<side>_finger_joint1`, `..2`, metres) on `/<side>/joint_states`,
     which is where the runner reads where the gripper really is. Returns the node. The finger joints go out as a message of their own, beside the arm's: the runner and the dashboard
     keep a dict by name. If the bridge's own `/joint_states` ever carries them too, drop one."""
     import rclpy
@@ -172,7 +172,7 @@ def serve_gripper(service, node=None, finger_rate: float = 20.0):
     group = ReentrantCallbackGroup()
     ActionServer(node, GripperCommand, f"/{side}_gripper_controller/gripper_cmd", execute, goal_callback=on_goal, cancel_callback=on_cancel, callback_group=group)
 
-    publisher = node.create_publisher(JointState, "/joint_states", 10)
+    publisher = node.create_publisher(JointState, f"/{side}/joint_states", 10)
     names = [f"openarm_{side}_finger_joint1", f"openarm_{side}_finger_joint2"]
     state = {}
 
@@ -248,16 +248,17 @@ def state_message_values(state: dict) -> list:
 
 
 def serve_state(service, node, rate: float = 100.0):
-    """`/joint_states` for this arm ONLY (the model's `openarm_<side>_joint1..7`: the old stack's names), from the service's own RobotInterface.
+    """`/<side>/joint_states` for this arm ONLY (the model's `openarm_<side>_joint1..7`: the old stack's names), from the service's own RobotInterface.
 
     Not the bridge's `state` channel, which publishes the whole system: with one service per arm the other arm is a fake bus, and its joints would overwrite the other
-    service's real ones in every consumer that keeps a dict by name (the runner, the dashboard)."""
+    service's real ones in every consumer that keeps a dict by name (the runner, the dashboard). `/joint_states` itself, both arms in one message as the old stack's broadcaster
+    had it, is joint_states_merge.py (opendubs-joint-states.service)."""
     from sensor_msgs.msg import JointState
 
     robot, side = service.robot, service.args.side
     indices = np.asarray(robot.get_system().get_task_space(side).get_joint_indices())
     names = arm_joint_names(robot, side)
-    publisher = node.create_publisher(JointState, "/joint_states", 10)
+    publisher = node.create_publisher(JointState, f"/{side}/joint_states", 10)
 
     def publish():
         state = robot.get_state()

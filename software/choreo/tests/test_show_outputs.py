@@ -26,8 +26,14 @@ def check(what, ok, detail=""):
 
 
 class FakeDash:
-    def __init__(self, clock, fail=False):
-        self.clock, self.fail, self.calls = clock, fail, []
+    def __init__(self, clock, fail=False, ack_ok=True):
+        self.clock, self.fail, self.calls, self.ack_ok = clock, fail, [], ack_ok
+
+    def lift_ack(self):
+        self.calls.append((round(self.clock(), 3), "mast", "ack"))
+        if not self.ack_ok:
+            raise OSError("409: the deadman is not held")
+        return {"ok": True}
 
     def mast(self, cmd):
         if self.fail:
@@ -71,12 +77,12 @@ tmp.write(SHOW)
 tmp.close()
 
 
-def run(live=True, flip_after=None, change=None, fail=False, lift=True, light=True):
+def run(live=True, flip_after=None, change=None, fail=False, lift=True, light=True, show=None, ack_ok=True):
     robot = R.FakeRobotState()
     sc = SimClock(robot, None if flip_after is None else 1000.0 + flip_after, change)
-    dash = FakeDash(sc.clock, fail)
+    dash = FakeDash(sc.clock, fail, ack_ok)
     log = io.StringIO()
-    r = R.Runner(tmp.name, LIMITS, robot, log=log, clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
+    r = R.Runner(show or tmp.name, LIMITS, robot, log=log, clock=sc.clock, sleep=sc.sleep, start_lead=0.5,
                  arms=AO.FakeArms() if live else None, live=live)
     r.lift = SO.LiftOutput(dash, r._log) if (live and lift) else None
     r.light = SO.LightOutput(dash, r._log) if (live and light) else None
@@ -106,8 +112,25 @@ check("an up cue is renewed about every 0.1 s for its 1.0 s (inside the StamPLC'
 stop_after_up = [t for t, c in L if c == "stop" and t >= ups[-1]]
 check("... then a stop when its time is up", stop_after_up and stop_after_up[0] - ups[0] < 1.15, L)
 check("the run's end sends a final stop", L[-1][1] == "stop", L[-3:])
-check("never MAST ACK: the show cannot authorize a descent through the pinch zone",
+check("a plain down never asks for consent through the pinch zone",
       all(c in ("up", "down", "stop") for _, c in L))
+
+print("\nlift: an announced lowering, consent by the held deadman")
+ack_show = tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False)
+ack_show.write(SHOW.replace("do: down, secs: 1.0 }", "do: down, secs: 1.0, ack_pinch: deadman }"))
+ack_show.close()
+end, calls, log = run(show=ack_show.name)
+L = lifts(calls)
+acks = [t for t, c in L if c == "ack"]
+downs = [t for t, c in L if c == "down"]
+check("the consent is asked once, at the down cue, before the first down",
+      end[0] == "COMPLETED" and len(acks) == 1 and downs and acks[0] <= downs[0], L)
+end, calls, log = run(show=ack_show.name, ack_ok=False)
+L = lifts(calls)
+check("refused (the deadman not held): no down at all, the show plays on, the refusal is logged quietly",
+      end[0] == "COMPLETED" and not any(c == "down" for _, c in L) and "no consent through the pinch zone" in log
+      and "lift output stands down" not in log, log[-900:])
+os.unlink(ack_show.name)
 
 print("\nlift: every end stops it now")
 end, calls, log = run(flip_after=1.4, change={"deadman": False})     # the lift starts at ~1.0 s

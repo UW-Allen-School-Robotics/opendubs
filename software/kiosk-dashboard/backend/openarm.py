@@ -1,4 +1,8 @@
-"""Arm operations for the dashboard: park, hold, activate, de-energize, and the teleop bridge.
+"""Arm operations for the dashboard: which controller has the arms, the changes between controllers, park, hold, release, and the teleop bridge.
+
+ONE CONTROLLER FOR BOTH ARMS, chosen robot-wide (arm_handover.py, notes/design/arm-controller-handover.md): the ROS 2 stack, the gafro arm service, or none, and CONFLICT when
+both run or it cannot be told. Nothing starts one at boot; the operator chooses (`use-ros2`, `use-gafro`), hands over (`to-ros2`, `to-gafro`) or releases (`release`). Every
+button is named for what the arms do, and one the controller cannot do is refused with the reason (`arm_handover.unavailable`), never sent to the other stack.
 
 park, hold, activate and down go to the ARM SERVICE (software/openarm/gafro/arm_service.py), one per arm, over its command socket (arm_client.py): the service owns the robot
 and its guards (CH5, the e-stop, CH6, a person at the e-stop, a start near stow or ready), so the dashboard asks and shows the answer, and does not reimplement any of it.
@@ -22,6 +26,7 @@ _GAFRO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "o
 if _GAFRO not in __import__("sys").path:
     __import__("sys").path.insert(0, _GAFRO)
 import arm_client  # noqa: E402
+import arm_handover  # noqa: E402
 
 OPENARM_UP = "/usr/local/bin/openarm-up"
 TELEOP_UNIT = "opendubs-teleop"
@@ -41,7 +46,7 @@ _TELEOP_STALE_S = 1.5
 
 _lock = threading.Lock()
 _teleop_rx = {"started": False, "at": 0.0, "data": None, "error": None}
-_op = {"running": False, "name": None, "started": 0.0, "rc": None, "out": "", "error": None}
+_op = {"running": False, "name": None, "started": 0.0, "rc": None, "out": "", "error": None, "steps": []}   # steps: a change of controller's, as it goes
 _motors = {"at": 0.0, "text": "", "error": None}
 
 
@@ -67,17 +72,19 @@ OPS = {
     "relink":    (lambda arm: _sudo([OPENARM_UP, "relink", arm]), 30, "restarts one arm's CAN link"),
 }
 
-#: The old ROS stack's half, kept only so a dashboard that finds `ros2_control_node` running still does what it did on main: the same words through `openarm-up`. Used only while
-#: `active_stack()` says "ros". The arm service is the stack now; everything it added (prepare, follow, supervise, unsupervise) is the service's alone and is refused here.
+#: The ROS 2 stack's half of the arm words, through `openarm-up`, used only while the ROS 2 stack has the arms. Starting and stopping it are changes of controller (HANDOVER_OPS).
 ROS_OPS = {
     "park":     (lambda arm: _sudo([OPENARM_UP, "park", arm]), 180, "moves the arm to its stow pose"),
-    "activate": (lambda arm: _sudo([OPENARM_UP, "activate", arm]), 180, "ENERGIZES and drives the arm to zero"),
-    "down":     (lambda arm: _sudo([OPENARM_UP, "down"]), 180, "de-energizes both arms"),
-    "up":       (lambda arm: _sudo([OPENARM_UP]), 120, "starts the stack, arms stay limp"),
-    # HOLD drives the arm to where it already is: it preempts a running trajectory and leaves the arm commanded to its present pose.
-    "hold":     (lambda arm: _sudo([OPENARM_UP, "hold", arm]), 90, "stops the arm where it is"),
+    # HOLD: stiff where it is. An active arm is driven to where it already is, which preempts a running trajectory; an inactive one is activated, which holds the measured pose (A1).
+    "hold":     (lambda arm: _sudo([OPENARM_UP, "hold", arm]), 120, "stiff where it is"),
 }
-SERVICE_ONLY = ("follow", "supervise", "unsupervise", "prepare")
+
+#: The changes of controller, both arms always (arm_handover.py): name -> (kind, target).
+HANDOVER_OPS = {"use-ros2": ("use", "ros2"), "use-gafro": ("use", "gafro"), "to-ros2": ("handover", "ros2"), "to-gafro": ("handover", "gafro"),
+                "release": ("release", None)}
+#: Each arm word, as the action `arm_handover.unavailable` names it. `activate` is the old word for `ready`.
+ACTION_OF = {"park": "park", "hold": "hold", "ready": "ready", "activate": "ready", "follow": "follow", "supervise": "supervise", "unsupervise": "supervise",
+             "prepare": "prepare"}
 
 
 #: The old stack's `ros2_control_node` as a process: the executable is the first word of the command line. Not `pgrep -f ros2_control_node`, which also finds another pgrep (this
@@ -119,12 +126,12 @@ def active_stack():
         return "unknown", "cannot tell whether the ROS arm stack runs (pgrep failed), so no arm operation is sent"
     if ros and served:
         return "both", (f"both arm stacks are running (the ROS stack's ros2_control_node and opendubs-arm@{', opendubs-arm@'.join(served)}): two senders on one bus. "
-                        "Stop one (`openarm-up down`, or `down` on the arm service) before anything moves")
+                        "Stop one (`openarm-up down`, or `systemctl stop` the opendubs-arm units) before anything moves")
     if ros:
-        return "ros", "the ROS arm stack is running"
+        return "ros", "the ROS 2 arm stack is running"
     if served:
         return "gafro", "the arm service is running for: " + ", ".join(served)
-    return "none", "no arm stack is running: START an arm service (opendubs-arm@<side>), or `openarm-up` for the ROS stack"
+    return "none", "no controller has the arms: choose one on the Arms page (Use ROS 2, or Use gafro)"
 
 
 #: what the arm service does, by the dashboard's word for it, and what it moves
@@ -135,7 +142,6 @@ SERVICE_OPS = {
     # Starts the arm following pose targets (`<side>/target`): the hand goes where the target is, at the stage's speed limits. It refuses without a person at the e-stop (supervise), and
     # ends with `hold`, CH6 or the e-stop.
     "follow":   "starts following pose targets: the hand goes where the target is",
-    "down":     "ends the arm service; the motors stay stiff until the e-stop",
     # An attestation, not a movement: "a person is at the e-stop, head tracking is off, the neck centred". Until it is made the service refuses every moving command on a real bus.
     "supervise":   "says a person is at the e-stop, so the arm service allows moving commands",
     "unsupervise": "withdraws that: the arm service refuses moving commands again",
@@ -156,8 +162,8 @@ def effector_status():
     """Each arm and gripper as the show runner's preflight reads them (choreo_proxy `effectors`): {part: {state, why, pose_deg?, excluded?}}.
 
     An arm is `ok` when its arm service answers AND a person has said they are at the e-stop (supervised): the service refuses every moving command without that, and the runner sends
-    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. Under the ROS stack this returns None (the runner reads that stack's motors itself); with no stack, both, or no way to tell, every part is `down` with the reason. The grippers are `down` and `excluded`: the service drives them only once `use_gripper` is
-    on and calibrated in its hardware config, and nothing here reports that yet. A part is never reported `ok` without an answer."""
+    each arm its show as a trajectory goal. An arm whose service answers but is not supervised is `degraded`, with the way out in its `why`. An arm with no service is `down`, and says so. Under the ROS stack this returns None (the runner reads that stack's motors itself); with no stack, both, or no way to tell, every part is `down` with the reason. A gripper is `ok` when its arm is `ok` and its finger is live on /joint_states (`_grip_state`),
+    and otherwise `down` and `excluded`. A part is never reported `ok` without an answer."""
     stack, why = active_stack()
     if stack == "ros":
         return None                      # the runner's own fallback: the motor summary of the ROS stack (choreo_proxy._probe_now)
@@ -179,8 +185,29 @@ def effector_status():
                 # so a skipped arm can still be checked to be at rest. Activating (`ready`) is not needed: a show moves each arm to zero from where it is.
                 letter = side[0].upper()
                 out[f"arm_{side}"] = {"state": "degraded", **pose, "why": f"the {side} arm service is up but nobody is supervising it, so it refuses every moving command (PREPARE {letter}, or SUPERVISE {letter})"}
-        out[f"grip_{side}"] = {"state": "down", "excluded": True, "why": f"the {side} gripper is not enabled in the arm service (use_gripper, and its calibration)"}
+        out[f"grip_{side}"] = _grip_state(side, out[f"arm_{side}"])
     return out
+
+
+#: How old a gripper's finger reading on /joint_states may be and still count as live. The merge drops a joint after 1 s (joint_states_merge.py), and the dashboard reads the topic
+#: throttled to 5 a second (arm_clearance.py).
+GRIP_STALE_S = 2.0
+
+
+def _grip_state(side, arm):
+    """A gripper as the runner reads it. `ok` only when its arm is `ok` (the service gates a gripper command as it gates the arm's, so an unsupervised arm's gripper is refused too)
+    AND its finger is live on /joint_states: the service publishes the finger only while its driver has that side's gripper (`use_gripper`, calibrated) and reads it. A config file
+    saying use_gripper is not an answer; the finger reading is. Otherwise `down` and `excluded`, with the reason."""
+    if arm.get("state") != "ok":
+        why = f"the {side} gripper moves only with its arm, and the {side} arm is {arm.get('state')}" + (f": {arm['why']}" if arm.get("why") else "")
+    else:
+        import arm_clearance
+        age = arm_clearance.finger_age(side)
+        if age is not None and age <= GRIP_STALE_S:
+            return {"state": "ok"}
+        why = (f"the {side} gripper's finger is not on /joint_states " + ("at all" if age is None else f"(none for {age:.0f} s)")
+               + f": the {side} arm service has no gripper (use_gripper, and its calibration), or its driver does not read it")
+    return {"state": "down", "excluded": True, "why": why}
 
 
 #: Operations that only take capability away. They do not wait for, or count as, "the" running operation: a HOLD refused as "busy" while a move runs would be the one
@@ -189,10 +216,9 @@ INSTANT_OPS = ("hold", "unsupervise")
 _SERVICE_TIMEOUT = 180.0
 
 #: Bringing an arm's service up is the unit's job (software/openarm/opendubs-arm@.service). The sudoers rule (opendubs-arm.sudoers) allows exactly these commands, as
-#: written: the full path and the `.service`. There is no `stop` here: `down` is how the service ends, and it refuses an arm that is not at stow, which `systemctl stop` would not.
+#: written: the full path and the `.service`. Only a change of controller starts or stops a unit, and for both arms (arm_handover.py): there is no per-arm START.
 SYSTEMCTL = "/usr/bin/systemctl"
-UNIT_OPS = {"start": "enables the arm's motors and holds it where it is"}
-_UNIT_TIMEOUT = 60.0
+_UNIT_TIMEOUT = 300.0     # `arm up`: up to 3 starts, then up to 90 s for the service to answer
 
 
 # The viewer (viser, `arm viewer <side> <port>`): the browser view of an arm and its pose target. The dashboard starts it and stops it, and only ever stops one it started: a port that is
@@ -300,26 +326,21 @@ def _unit_state(side):
 
 
 def _start_unit(side):
-    """`systemctl start` the arm's service and wait until it answers on its socket. Returns (output, error)."""
+    """Bring the arm's service up with `arm up <side>` and return (output, error). `arm up` is the one bringup, for a person at a shell and for this button alike: the unit's preflight
+    heals a CAN link in error, a start that failed for a reason a retry can mend is retried, and it waits until the service answers and says what it found when it cannot."""
     if _service_status(side) is not None:
         return f"{side}: the arm service is already running", None
     try:
-        r = _run(_sudo([SYSTEMCTL, "start", _unit(side)]), 30)
+        r = _run([ARM_CLI, "up", side], _UNIT_TIMEOUT)
+    except FileNotFoundError:
+        return "", f"{ARM_CLI} not found: the arm tooling is not installed here (software/openarm/provision-arm-service.sh)"
+    except subprocess.TimeoutExpired:
+        return "", f"{side}: `arm up {side}` did not finish in {int(_UNIT_TIMEOUT)} s: `journalctl -u {_unit(side)}`"
     except Exception as e:                           # noqa: BLE001
-        return "", f"{side}: systemctl start failed: {type(e).__name__}: {e}"
+        return "", f"{side}: arm up failed: {type(e).__name__}: {e}"
     if r.returncode != 0:
-        return "", f"{side}: " + (r.stderr.strip() or f"systemctl start returned {r.returncode}") + f" (sudoers: opendubs-arm.sudoers allows `{SYSTEMCTL} start {_unit(side)}`)"
-    deadline = time.time() + _UNIT_TIMEOUT
-    while time.time() < deadline:
-        status = _service_status(side)
-        if status is not None:
-            return f"{side}: started; " + status.splitlines()[0], None
-        state = _unit_state(side)
-        if state.get("ActiveState") in ("failed", "inactive"):
-            return "", (f"{side}: the unit ended ({state.get('Result', '?')}, exit status {state.get('ExecMainStatus', '?')}) before it answered: "
-                        f"`journalctl -u {_unit(side)}` says why (exit 2 is the old arm stack still running)")
-        time.sleep(0.5)
-    return "", f"{side}: the arm service did not answer in {int(_UNIT_TIMEOUT)} s: `journalctl -u {_unit(side)}`"
+        return "", (r.stderr.strip() or r.stdout.strip() or f"arm up {side} returned {r.returncode}")[-1500:]
+    return f"{side}: started; " + (r.stdout.strip().splitlines() or [""])[-1].removeprefix(f"arm up {side}: "), None
 
 
 def _service_status(side):
@@ -396,44 +417,182 @@ def _show_running():
         return None
 
 
+def _up_error(r):
+    """The whole `openarm-up: ...` message from a failed run, not its last line: the diagnosis comes first and the fix last, and the last line alone read as a fragment."""
+    lines = (r.stderr or "").strip().splitlines() or (r.stdout or "").strip().splitlines()
+    start = max((i for i, l in enumerate(lines) if l.startswith("openarm-up:")), default=max(len(lines) - 1, 0))
+    return "\n".join(lines[start:]).removeprefix("openarm-up: ") or f"returned {r.returncode}"
+
+
+STOW_CONF = os.environ.get("OPENARM_STOW_CONF", "/etc/opendubs/openarm-stow.conf")
+STOW_TOL_DEG = float(os.environ.get("OPENARM_STOW_TOL_DEG", "5"))     # openarm-up's at_stow tolerance
+_JOINT_RE = __import__("re").compile(r"^\s*id ([1-7]) \(joint \d\).*?pos\s+([+-]?[\d.]+) deg")
+
+
+def _stow_pose(side):
+    """The side's stow pose, seven degrees, from the stow file openarm-up and the teleop read; None if it is not set."""
+    try:
+        with open(STOW_CONF) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    key = f"{side.upper()}_STOW"
+    for line in reversed(lines):
+        k, _, v = line.strip().partition("=")
+        if k.strip() == key:
+            try:
+                pose = [float(x) for x in v.split(",")]
+            except ValueError:
+                return None
+            return pose if len(pose) == 7 else None
+    return None
+
+
+def _measured(side, text):
+    """Joints 1-7 of `side`, degrees, from `openarm-motors status`; None if any is missing."""
+    cur, out = None, {}
+    for line in text.splitlines():
+        if line.startswith("arm_"):
+            cur = line.split()[0]
+            continue
+        m = _JOINT_RE.match(line)
+        if m and cur == f"arm_{side}":
+            out[int(m[1])] = float(m[2])
+    return [out[i] for i in range(1, 8)] if len(out) == 7 else None
+
+
+class _HandoverIo:
+    """What arm_handover.py may do to the robot, and nothing else: the same commands the buttons use, read fresh (no cache)."""
+
+    def controller(self):
+        return arm_handover.controller(active_stack()[0])
+
+    def stack_why(self):
+        return active_stack()[1]
+
+    def gates(self):
+        import choreo_proxy
+        return choreo_proxy._robot_now()
+
+    def show_running(self):
+        return _show_running()
+
+    def teleop_running(self):
+        return _teleop_running()
+
+    def gafro_sides(self):
+        return [side for side in arm_client.SIDES if _socket_alive(side)]
+
+    def gafro_supervised(self, side):
+        return "supervised: yes" in (_service_status(side) or "").splitlines()
+
+    def gafro_park(self, side):
+        return _service_work("park", [side])[1]
+
+    def gafro_hold(self, side):
+        return _service_work("hold", [side])[1]
+
+    def unit(self, verb, side):
+        try:
+            r = _run(_sudo([SYSTEMCTL, verb, _unit(side)]), 60)
+        except Exception as e:                       # noqa: BLE001
+            return f"{type(e).__name__}: {e}"
+        return None if r.returncode == 0 else (r.stderr.strip() or f"systemctl {verb} returned {r.returncode}") + " (opendubs-arm.sudoers)"
+
+    def start_gafro(self, side):
+        return _start_unit(side)
+
+    def ros(self, *args, timeout=180):
+        try:
+            r = _run(_sudo([OPENARM_UP, *args]), timeout)
+        except subprocess.TimeoutExpired:
+            return 1, f"timed out after {timeout} s"
+        except Exception as e:                       # noqa: BLE001
+            return 1, f"{type(e).__name__}: {e}"
+        return r.returncode, (r.stdout or "")[-1500:] if r.returncode == 0 else _up_error(r)
+
+    def ros_running(self):
+        return _ros_running() is not False
+
+    def at_stow(self, side):
+        want = _stow_pose(side)
+        try:
+            r = _run([OPENARM_MOTORS, "status"], 20)
+        except Exception:                            # noqa: BLE001
+            return None
+        cur = _measured(side, r.stdout or "")
+        if want is None or cur is None:
+            return None
+        return all(abs(w - c) <= STOW_TOL_DEG for w, c in zip(want, cur))
+
+    def limp(self, side):
+        """Every motor of the arm answers and none is ENABLED: it is already limp (after a power loss, the motors restart disabled)."""
+        try:
+            r = _run([OPENARM_MOTORS, "status"], 20)
+        except Exception:                            # noqa: BLE001
+            return False
+        rows, cur = [], None
+        for line in (r.stdout or "").splitlines():
+            if line.startswith("arm_"):
+                cur = line.split()[0]
+            elif cur == f"arm_{side}" and line.strip().startswith("id "):
+                rows.append(line)
+        return bool(rows) and all(" DISABLED " in f"{l} " for l in rows)
+
+    def senders(self, side):
+        try:
+            r = _run([OPENARM_MOTORS, "senders", f"arm_{side}", "0.5"], 10)
+        except Exception as e:                       # noqa: BLE001
+            return False, f"could not listen: {e}"
+        return r.returncode == 0, (r.stdout.strip() or r.stderr.strip())
+
+    def disable(self, side):
+        try:
+            r = _run([OPENARM_MOTORS, "disable", f"arm_{side}"], 20)
+        except Exception as e:                       # noqa: BLE001
+            return False, f"{type(e).__name__}: {e}"
+        return r.returncode == 0, (r.stdout.strip() or r.stderr.strip())
+
+
+def controller_view(stack=None):
+    """The controller for the page and the runner: {controller, label, unavailable: {action: reason or None}}, added to the `stack` field."""
+    name, why = stack or active_stack()
+    ctrl = arm_handover.controller(name)
+    return {"controller": ctrl, "label": arm_handover.LABELS[ctrl], "unavailable": arm_handover.unavailable(ctrl, why)}
+
+
+def _start_change(name):
+    kind, target = HANDOVER_OPS[name]
+    with _lock:
+        if _op["running"]:
+            return False, f"{_op['name']} is still running ({int(time.time() - _op['started'])}s)"
+        _op.update({"running": True, "name": name, "started": time.time(), "rc": None, "out": "", "error": None, "steps": []})
+
+    def publish(change):
+        with _lock:
+            _op["steps"] = [dict(s) for s in change.steps]
+
+    def work():
+        change = arm_handover.Change(_HandoverIo(), name)
+        change.on_update = lambda: publish(change)
+        try:
+            out, error = arm_handover.run(change.io, kind, target, change)
+        except Exception as e:                       # noqa: BLE001 - surfaced to the operator
+            out, error = "", f"{type(e).__name__}: {e}"
+        publish(change)
+        with _lock:
+            _op.update({"rc": 1 if error else 0, "out": out or "", "error": error, "running": False})
+
+    threading.Thread(target=work, name=f"openarm-{name}", daemon=True).start()
+    return True, name
+
+
 def start_op(name, arm="both"):
-    """Begin a long arm operation. Returns (accepted, detail)."""
-    spec = OPS.get(name)
-    if spec is None and name not in SERVICE_OPS and name not in UNIT_OPS and name not in ROS_OPS and name not in ("viewer", "viewer-stop", "prepare"):
+    """Begin an arm operation. Returns (accepted, detail)."""
+    if name not in OPS and name not in HANDOVER_OPS and name not in ACTION_OF and name not in ("viewer", "viewer-stop"):
         return False, f"unknown operation {name!r}"
     if arm not in ("left", "right", "both"):
         return False, f"arm must be left|right|both, got {arm!r}"
-    sides = []
-    use_service = name in SERVICE_OPS or name in UNIT_OPS or name == "prepare"
-    if use_service or name in ROS_OPS:
-        stack, why = active_stack()
-        if name in UNIT_OPS and stack not in ("none", "gafro"):
-            return False, f"START is for the arm service, and {why}" if stack != "ros" else "the ROS arm stack is running: `openarm-up down` first (starting the arm service beside it is two senders on one bus)"
-        if name == "up" and stack not in ("none", "ros"):
-            return False, f"`openarm-up` starts the ROS stack, and {why}"
-        if name not in UNIT_OPS and name != "up" and stack not in ("gafro", "ros"):
-            return False, why
-        if stack == "ros" and name not in UNIT_OPS and name != "up":
-            if name in SERVICE_ONLY:
-                return False, f"{name} is the arm service's: the ROS arm stack is running, not an arm service"
-            spec, use_service = ROS_OPS[name], False
-        elif name in ROS_OPS and name != "up" and stack == "gafro":
-            use_service = True
-        elif name == "up":
-            spec, use_service = ROS_OPS["up"], False
-    if name == "prepare":
-        show = _show_running()
-        if show:
-            return False, f"a show is running ({show}): preparing the arms moves them, and waits until it ends"
-        sides = ["left", "right"] if arm == "both" else [arm]
-    if name in UNIT_OPS and arm not in ("left", "right"):
-        return False, "START is per arm: left or right (starting a service enables that arm's motors)"
-    if name in SERVICE_OPS and use_service:
-        served = arm_client.sides_served()
-        sides = served if arm == "both" else [arm]
-        if not sides or any(side not in served for side in sides):
-            return False, (f"no arm service for the {arm} arm (one per arm: `arm_service.py run --side <left|right> ...`; the dashboard has no other way to move an arm). "
-                           f"Running: {', '.join(served) or 'none'}")
     if name in ("viewer", "viewer-stop"):
         if arm not in ("left", "right"):
             return False, "the viewer is per arm: left or right"
@@ -447,6 +606,30 @@ def start_op(name, arm="both"):
         if show:
             return False, f"a show is running ({show}): a link restart waits until it ends"
 
+    use_service, spec, sides = False, OPS.get(name), []
+    if name in HANDOVER_OPS or name in ACTION_OF:
+        stack, why = active_stack()
+        reason = arm_handover.unavailable(arm_handover.controller(stack), why)[name if name in HANDOVER_OPS else ACTION_OF[name]]
+        if reason:
+            return False, reason
+        if name in HANDOVER_OPS:
+            if arm != "both":
+                return False, "a change of controller takes both arms: one controller for both"
+            return _start_change(name)
+        if name == "ready":
+            name = "activate"                        # the arm service's word for it
+        if stack == "ros":
+            spec = ROS_OPS[name]
+        else:
+            use_service = True
+            if name == "prepare" and (show := _show_running()):
+                return False, f"a show is running ({show}): preparing the arms moves them, and waits until it ends"
+            # Only arms gafro already has: an arm without its service is not started here (that would be a per-arm choice of controller).
+            served = arm_client.sides_served()
+            sides = served if arm == "both" else [arm]
+            if not sides or any(side not in served for side in sides):
+                return False, f"no arm service for the {arm} arm (Use gafro starts both). Running: {', '.join(served) or 'none'}"
+
     if name in INSTANT_OPS and use_service:
         out, error = _service_work(name, sides)
         return (False, error) if error else (True, out)
@@ -456,12 +639,12 @@ def start_op(name, arm="both"):
             # is a collision. Same reasoning as the lease model's select-one-with-handoff.
             return False, f"{_op['name']} is still running ({int(time.time() - _op['started'])}s)"
         _op.update({"running": True, "name": f"{name} {arm}".strip(), "started": time.time(),
-                    "rc": None, "out": "", "error": None})
+                    "rc": None, "out": "", "error": None, "steps": []})
 
     def work():
         if use_service:
             try:
-                out, error = (_prepare_work(sides) if name == "prepare" else _start_unit(arm) if name in UNIT_OPS else _service_work(name, sides))
+                out, error = _prepare_work(sides) if name == "prepare" else _service_work(name, sides)
             except Exception as e:                       # noqa: BLE001 - surfaced to the operator
                 out, error = "", f"{type(e).__name__}: {e}"
             with _lock:
@@ -474,12 +657,7 @@ def start_op(name, arm="both"):
                 _op["rc"] = r.returncode
                 _op["out"] = ((r.stdout or "") + (r.stderr or ""))[-4000:]
                 if r.returncode != 0 and name != "doctor":
-                    # The whole `openarm-up: ...` message, not its last line: the diagnosis comes
-                    # first and the fix last, and the last line alone read as a fragment.
-                    lines = r.stderr.strip().splitlines()
-                    start = max((i for i, l in enumerate(lines) if l.startswith("openarm-up:")),
-                                default=max(len(lines) - 1, 0))
-                    _op["error"] = "\n".join(lines[start:]).removeprefix("openarm-up: ") or "failed"
+                    _op["error"] = _up_error(r)
         except subprocess.TimeoutExpired:
             with _lock:
                 _op["error"] = f"{name} timed out after {timeout}s"
@@ -604,6 +782,11 @@ def teleop(verb):
     """
     if verb not in ("start", "stop"):
         return False, "use start|stop"
+    if verb == "start":                              # STOP always works: it only takes a source away
+        stack, why = active_stack()
+        reason = arm_handover.unavailable(arm_handover.controller(stack), why)["teleop"]
+        if reason:
+            return False, reason
     try:
         r = _run(_sudo(["systemctl", verb, TELEOP_UNIT]), 25)
     except Exception as e:                           # noqa: BLE001
@@ -718,6 +901,7 @@ def _loop_health(lines):
 
 
 def snapshot():
+    stack = active_stack()
     m = _motor_summary()
     counts = {}
     for tok in (m.get("text") or "").split():
@@ -729,7 +913,9 @@ def snapshot():
     return {
         "op": op_status(),
         "viewers": viewer_state(),
-        "stack": dict(zip(("name", "why"), active_stack())),   # which arm stack answers: gafro | ros | none | both | unknown
+        # Which arm stack answers (name: gafro | ros | none | both | unknown), and the controller that has the arms (controller: gafro | ros2 | none | conflict, its
+        # label, and per button the reason it is off). The Arms and Shows pages show it from here.
+        "stack": {"name": stack[0], "why": stack[1], **controller_view(stack)},
         "service": {side: _service_status(side) for side in arm_client.sides_served()},   # per arm: its status text, None if it does not answer
         "motors": counts or None,
         "links": link_status(),
