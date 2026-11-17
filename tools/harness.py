@@ -96,7 +96,8 @@ Schema opendubs.harness/0: hardware/harness/<assembly>.yaml
 
 Photos: docs/assets/wiring/photos/<name>.jpg (or .jpeg, .png, .webp), taken by whoever builds
 the cables. There is nothing to add to the harness file: a photo saved under the right name is
-shown on its card the next time --inject runs, and --check then holds the page to it.
+shown on its card the next time --inject runs. Until then --check reports the page STALE, so run
+--inject and commit the page together with the photo.
   <assembly>-<cable>              the finished cable, laid flat, both ends in view, a ruler beside it
   <assembly>-<cable>-<conn-id>    that end plugged in, close enough to see which connector and which way round
   <assembly>-set-<ref>            the jumper or solder bridge as it should look
@@ -129,8 +130,10 @@ Board pin files: hardware/harness/boards/<board>.pins.json
   board's name in a sentence ("Hat"): a cable's end on it is captioned "HAT END".
   What a person sets or presses on the board, so it can be shown and not only told:
     a jumper may add "title", "type", "selects", "how", "ships" (the position it arrives in),
-      "link" ("wire" or "cap"), "pad_names" {<pad>: <short label>}, "pad_at" {<pad>: [x, y]} and
-      "positions" {<name>: {"join": [<pad>, <pad>] or [], "means": <text>}}
+      "link" ("wire" or "cap"), "pad_names" {<pad>: <short label>}, "pad_at" {<pad>: [x, y]},
+      "positions" {<name>: {"join": [<pad>, <pad>] or [], "means": <text>}} and
+      "ideas" {<what you might want>: <which position gives it>}, listed on the setting's card
+      under "Why you might change it"
     "buttons": {<ref>: {"name", "does", "box"}}
     "left_off": [{"refs": [...], "what", "leave", "fit", "boxes": [...]}]  parts the board is
       assembled without on purpose; fitting one is a setting made with a soldering iron `verify` lines tie a pin to this
@@ -837,13 +840,19 @@ def part_link(pid, parts):
 
 
 def md_gallery(have, page):
-    """The card's photos, folded away until asked for. Raw HTML, so it needs no Markdown extension."""
+    """The card's photos, folded away until asked for.
+
+    The pictures are Markdown images inside <details markdown="1"> (the md_in_html extension), not
+    raw <img>: MkDocs rewrites a Markdown image's path for the built site and `mkdocs build
+    --strict` fails when the file is missing. A raw <img> gets neither, and with directory URLs
+    its path, written relative to the .md file, points one folder too deep on the built page."""
     if not have:
         return []
-    out = [f"<details><summary>Photos ({len(have)})</summary>", ""]
+    out = ['<details markdown="1">', f"<summary>Photos ({len(have)})</summary>", ""]
     for path, caption in have:
         src = os.path.relpath(path, os.path.dirname(page)).replace(os.sep, "/")
-        out += [f'<figure><img src="{src}" alt="{e(caption)}" loading="lazy"><figcaption>{e(caption)}</figcaption></figure>', ""]
+        alt = str(caption).replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+        out += [f"![{alt}]({src})", "", f"*{md_escape(caption)}*", ""]
     return out + ["</details>", ""]
 
 
@@ -974,7 +983,9 @@ def part_html(pid, parts):
     if not p:
         return f'{e(str(pid))} <span class="muted">(no source yet)</span>'
     name = f'<a href="{e(p["source"])}" target="_blank" rel="noopener">{e(p["name"])}</a>' if p.get("source") else e(p["name"])
-    more = [x for x in ((p.get("sku") or "").strip(), f"${p['price_usd'].strip()}" if (p.get("price_usd") or "").strip() else "",
+    # price_usd is the price of the listed item, which may be a pack: never show it as a unit price
+    more = [x for x in ((p.get("sku") or "").strip(),
+                        f"${p['price_usd'].strip()} for the listed item (may be a pack)" if (p.get("price_usd") or "").strip() else "",
                         "" if p.get("source") else "any supplier", (p.get("notes") or "").strip() if p.get("_pending") else "") if x]
     return name + (f' <span class="muted">· {e(" · ".join(more))}</span>' if more else "")
 
