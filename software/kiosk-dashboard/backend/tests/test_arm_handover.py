@@ -52,6 +52,7 @@ class Robot:
     def gafro_hold(self, side):
         self.log.append(f"gafro hold {side}")
 
+
     def unit(self, verb, side):
         self.log.append(f"unit {verb} {side}")
         if verb == "stop":
@@ -118,11 +119,46 @@ def test_gafro_to_ros2_parks_stops_listens_disables_then_activates():
     assert "MOVE to stow" in c.steps[0]["arms"] and "limp at stow" in c.steps[3]["arms"], c.steps
 
 
-def test_no_deadman_moves_and_stops_nothing():
+def test_no_deadman_moves_and_stops_nothing(monkeypatch):
+    monkeypatch.setattr(h, "BLIP_S", 0.2)
     for gates in ({**GATES_OK, "deadman": False}, {**GATES_OK, "estop": True}, {**GATES_OK, "ch5": "STANDBY"}, {}):
-        r = Robot(gafro=("left", "right"), gates=gates)
+        r = Robot(gafro=("left", "right"), gates=gates, at_stow=False)
         c, out, err = change(r, "handover", "ros2")
         assert err and "Nothing was moved or stopped" in err and r.log == [] and r.controller() == "gafro", (gates, err, r.log)
+
+
+def test_a_released_deadman_is_refused_at_once_and_a_blip_is_not(monkeypatch):
+    """At the robot (2026-11-05) a refusal looked like a 49 s wait (the op's clock kept running). A press without the deadman is refused within BLIP_S, in one line;
+    one released reading (CH6's known ~0.6 s blip) followed by held is not refused."""
+    import time
+    r = Robot(gafro=("left", "right"), at_stow=False, gates={**GATES_OK, "deadman": False})
+    began = time.monotonic()
+    c, out, err = change(r, "handover", "ros2")
+    assert err.startswith("Hold the deadman.") and time.monotonic() - began < h.BLIP_S + 0.5 and r.log == [], (err, r.log)
+    r = Robot(gafro=("left", "right"), at_stow=False)
+    reads = []
+
+    def gates():
+        reads.append(1)
+        return {**GATES_OK, "deadman": len(reads) > 2}
+    r.gates = gates
+    c, out, err = change(r, "handover", "ros2")
+    assert err is None and r.controller() == "ros2", (err, r.log)
+
+
+def test_at_stow_nothing_moves_so_neither_the_deadman_nor_supervision_is_asked_for():  # and away from stow, SUPERVISE is
+    """Both arms at stow: no park, so no gates, either way (as to gafro always did)."""
+    released = {**GATES_OK, "deadman": False}
+    r = Robot(gafro=("left", "right"), at_stow=True, gates=released, supervised=False)
+    c, out, err = change(r, "handover", "ros2")
+    assert err is None and r.controller() == "ros2" and not any("park" in e for e in r.log), (err, r.log)
+    assert c.steps[0]["state"] == "skipped", c.steps
+    r = Robot(gafro=("left", "right"), at_stow=False, supervised=False)   # away from stow, gafro parks, and only for a person at the e-stop
+    c, out, err = change(r, "handover", "ros2")
+    assert err and err.startswith("SUPERVISE") and r.log == [], (err, r.log)
+    r = Robot(ros=True, at_stow=True, gates=released)
+    c, out, err = change(r, "handover", "gafro")
+    assert err is None and r.controller() == "gafro" and "ros park both" not in r.log, (err, r.log)
 
 
 def test_a_park_gafro_refuses_leaves_gafro_holding_and_nothing_stopped():
