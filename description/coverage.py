@@ -3,7 +3,7 @@
 the two overlap: a desk tool for choosing where to put a target (the candy bucket for ARCHITECT's
 pick, #576).
 
-    uv run --python 3.12 --with mujoco --with pyyaml --with numpy --with matplotlib \\
+    uv run --python 3.12 --with mujoco --with pyyaml --with numpy --with matplotlib --with ssik \\
         python3 description/coverage.py --out /tmp/coverage
 
 Writes, per Femto mount (dimensions.yaml femto_mount.variants), a top-down plan (plan-<mount>.png)
@@ -36,7 +36,9 @@ controller's limits are the robot's operating ones (dimensions.yaml head), so th
 THE ARMS. Exactly the checks ARCHITECT's live arm service makes before it moves a gripper to a point
 (the Arms lane's answer, 2026-10-27): the arm's workspace box, ik.py's reach within 1 cm, and 30 mm
 clearance on the move from stow, with the lift down and the head centred (see Reach). Any hand
-orientation: the service places the tool point and holds no orientation.
+orientation: the service places the tool point and holds no orientation. SSIK's analytical IK
+(sim/ik_artifacts) screens the candidates first, so the slow gate runs only where an arm pose exists;
+the gate alone decides what passes. --no-ssik runs without it.
 
 THE BUCKET ZONE is where a bucket can stand (not over the robot) that an arm reaches and the depth
 camera sees WELL: inside the middle WELL of its field, so the bucket and the incoming hand are both in
@@ -175,6 +177,49 @@ WORKSPACE_TEMPLATE = {"left": {"x": [0.60, 0.80], "y": [0.15, 0.45], "z": [0.75,
                       "right": {"x": [0.60, 0.80], "y": [-0.45, -0.15], "z": [0.75, 1.10]}}
 REACH_CELL = 0.05
 HAND_SAMPLES = 20000
+SSIK_SHOULDER_Z = 0.1225                         # where the OpenArm's shoulder axes meet, in link0 (the SSIK artifact's chain)
+SCREEN_SLACK_DEG = 1.0
+
+
+def _frames_about(a, n_roll):
+    """n_roll hand orientations whose z axis is `a`, rolled evenly about it."""
+    t = np.array([1.0, 0.0, 0.0]) if abs(a[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    b = np.cross(a, t)
+    b /= np.linalg.norm(b)
+    c = np.cross(a, b)
+    out = []
+    for k in range(n_roll):
+        x = math.cos(2 * math.pi * k / n_roll) * b + math.sin(2 * math.pi * k / n_roll) * c
+        out.append(np.column_stack([x, np.cross(a, x), a]))
+    return out
+
+
+def _even(n_dir=24, n_roll=4):
+    """Hand z axes spread evenly over the sphere (Fibonacci), each rolled n_roll ways."""
+    g, out = (1 + 5 ** 0.5) / 2, []
+    for k in range(n_dir):
+        z = 1 - 2 * (k + 0.5) / n_dir
+        r, th = math.sqrt(1 - z * z), 2 * math.pi * k / g
+        out += _frames_about(np.array([r * math.cos(th), r * math.sin(th), z]), n_roll)
+    return out
+
+
+def _aimed(a0, cones=(0, 10, 20, 35), n_az=6, n_roll=6):
+    """Hand z axes in cones (deg) about a0, the line out from the shoulder."""
+    t = np.array([1.0, 0.0, 0.0]) if abs(a0[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    b = np.cross(a0, t)
+    b /= np.linalg.norm(b)
+    c = np.cross(a0, b)
+    out = []
+    for cone in cones:
+        th = math.radians(cone)
+        for k in range(1 if cone == 0 else n_az):
+            ph = 2 * math.pi * k / n_az
+            out += _frames_about(math.cos(th) * a0 + math.sin(th) * (math.cos(ph) * b + math.sin(ph) * c), n_roll)
+    return out
+
+
+SSIK_EVEN = _even()
 
 
 def load_workspace(path):
@@ -218,6 +263,51 @@ class Reach:
             pts[k] = kin.d.site_xpos[site]                     # the chassis sits at the origin, unrotated
         return pts
 
+    def ssik_screen(self, side: str, point) -> bool:
+        """A second PRE-SCREEN, after hand_cloud: False only if SSIK's analytical IK (sim/ik_artifacts)
+        finds no in-bounds arm pose with the tool point at `point` (chassis frame) over SSIK_ORIENTS'
+        hand orientations, so ok()'s full search, slow when it fails, is skipped. Any orientation, as
+        ok(): the even set plus a cone about the line out from the shoulder, where an arm at full
+        stretch has its only solutions. Accepts within SCREEN_SLACK_DEG of the solver's own joint
+        bounds, so it only errs toward keeping a point. A kept point still goes through ok()."""
+        if not hasattr(self, "_ssik"):
+            self._ssik = self._ssik_setup()
+        art, Winv, off, shoulder, envs = self._ssik[side]
+        p = np.asarray(point, float)
+        a0 = (p - shoulder) / np.linalg.norm(p - shoulder)
+        for R in _aimed(a0) + SSIK_EVEN:
+            T = np.eye(4)
+            T[:3, :3], T[:3, 3] = R, p - R @ off
+            for sol in art.solve(Winv @ T, respect_limits=False):
+                q = np.asarray(sol.q)
+                if any(all(lo <= v <= hi for v, (lo, hi) in zip(q, e)) for e in envs):
+                    return True
+        return False
+
+    def _ssik_setup(self):
+        """Per side: the artifact, the twin's link0 (inverse), the tool site's fixed offset in SSIK's
+        hand_tcp frame and the shoulder centre, both read off the twin, and the solver's joint envelopes."""
+        sys.path.insert(0, str(HERE.parent / "sim" / "ik_artifacts"))
+        import openarm_left_ik
+        import openarm_right_ik
+        kin, mj = self.kin, self.kin.mj
+        self.clearance.set_pose(kin.m, kin.d, "", self.lift_mm, 0.0, 0.0)
+        mj.mj_kinematics(kin.m, kin.d)
+        out = {}
+        for side, art in (("left", openarm_left_ik), ("right", openarm_right_ik)):
+            b0 = mj.mj_name2id(kin.m, mj.mjtObj.mjOBJ_BODY, f"oa_openarm_{side}_link0")
+            W = np.eye(4)
+            W[:3, :3], W[:3, 3] = kin.d.xmat[b0].reshape(3, 3), kin.d.xpos[b0]
+            site = mj.mj_name2id(kin.m, mj.mjtObj.mjOBJ_SITE, self.ik.TOOL_SITE.format(side=side))
+            T = W @ np.asarray(art.fk(np.array([kin.d.qpos[a] for a in self.qadr[side]])))
+            off = T[:3, :3].T @ (kin.d.site_xpos[site] - T[:3, 3])
+            shoulder = (W @ np.array([0.0, 0.0, SSIK_SHOULDER_Z, 1.0]))[:3]
+            slack = math.radians(SCREEN_SLACK_DEG)
+            inset = [(lo + math.radians(0.5), hi - math.radians(0.5)) for lo, hi in kin._bounds(side)]   # as ik.Kin.solve
+            envs = [[(lo - slack, hi + slack) for lo, hi in e] for e in kin._envelopes(inset)]
+            out[side] = (art, np.linalg.inv(W), off, shoulder, envs)
+        return out
+
     def ok(self, side: str, point) -> bool:
         """point: chassis frame, metres. True if the arm reaches it from stow, clear of the body."""
         kin, np = self.kin, self.kin.np
@@ -232,14 +322,15 @@ class Reach:
         return kin.clearance_along(side, np.zeros(7), goal)[0] >= self.ik.CLEAR_MIN_MM
 
 
-def reach_grid(lift_mm: float, heights, cache: Path):
+def reach_grid(lift_mm: float, heights, cache: Path, ssik: bool = True):
     """{(side, height above floor): set of (i, j)} on the REACH_CELL grid in base_link (xs, ys below),
-    every point the gate passes (box not applied). Cached in `cache`, keyed by the inputs."""
+    every point the gate passes (box not applied). Cached in `cache`, keyed by the inputs. `ssik`
+    adds Reach.ssik_screen before the gate (the same cells, faster; --no-ssik leaves it out)."""
     import hashlib
     import json
     xs = np.round(np.arange(0.0, 0.80 + 1e-9, REACH_CELL), 3)          # base_link x
     ys = np.round(np.arange(-0.75, 0.75 + 1e-9, REACH_CELL), 3)
-    key = hashlib.sha256(json.dumps([lift_mm, list(heights), xs.tolist(), ys.tolist(),
+    key = hashlib.sha256(json.dumps([lift_mm, list(heights), xs.tolist(), ys.tolist(), ssik,
                                      (OURS / "opendubs.xml").read_text(),
                                      Path(__file__).read_text()]).encode()).hexdigest()[:12]   # a code fix re-runs it
     f = cache / f"reach-{key}.json"
@@ -260,9 +351,12 @@ def reach_grid(lift_mm: float, heights, cache: Path):
                     for dj in (-1, 0, 1):
                         if 0 <= i0 + di < len(ys) and 0 <= j0 + dj < len(xs):
                             cand.add((i0 + di, j0 + dj))
-            cells = {(i, j) for i, j in sorted(cand) if r.ok(side, (xs[j] + BASE_LINK_CAD[0], ys[i], z))}
+            pts = {c: (xs[c[1]] + BASE_LINK_CAD[0], ys[c[0]], z) for c in sorted(cand)}
+            kept = [c for c in pts if not ssik or r.ssik_screen(side, pts[c])]
+            cells = {c for c in kept if r.ok(side, pts[c])}
             out[(side, h)] = cells
-            print(f"  reach: lift {lift_mm:.0f} mm, {h:.2f} m, {side}: {len(cells)} of {len(cand)} candidates pass", flush=True)
+            print(f"  reach: lift {lift_mm:.0f} mm, {h:.2f} m, {side}: {len(cells)} of {len(cand)} candidates pass"
+                  + (f" ({len(kept)} past SSIK)" if ssik else ""), flush=True)
     f.write_text(json.dumps([[s, h, sorted(v)] for (s, h), v in out.items()]))
     return xs, ys, out
 
@@ -566,6 +660,8 @@ def main() -> int:
     ap.add_argument("--lifts", default="0,275", help="lift heights in mm for the coverage views (reach: lift down)")
     ap.add_argument("--mounts", default="tilt30,straight", help="the real mounts to draw")
     ap.add_argument("--sweep-tilt", default="0:45:5", help="down-tilts to score, start:stop:step degrees; '' for none")
+    ap.add_argument("--no-ssik", action="store_true",
+                    help="reach without the SSIK pre-screen (slower, the same cells; no `ssik` package needed)")
     args = ap.parse_args()
 
     import matplotlib
@@ -580,7 +676,7 @@ def main() -> int:
     ws, ws_src = load_workspace(args.workspace)
     heights = sorted({float(v) for v in args.heights.split(",")} | {args.table_height})
     lifts = [float(v) / 1000.0 for v in args.lifts.split(",")]
-    reach = reach_grid(0.0, heights, out)
+    reach = reach_grid(0.0, heights, out, ssik=not args.no_ssik)
 
     spots = []
     for mount in args.mounts.split(","):
