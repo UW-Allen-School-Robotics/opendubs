@@ -4,8 +4,11 @@ It reads Spot's identity and software release, logs in with the Keychain login (
 allow the read), syncs clocks, then reads the power, battery and E-Stop state and who holds the lease.
 It never powers on, never takes the lease, never registers an E-Stop and sends no motion.
 
-    uv run --with bosdyn-client python software/spot/check_login.py [SPOT_HOST]   # default 192.168.50.3
+    uv run --no-project --with 'bosdyn-client==5.1.4' python software/spot/check_login.py [SPOT_HOST]
+    # SPOT_HOST defaults to 192.168.50.3 (the payload network). The SDK is pinned at or below Spot's
+    # release (5.1.5 on 2026-11-19; PyPI has no 5.1.5, so 5.1.4).
 """
+import importlib.metadata
 import sys
 
 import bosdyn.client
@@ -23,7 +26,7 @@ rid = robot.get_id()                          # no login needed
 sw = rid.software_release.version
 print(f"Spot at {host}: {rid.nickname or rid.computer_serial_number}, release "
       f"{sw.major_version}.{sw.minor_version}.{sw.patch_level} ({rid.software_release.name})")
-print(f"bosdyn-client here: {bosdyn.client.__version__}")
+print(f"bosdyn-client here: {importlib.metadata.version('bosdyn-client')}")
 
 user, password = load()
 robot.authenticate(user, password)
