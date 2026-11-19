@@ -14,6 +14,7 @@ import sys
 import bosdyn.client
 from bosdyn.client.estop import EstopClient
 from bosdyn.client.lease import LeaseClient
+from bosdyn.client.license import LicenseClient
 from bosdyn.client.robot_state import RobotStateClient
 
 from spot_credentials import load
@@ -47,4 +48,7 @@ print(f"e-stop endpoints registered: {len(st.endpoints)}; stop level {st.stop_le
 for r in robot.ensure_client(LeaseClient.default_service_name).list_leases():
     owner = r.lease_owner.client_name or "nobody"
     print(f"lease {r.resource}: held by {owner}")
+lic = robot.ensure_client(LicenseClient.default_service_name).get_license_info()
+print(f"licence: {lic.Status.Name(lic.status)}, valid until {lic.not_valid_after.ToDatetime():%Y-%m-%d}")
+print("licensed features:", ", ".join(sorted(lic.licensed_features)) or "none listed")
 print("Done. Nothing was powered, leased or moved.")
