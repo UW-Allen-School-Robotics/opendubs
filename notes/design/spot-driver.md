@@ -37,7 +37,7 @@ Nothing is built and nothing has been sent to a Spot.**
 The Boston Dynamics Spot SDK, Python (`bosdyn-client`), pinned to Spot's release, never vendored.
 Hygiene checks its licence before this repository is public.
 
-- **Login.** `robot.authenticate()` with Spot's user and password, typed at a hidden prompt (see
+- **Login.** `robot.authenticate()` with Spot's user and password, read from the Keychain (see
   Secrets), then `robot.time_sync.wait_for_sync()`.
 - **The lease.** Spot's tablet holds it by default. The person at the tablet releases control, then
   the driver acquires the lease and keeps it alive. The driver never takes it by force.
@@ -159,11 +159,14 @@ FACE tracks stay opendubs2's.
 
 ## Secrets
 
-- Spot's user and password are typed only at a hidden prompt, in a terminal application separate from
-  any agent's tools. They are never passed as arguments, never put in an environment file, and never
+- Spot's user and password are stored once in the operator Mac's Keychain, typed at `security`'s hidden
+  prompt in a terminal application separate from any agent's tools
+  (`software/spot/spot_credentials.py` has the command). The item trusts no application, so each read
+  by the driver pops a macOS dialog that the person at the Mac allows (Allow, never Always Allow).
+- They are never passed as arguments, never put in an environment file, never printed, and never
   enter any repository. Any session token stays in the driver's memory.
-- So the authenticated driver runs in that terminal. Its JSON-lines log carries no secrets and lives
-  outside every repository (`~/.opendubs-spot/logs/`).
+- The driver's JSON-lines log carries no secrets and lives outside every repository
+  (`~/.opendubs-spot/logs/`).
 
 ## Where the code goes
 
