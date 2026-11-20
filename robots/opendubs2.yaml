@@ -1,0 +1,17 @@
+# Unit record for opendubs2 (verify module flags against physical unit)
+unit: opendubs2
+revision: rev-A
+profile: demo
+modules:
+  - base
+  - lidar_front
+  - lidar_rear
+  - stamplc
+  - head_tablet
+  - neck_dial
+  - arms
+containers:
+  - openarm
+pins:
+  hallpass_sitekit: software/ros/hallpass-sitekit.ref
+  openarm_image: software/openarm/image/repos.lock

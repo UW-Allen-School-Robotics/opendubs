@@ -244,8 +244,22 @@ fi
 exit "$bad"
 EOF
 
-printf 'source=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\nhallpass_sitekit=%s\n' "$SOURCE" "$SRC_SHA" "$SRC_BRANCH" \
-  "$MAIN_SHA" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(hostname -s)" "$SITEKIT_SHA" | ssh "$HOST" "cat > $DEST/DEPLOYED"
+ROBOT_ID=$(ssh "$HOST" "sed -n 's/^OPENDUBS_ROBOT_ID=//p' /etc/opendubs/robot.env 2>/dev/null | tail -1 | tr -d '\"'\'''" 2>/dev/null || true)
+if [ -z "$ROBOT_ID" ]; then
+  ROBOT_ID="${HOST##*@}"
+  ROBOT_ID="${ROBOT_ID%.local}"
+fi
+RECORD_REV="unknown"
+RECORD_PROFILE="unknown"
+if [ -f "$REPO/robots/$ROBOT_ID.yaml" ]; then
+  RECORD_REV=$(sed -n 's/^revision:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID.yaml" | head -1 | tr -d "\"' ")
+  RECORD_PROFILE=$(sed -n 's/^profile:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID.yaml" | head -1 | tr -d "\"' ")
+fi
+
+printf 'robot=%s\nrevision=%s\nprofile=%s\nsource=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\nhallpass_sitekit=%s\n' \
+  "$ROBOT_ID" "${RECORD_REV:-unknown}" "${RECORD_PROFILE:-unknown}" \
+  "$SOURCE" "$SRC_SHA" "$SRC_BRANCH" "$MAIN_SHA" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(hostname -s)" "$SITEKIT_SHA" \
+  | ssh "$HOST" "cat > $DEST/DEPLOYED"
 echo "== deployed from $SOURCE =="
 echo "== deployed. Reboot the Thor to (re)launch kiosk + ROS:  ssh $HOST sudo reboot =="
 [ "$ROSBRIDGE_BIND_OK" = 1 ] || { echo "!! rosbridge :9090 is bound wrongly (see above): fix it before HallPass or anyone uses the robot network"; exit 1; }

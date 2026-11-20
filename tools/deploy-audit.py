@@ -32,6 +32,8 @@ import re
 import subprocess
 import sys
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 SYNC = "sync"            # should be identical; a difference is drift
@@ -130,12 +132,147 @@ def build_pairs():
     return pairs
 
 
+# Systemd units in /etc/systemd/system/ that come from OS packages rather than this repo.
+OS_SYSTEMD_UNITS = frozenset({
+    "containerd.service",
+    "docker.service",
+    "snapd.service",
+})
+
+# Repo subtrees whose .service files belong to a separate host (not the Thor).
+NON_THOR_SERVICE_PREFIXES = (
+    "notes/",
+    "software/stage-pi/",
+)
+
+
+def expected_systemd_units(root: pathlib.Path = ROOT) -> set[str]:
+    """Every systemd unit name (*.service) that the repo ships for the Thor."""
+    units = set()
+    for p in root.rglob("*.service"):
+        rel = str(p.relative_to(root))
+        if rel.startswith(NON_THOR_SERVICE_PREFIXES) or skip(rel):
+            continue
+        units.add(p.name)
+    return units
+
+
+def load_robot_record(unit: str, root: pathlib.Path = ROOT) -> dict | None:
+    """Load robots/<unit>.yaml if present; raise ValueError if malformed."""
+    path = root / "robots" / f"{unit}.yaml"
+    if not path.is_file():
+        return None
+    data = yaml.safe_load(path.read_text())
+    if not isinstance(data, dict) or not data.get("unit"):
+        raise ValueError(f"{path}: expected a mapping with 'unit'")
+    return data
+
+
+def list_robot_records(root: pathlib.Path = ROOT) -> dict[str, dict]:
+    """Load all robots/*.yaml records keyed by unit name."""
+    records = {}
+    rdir = root / "robots"
+    if not rdir.is_dir():
+        return records
+    for p in sorted(rdir.glob("*.yaml")):
+        rec = load_robot_record(p.stem, root=root)
+        if rec is not None:
+            records[p.stem] = rec
+    return records
+
+
+def expected_containers(record: dict | None) -> set[str]:
+    """Container names expected on a robot from its record (plus base optional ones)."""
+    if record and isinstance(record.get("containers"), list):
+        return {str(c) for c in record["containers"]}
+    return {"openarm"}
+
+
+def parse_runtime_probe(stdout: str) -> tuple[list[dict], list[dict]]:
+    """Parse batched SSH output of custom /etc/systemd/system/*.service units and docker ps -a."""
+    units, containers = [], []
+    section = None
+    for line in stdout.splitlines():
+        if line == "---UNITS---":
+            section = "units"
+            continue
+        if line == "---CONTAINERS---":
+            section = "containers"
+            continue
+        if not line.strip():
+            continue
+        if section == "units":
+            parts = line.split("\t", 3)
+            if len(parts) == 4:
+                units.append({
+                    "name": parts[0],
+                    "enabled": parts[1],
+                    "active": parts[2],
+                    "exec_start": parts[3],
+                })
+        elif section == "containers":
+            parts = line.split("\t", 2)
+            if len(parts) == 3:
+                containers.append({
+                    "name": parts[0],
+                    "image": parts[1],
+                    "status": parts[2],
+                })
+    return units, containers
+
+
+def classify_runtime(
+    units: list[dict],
+    containers: list[dict],
+    known_units: set[str],
+    known_containers: set[str],
+) -> tuple[list[dict], list[dict]]:
+    """Return (unowned_or_suspect_units, unexpected_containers)."""
+    suspect_units = []
+    for u in units:
+        name = u["name"]
+        exec_start = u.get("exec_start", "")
+        from_home = "/home/" in exec_start
+        # Template instances like openarm-can@arm_left.service match openarm-can@.service
+        template = re.sub(r"@[^.]+\.service$", "@.service", name)
+        owned = name in known_units or template in known_units or name in OS_SYSTEMD_UNITS
+        if not owned or from_home:
+            suspect_units.append({**u, "reason": "runs from /home" if from_home else "not in repo"})
+    unexpected_containers = [c for c in containers if c["name"] not in known_containers]
+    return suspect_units, unexpected_containers
+
+
+def remote_runtime_probe(robot: str) -> tuple[list[dict], list[dict]]:
+    """Inspect /etc/systemd/system/*.service and docker containers in one SSH round trip."""
+    script = (
+        "echo '---UNITS---'; "
+        "for f in /etc/systemd/system/*.service; do "
+        "[ -f \"$f\" ] && [ ! -L \"$f\" ] || continue; "
+        "n=$(basename \"$f\"); "
+        "en=$(systemctl is-enabled \"$n\" 2>/dev/null) || [ -n \"$en\" ] || en=unknown; "
+        "ac=$(systemctl is-active \"$n\" 2>/dev/null) || [ -n \"$ac\" ] || ac=unknown; "
+        "ex=$(grep -m1 '^ExecStart=' \"$f\" 2>/dev/null | cut -d= -f2- | tr '\\t' ' '); "
+        "printf '%s\\t%s\\t%s\\t%s\\n' \"$n\" \"$en\" \"$ac\" \"$ex\"; "
+        "done; "
+        "echo '---CONTAINERS---'; "
+        "if command -v docker >/dev/null 2>&1; then "
+        "docker ps -a --format '{{.Names}}\\t{{.Image}}\\t{{.Status}}' 2>/dev/null || true; "
+        "fi"
+    )
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", robot, script],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"ssh to {robot} failed: {(r.stderr or '').strip() or r.returncode}")
+    return parse_runtime_probe(r.stdout)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("robot", nargs="?", help="ssh host, e.g. opendubs2")
     ap.add_argument("--diff", metavar="PATH", help="show the difference for one repo path")
     ap.add_argument("--list", action="store_true", help="print the mapping and exit")
+    ap.add_argument("--check-records", action="store_true", help="validate robots/*.yaml records offline and exit")
     ap.add_argument("--rsync-protect", metavar="DIR",
                     help="print rsync filter rules that keep DIR's PER_ROBOT files and the "
                          "robot-side backups from being overwritten or deleted (deploy-all.sh)")
@@ -152,12 +289,19 @@ def main():
             print(f"--exclude=*{part}*")
         return
 
+    if a.check_records:
+        records = list_robot_records()
+        for unit, rec in sorted(records.items()):
+            print(f"  {unit}: rev={rec.get('revision', '?')} profile={rec.get('profile', '?')} modules={len(rec.get('modules', []))}")
+        print(f"\n{len(records)} robot record(s) OK")
+        return
+
     pairs = build_pairs()
 
     if a.list:
         for rel, (remote, kind) in sorted(pairs.items()):
             print(f"  {kind:9} {rel}  ->  {remote}")
-        print(f"\n{len(pairs)} files mapped")
+        print(f"\n{len(pairs)} files mapped, {len(expected_systemd_units())} systemd units, {len(list_robot_records())} robot records")
         return
     if not a.robot:
         ap.error("a robot is required (or --list)")
@@ -191,11 +335,23 @@ def main():
     marker = subprocess.run(["ssh", a.robot, "cat /opt/opendubs/DEPLOYED 2>/dev/null"],
                             capture_output=True, text=True).stdout
     last = dict(l.split("=", 1) for l in marker.splitlines() if "=" in l)
+    unit_name = (last.get("robot") or a.robot).split("@")[-1].removesuffix(".local")
+    record = load_robot_record(unit_name)
+    if record:
+        print(f"  record ({unit_name}): revision={record.get('revision', '?')}, "
+              f"profile={record.get('profile', '?')}, modules={', '.join(record.get('modules', []))}\n")
+    else:
+        print(f"  record ({unit_name}): NONE (no robots/{unit_name}.yaml in repo)\n")
     if last.get("source"):
         flag = "" if last["source"].startswith("main @") else "  <-- NOT main"
         print(f"  last deploy: {last['source']}, {last.get('when', '?')}{flag}\n")
     else:
         print("  last deploy: unknown (no /opt/opendubs/DEPLOYED; deployed before deploy-all.sh wrote it)\n")
+
+    units, containers = remote_runtime_probe(a.robot)
+    suspect_units, unexpected_containers = classify_runtime(
+        units, containers, expected_systemd_units(), expected_containers(record)
+    )
     # The tablet's kiosk app is not a deployed file but a signed build (deploy-all.sh's deploy_kiosk):
     # compare the version the robot serves with the one this checkout's source says.
     gradle = (ROOT / "software/tablet-kiosk/app/build.gradle.kts").read_text()
@@ -227,9 +383,19 @@ def main():
         for rel, _ in review:
             print(f"    {rel}")
         print()
-    if not drift and not missing:
+    if suspect_units:
+        print("  UNOWNED / SUSPECT SYSTEMD UNITS — not installed by this repo (or running from /home):")
+        for u in suspect_units:
+            print(f"    {u['name']} ({u['enabled']}/{u['active']}, {u['reason']}): {u['exec_start']}")
+        print()
+    if unexpected_containers:
+        print("  UNEXPECTED DOCKER CONTAINERS — not in the robot record:")
+        for c in unexpected_containers:
+            print(f"    {c['name']} ({c['image']}): {c['status']}")
+        print()
+    if not drift and not missing and not suspect_units and not unexpected_containers:
         print("  nothing drifted.\n")
-    sys.exit(1 if drift else 0)
+    sys.exit(1 if (drift or suspect_units or unexpected_containers) else 0)
 
 
 if __name__ == "__main__":
