@@ -171,6 +171,28 @@ FACE tracks stay opendubs2's.
 - The driver's JSON-lines log carries no secrets and lives outside every repository
   (`~/.opendubs-spot/logs/`).
 
+## The console (`software/spot/spot_console.py`)
+
+A window on the operator's Mac, the avenue towards playing ENCORE shows on Spot. Built 2026-11-19 at
+the maintainers' request:
+
+- **It holds the session.** One Keychain read per session (the macOS dialog), the login kept in memory
+  with the SDK refreshing the token hourly. Nothing is written to disk.
+- **It is the person's E-Stop.** A big red STOP and the space bar (while the window is in front) stop
+  Spot: sit, then cut. It starts STOPPED, and only a click on Release, in the window, releases it. A
+  window frozen for over a second stops Spot; a dead console stops checking in and Spot stops within
+  the 9 s timeout. When the tablet releases control it also gives up its E-Stop (seen 2026-11-19), so
+  the console is then Spot's only stop: the person using it stays at the Mac, within reach of Spot.
+- **Commands:** power on + stand (the lease held until sit), sit + power off. Loading an ENCORE plan
+  (`spot_driver.plan()` as JSON) shows its windows, parts and problems; playing it is the next step.
+- **Other local programs** (an agent session, a show player) send `status`, `stand`, `sit` or `stop` on a
+  private socket (`~/.opendubs-spot/console.sock`, mode 0600). Releasing the E-Stop is never accepted
+  there: a person releases it, in the window.
+
+This departs from "the driver is never the E-Stop client" above: the console is both, in one process,
+so that a dead console stops Spot. A separate stop (the tablet, or `estop.py` on another machine)
+can come back once Spot can keep one alongside the console.
+
 ## Where the code goes
 
 `software/spot/` in this repository, owned by the Spot lane (decided by the maintainers, 2026-10-27;
