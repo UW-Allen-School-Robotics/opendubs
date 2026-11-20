@@ -260,6 +260,7 @@ Read-only audit before the deploy of `877454b`.
 | 1.1 | Write `provision-container-host.sh`, idempotent, and chain it from `provision-all.sh`. It does NVIDIA's documented baseline: Docker from get.docker.com, the `nvidia-container` package, `nvidia-ctk runtime configure --runtime=docker`, `"default-runtime": "nvidia"`, docker group membership. Additions: json-file log rotation, `net.core.rmem_max` (Isaac ROS camera guidance), the nvpmodel pin (T-5), and the `apt-mark hold 'nvidia-l4t-*'` that `thor-setup.md` already prescribes | It runs cleanly twice on the reference Thor, and `docker run --rm nvcr.io/nvidia/cuda:13.0.x-runtime-ubuntu24.04 nvidia-smi` sees the GPU |
 | 1.2 | Write a version manifest, `software/stack/versions.env` or similar: L4T release, Container Toolkit, Isaac ROS release tag, and base-image **digests**. This is the "pin the base" layer from the portability audit, extended to images | Every image reference in the repo resolves through it |
 | 1.3 | Have `tools/deploy-audit.py` report image digests against the manifest | Drift in a container is reported like drift in a file |
+| 1.4 | Widen `tools/deploy-audit.py`'s `OS_SYSTEMD_UNITS` (only docker, containerd and snapd today), so a Thor's JetPack, NVIDIA and other vendor units (ollama and the like) are not reported as "not in repo". Take the list from a read of a freshly provisioned Thor, not from memory | The runtime probe on the reference Thor lists no vendor unit as "not in repo" |
 
 ## Phase 2 — the OpenDubs ROS image
 
