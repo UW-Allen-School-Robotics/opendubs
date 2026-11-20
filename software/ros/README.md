@@ -135,6 +135,38 @@ Interim bridge — the long-term clean path is **micro-ROS on the ESP32-S3** (se
 Verify: `ros2 topic echo /diagnostics --once` · `ros2 service call
 /robot/i2c_scan std_srvs/srv/Trigger`.
 
+## `robot_state` node (direct StamPLC publisher + Z-axis lease)
+
+`robot_state.py` (`opendubs-robot-state.service`, opt-in via `ConditionPathExists=/etc/opendubs/robot-state.enabled`)
+replaces HTTP `/api/stamplc` polling by reading the StamPLC link directly (`stamplc.reader`) and
+publishing unified `/robot/state` JSON (10 Hz) alongside the existing `/robot/*`, `/zaxis/*`, and
+`/power/*` topics:
+
+- **`/robot/state`** (`std_msgs/String`, JSON):
+  `{"stamp", "estopped", "motion_enabled", "rc": {"ch5", "deadman", "live"}, "zaxis": {"encoder", "height_mm", "travel_m", "pinch", "fresh"}, "power": {"bus_v", "temp_c", "pdh"}, "safety": {"fresh", "welded", "source"}}`
+- **Granular topics:** `/robot/estopped`, `/robot/motion_enabled`, `/robot/rc`, `/zaxis/encoder`,
+  `/zaxis/travel_m`, `/power/bus_voltage`, `/power/temperature`, `/power/pdh/{voltage,current,power}`
+- **Services (`std_srvs/Trigger`):** `/robot/estop`, `/robot/estop_clear` (guarded: refuses if stale,
+  button pressed, welded, or RC CH5 in `AUTO`/`MANUAL`), `/zaxis/{up,down,stop}`, `/zaxis/encoder_reset`
+
+It also hosts the **Z-axis lease** using the same arbitration pattern as `base_selector.py`:
+- `/zaxis/claim` (`std_msgs/String`, JSON `{"owner": "manip", "ttl_s": 2.0}`)
+- `/zaxis/release` (`std_msgs/String`, JSON `{"owner": "manip"}` or `{"owner": "*"}`)
+- `/zaxis/owner` (`std_msgs/String`, JSON, latched at 2 Hz + on change)
+- `/zaxis/<owner>/cmd` (`std_msgs/String`, `"up" | "down" | "stop"` → `MAST CMD`)
+
+> **Single-writer note:** Because `robot_state.py` opens the StamPLC link directly via `stamplc.reader`,
+> do **not** enable `opendubs-robot-state` while `opendubs-dash` is also holding the StamPLC serial/UDP
+> port. Keep `/etc/opendubs/robot-state.enabled` absent on live robots until the dashboard is switched
+> to consume `/robot/state`; for standalone bench testing, stop `opendubs-dash` and `opendubs-stamplc-bridge`
+> first:
+> ```sh
+> sudo systemctl stop opendubs-dash opendubs-stamplc-bridge
+> sudo touch /etc/opendubs/robot-state.enabled
+> sudo systemctl start opendubs-robot-state
+> ```
+> To revert: `sudo rm -f /etc/opendubs/robot-state.enabled && sudo systemctl stop opendubs-robot-state && sudo systemctl start opendubs-dash opendubs-stamplc-bridge`.
+
 ## Drive bridge (base commands → DRIVE, [ODO] → /odom)
 
 `drive_bridge.py` (`opendubs-drive-bridge.service`) speaks the StamPLC's UDP 5005 directly. It

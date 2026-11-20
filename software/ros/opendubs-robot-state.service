@@ -1,0 +1,19 @@
+[Unit]
+Description=OpenDubs robot_state node (StamPLC state publisher + Z-axis lease)
+After=network.target
+# Opt-in while transitioning off opendubs-stamplc-bridge (touch /etc/opendubs/robot-state.enabled).
+ConditionPathExists=/etc/opendubs/robot-state.enabled
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@OPENDUBS_USER@
+Environment=HOME=@OPENDUBS_HOME@
+EnvironmentFile=/etc/opendubs/ros-dds.env
+EnvironmentFile=-/etc/opendubs/robot.env
+ExecStart=/opt/opendubs/ros/robot-state.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
