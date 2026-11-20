@@ -32,8 +32,6 @@ import re
 import subprocess
 import sys
 
-import yaml
-
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 SYNC = "sync"            # should be identical; a difference is drift
@@ -157,27 +155,59 @@ def expected_systemd_units(root: pathlib.Path = ROOT) -> set[str]:
     return units
 
 
+def _flat_yaml(text: str) -> dict:
+    """The records' own subset of YAML, for a python3 without PyYAML (the Mac's PATH python, which runs
+    deploy-all.sh): top-level `key: value`, `key: []`, and under a bare `key:` either `- item` lines or
+    one level of `name: value` lines. Comments and quotes are stripped."""
+    def val(v: str):
+        v = v.split(" #", 1)[0].strip().strip("\"'")
+        return [] if v == "[]" else v
+    data, key = {}, None
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            k, _, v = line.partition(":")
+            key = k.strip()
+            data[key] = val(v) if v.strip() else None
+        elif key is not None and line.strip().startswith("- "):
+            data[key] = (data[key] or []) + [val(line.strip()[2:])]
+        elif key is not None and ":" in line:
+            k, _, v = line.strip().partition(":")
+            data[key] = {**(data[key] or {}), k.strip(): val(v)}
+    return data
+
+
+def _read_yaml(text: str):
+    try:
+        import yaml   # optional: --rsync-protect and the audit run on a python3 without it
+    except ImportError:
+        return _flat_yaml(text)
+    return yaml.safe_load(text)
+
+
 def load_robot_record(unit: str, root: pathlib.Path = ROOT) -> dict | None:
-    """Load robots/<unit>.yaml if present; raise ValueError if malformed."""
-    path = root / "robots" / f"{unit}.yaml"
+    """Load robots/<unit>/robot.yaml if present; raise ValueError if malformed."""
+    path = root / "robots" / unit / "robot.yaml"
     if not path.is_file():
         return None
-    data = yaml.safe_load(path.read_text())
+    data = _read_yaml(path.read_text())
     if not isinstance(data, dict) or not data.get("unit"):
         raise ValueError(f"{path}: expected a mapping with 'unit'")
     return data
 
 
 def list_robot_records(root: pathlib.Path = ROOT) -> dict[str, dict]:
-    """Load all robots/*.yaml records keyed by unit name."""
+    """Load all robots/<unit>/robot.yaml records keyed by unit name."""
     records = {}
     rdir = root / "robots"
     if not rdir.is_dir():
         return records
-    for p in sorted(rdir.glob("*.yaml")):
-        rec = load_robot_record(p.stem, root=root)
+    for p in sorted(rdir.glob("*/robot.yaml")):
+        unit = p.parent.name
+        rec = load_robot_record(unit, root=root)
         if rec is not None:
-            records[p.stem] = rec
+            records[unit] = rec
     return records
 
 
@@ -272,7 +302,7 @@ def main():
     ap.add_argument("robot", nargs="?", help="ssh host, e.g. opendubs2")
     ap.add_argument("--diff", metavar="PATH", help="show the difference for one repo path")
     ap.add_argument("--list", action="store_true", help="print the mapping and exit")
-    ap.add_argument("--check-records", action="store_true", help="validate robots/*.yaml records offline and exit")
+    ap.add_argument("--check-records", action="store_true", help="validate robots/*/robot.yaml records offline and exit")
     ap.add_argument("--rsync-protect", metavar="DIR",
                     help="print rsync filter rules that keep DIR's PER_ROBOT files and the "
                          "robot-side backups from being overwritten or deleted (deploy-all.sh)")
@@ -341,7 +371,7 @@ def main():
         print(f"  record ({unit_name}): revision={record.get('revision', '?')}, "
               f"profile={record.get('profile', '?')}, modules={', '.join(record.get('modules', []))}\n")
     else:
-        print(f"  record ({unit_name}): NONE (no robots/{unit_name}.yaml in repo)\n")
+        print(f"  record ({unit_name}): NONE (no robots/{unit_name}/robot.yaml in repo)\n")
     if last.get("source"):
         flag = "" if last["source"].startswith("main @") else "  <-- NOT main"
         print(f"  last deploy: {last['source']}, {last.get('when', '?')}{flag}\n")

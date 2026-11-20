@@ -251,9 +251,9 @@ if [ -z "$ROBOT_ID" ]; then
 fi
 RECORD_REV="unknown"
 RECORD_PROFILE="unknown"
-if [ -f "$REPO/robots/$ROBOT_ID.yaml" ]; then
-  RECORD_REV=$(sed -n 's/^revision:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID.yaml" | head -1 | tr -d "\"' ")
-  RECORD_PROFILE=$(sed -n 's/^profile:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID.yaml" | head -1 | tr -d "\"' ")
+if [ -f "$REPO/robots/$ROBOT_ID/robot.yaml" ]; then
+  RECORD_REV=$(sed -n 's/^revision:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID/robot.yaml" | head -1 | tr -d "\"' ")
+  RECORD_PROFILE=$(sed -n 's/^profile:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID/robot.yaml" | head -1 | tr -d "\"' ")
 fi
 
 printf 'robot=%s\nrevision=%s\nprofile=%s\nsource=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\nhallpass_sitekit=%s\n' \
