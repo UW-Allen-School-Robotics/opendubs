@@ -47,7 +47,6 @@ $("claim").onclick = async () => {
 $("release").onclick = () => send({ op: "release" });
 $("connect").onclick = () => send({ op: "connect", host: $("host").value.trim() });
 $("disconnect").onclick = () => send({ op: "disconnect" });
-$("load").onclick = () => $("plans").value && send({ op: "load", name: $("plans").value });
 $("arm").onclick = () => send({ op: "arm" });
 $("start").onclick = () => send({ op: "start" });
 $("upload").onchange = async (e) => {
@@ -79,6 +78,34 @@ function buildGroups(commands) {
   }
 }
 
+// One button per stored show, as on the dashboard: its name, its length, the parts it moves, and the reason
+// when it can't run here. A tap loads it (the operator only; not while a show is armed or playing).
+let showsKey = "";
+// The words a person reads, as on opendubs2's runner: READY, never "armed", since nothing moves until Start.
+const WORDS = { EMPTY: "NO SHOW", LOADED: "LOADED", ARMED: "READY", PLAYING: "SHOW RUNNING", DONE: "DONE", STOPPED: "STOPPED" };
+function renderShows(s, pb) {
+  const busy = ["ARMED", "PLAYING"].includes(pb.state);
+  const key = JSON.stringify([s.shows, pb.plan, busy, s.operator]);
+  if (key === showsKey) return;
+  showsKey = key;
+  const root = $("shows"); root.innerHTML = "";
+  if (!s.shows.length) { root.innerHTML = `<p class="dim">No shows stored on this player yet.</p>`; return; }
+  for (const sh of s.shows) {
+    const b = document.createElement("button");
+    b.className = "show" + (sh.name === pb.plan ? " loaded" : "") + (sh.can_run ? "" : " cant");
+    b.tabIndex = -1; b.disabled = !s.operator || busy;
+    const len = sh.length_s == null ? "?" : `${Math.floor(sh.length_s / 60)}:${String(Math.round(sh.length_s % 60)).padStart(2, "0")}`;
+    b.innerHTML = `<span class="lbl"></span><span class="dur"></span><span class="parts"></span><span class="why"></span>`;
+    b.querySelector(".lbl").textContent = sh.label;
+    b.querySelector(".dur").textContent = sh.can_run ? len : `${len} · can't run`;
+    b.querySelector(".parts").textContent = sh.parts.join(" · ");
+    b.querySelector(".why").textContent = sh.why.join("; ");
+    b.title = sh.why.join("; ");
+    b.onclick = () => send({ op: "load", name: sh.name });
+    root.appendChild(b);
+  }
+}
+
 function render(s) {
   state = s;
   $("link").textContent = s.operator ? "operator" : (s.operator_present ? "viewer · operator elsewhere" : "viewer");
@@ -100,17 +127,13 @@ function render(s) {
   buildGroups(s.commands);
   for (const b of document.querySelectorAll(".cmd")) b.disabled = !s.connected;
 
-  const sel = $("plans"), names = s.plans.join("\n");
-  if (sel.dataset.names !== names) {
-    sel.dataset.names = names; const keep = sel.value; sel.innerHTML = "";
-    for (const n of s.plans) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
-    if (s.plans.includes(keep)) sel.value = keep;
-  }
   const pb = s.playback;
+  renderShows(s, pb);
   $("summary").textContent = pb.plan ? `${pb.plan}\n${pb.summary}` : "no plan loaded";
-  $("pstate").textContent = pb.state; $("pstate").className = `state ${pb.state}`;
+  $("pstate").textContent = WORDS[pb.state] || pb.state; $("pstate").className = `state ${pb.state}`;
   $("pwhy").textContent = pb.state === "PLAYING"
-    ? `t = ${pb.show_s.toFixed(1)} of ${pb.length_s.toFixed(1)} s · sent ${pb.sent}/${pb.windows}` : pb.why;
+    ? `t = ${pb.show_s.toFixed(1)} of ${pb.length_s.toFixed(1)} s · sent ${pb.sent}/${pb.windows}`
+    : (pb.state === "ARMED" ? "nothing moves until Start (or ENCORE's start)" : pb.why);
   $("progress").style.width = pb.state === "PLAYING" ? `${Math.min(100, Math.max(0, 100 * pb.show_s / pb.length_s))}%`
                                                     : (pb.state === "DONE" ? "100%" : "0");
   const canArm = ["LOADED", "STOPPED", "DONE"].includes(pb.state) && s.problems.length === 0;

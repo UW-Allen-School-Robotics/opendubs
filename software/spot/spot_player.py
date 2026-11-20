@@ -44,7 +44,7 @@ from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from player import Playback
-from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST
+from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST, plan_length_s
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INTERFACE_VERSION = 1
@@ -61,6 +61,12 @@ class Player:
         self.lock = threading.Lock()
         self.work = ThreadPoolExecutor(max_workers=1)        # one robot command at a time
         self.playback = Playback(self.log)
+        if args.fake:
+            from fake_spot import FakeSession as Session
+        else:
+            from spot_session import SpotSession as Session
+        self.Session = Session
+        self._shows = {}                                     # name -> (mtime, summary of the plan)
         self.code = f"{secrets.randbelow(10**6):06d}"
         self.operator_token = None
         self.operator_ws = None
@@ -92,12 +98,9 @@ class Player:
 
         def go():
             try:
-                if self.args.fake:
-                    from fake_spot import FakeSession as Session
-                else:
-                    from spot_session import SpotSession as Session
+                if not self.args.fake:
                     self.log(f"connecting to {host} (allow the Keychain dialog on this machine)")
-                s = Session(host, self.log, name="opendubs-player-estop", heartbeat="the operator page")
+                s = self.Session(host, self.log, name="opendubs-player-estop", heartbeat="the operator page")
                 s.last_beat = time.monotonic()
                 self.session = s
                 self.log("connected; the operator page is Spot's E-Stop, STOPPED")
@@ -138,6 +141,35 @@ class Player:
     def plan_names(self):
         return sorted(f for f in os.listdir(self.args.plans) if f.endswith(".json"))
 
+    def shows(self):
+        """The stored plans as the page lists them: name, length, the parts they move, and whether they
+        can run on this player (the reason when not). Robot state (E-Stop, standing) is not counted here."""
+        out = []
+        for name in self.plan_names():
+            path = os.path.join(self.args.plans, name)
+            mtime = os.path.getmtime(path)
+            cached = self._shows.get(name)
+            if not cached or cached[0] != mtime:
+                try:
+                    with open(path) as f:
+                        plan = json.load(f)
+                    why = []
+                    if plan.get("robot") != "spot":
+                        why.append(f"for robot {plan.get('robot')!r}, not Spot")
+                    why += [f"plan problem: {p}" for p in plan.get("problems", [])]
+                    refusal = self.Session.plan_refusal(plan)
+                    if refusal:
+                        why.append(refusal)
+                    info = {"length_s": round(plan_length_s(plan), 1),
+                            "parts": sorted({c.get("part") for c in plan.get("commands", [])}), "why": why}
+                except Exception as e:
+                    info = {"length_s": None, "parts": [], "why": [f"can't read it: {e}"]}
+                label = re.sub(r"(\.spot-plan)?\.json$", "", name)
+                cached = (mtime, {"name": name, "label": label, **info, "can_run": not info["why"]})
+                self._shows[name] = cached
+            out.append(cached[1])
+        return out
+
     def load(self, name, plan=None):
         name = os.path.basename(name or "")
         if not re.fullmatch(r"[\w.-]+\.json", name):
@@ -161,7 +193,7 @@ class Player:
                 "host": getattr(s, "host", self.args.spot) if s else self.args.spot,
                 "estop": ("RELEASED" if s.released else "STOPPED") if s else "NOT CONNECTED",
                 "status": self.status, "playback": self.playback.describe(),
-                "problems": self.playback.problems(s), "plans": self.plan_names(),
+                "problems": self.playback.problems(s), "shows": self.shows(),
                 "commands": [{"name": c.name, "label": c.label, "group": c.group, "widget": c.widget}
                              for c in COMMANDS],
                 "operator": operator, "operator_present": self.operator_ws is not None,
@@ -191,7 +223,7 @@ def make_app(p):
 
     @app.get("/api/plans")
     def plans():
-        return {"plans": p.plan_names()}
+        return {"plans": p.shows()}
 
     @app.post("/api/load")
     def load(body: dict = Body(...)):

@@ -130,9 +130,9 @@ class SpotSession:
         return self.lease is not None and self.robot.is_powered_on()
 
     # Playback (player.py). Not built for the real robot: the plan's ranges and caps are placeholders.
-    def plan_refusal(self, plan):
-        return ("real playback is not built yet: the plan's ranges and speed caps are placeholders "
-                "(built: false); it plays on the fake Spot only")
+    @staticmethod
+    def plan_refusal(plan):
+        return "real playback not built yet: placeholder limits (built: false); plays on the fake Spot only"
 
     def send_window(self, command, t0_wall):
         raise RuntimeError(self.plan_refusal(None))

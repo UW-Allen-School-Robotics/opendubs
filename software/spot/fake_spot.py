@@ -73,7 +73,8 @@ class FakeSession:
     def is_standing(self):
         return self.motors and self.lease is not None
 
-    def plan_refusal(self, plan):
+    @staticmethod
+    def plan_refusal(plan):
         return None
 
     def send_window(self, command, t0_wall):

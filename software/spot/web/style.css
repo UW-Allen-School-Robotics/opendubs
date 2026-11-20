@@ -73,6 +73,18 @@ select { min-width: 0; max-width: 100%; flex: 1 1 200px; }
 .state.DONE { background: var(--ok); color: #0b1a10; }
 .bar { height: 8px; margin-top: 10px; background: var(--bg-3); border-radius: 4px; overflow: hidden; }
 #progress { height: 100%; width: 0; background: var(--spot); transition: width .25s linear; }
+.shows { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.show { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; min-height: 72px;
+  padding: 10px 12px; background: var(--bg-3); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  touch-action: manipulation; }
+.show:hover:not(:disabled) { background: var(--bg-4); }
+.show:disabled { cursor: default; }
+.show .lbl { font-weight: 700; }
+.show .dur { font-family: var(--mono); font-size: 13px; color: var(--fg-dim); }
+.show .parts { font-size: 12px; color: var(--spot); letter-spacing: .06em; }
+.show .why { font-size: 12px; color: var(--warn); }
+.show.cant .dur { color: var(--warn); }
+.show.loaded { border-color: var(--spot); box-shadow: inset 0 0 0 1px var(--spot); }
 .problems { margin: 8px 0 0; padding-left: 18px; color: var(--warn); }
 #summary { white-space: pre-wrap; margin: 8px 0; font-size: 13px; }
 #status { white-space: pre-wrap; font-size: 13px; }

@@ -41,17 +41,17 @@
 
     <section class="card">
       <h2>Show</h2>
+      <div id="shows" class="shows"></div>
       <div class="row op-only">
-        <select id="plans"></select>
-        <button id="load" class="tb" tabindex="-1">Load</button>
-        <label class="tb file" tabindex="-1">Upload…<input id="upload" type="file" accept=".json"></label>
+        <label class="tb file" tabindex="-1">Upload a plan…<input id="upload" type="file" accept=".json"></label>
+        <span class="dim">ENCORE's push dry run writes them to ~/.encore/exports</span>
       </div>
       <pre id="summary" class="mono dim"></pre>
       <div class="row">
         <span id="pstate" class="state">EMPTY</span>
         <span id="pwhy" class="dim"></span>
         <span class="spacer"></span>
-        <button id="arm" class="tb op-only" tabindex="-1">Arm</button>
+        <button id="arm" class="tb op-only" tabindex="-1">Ready</button>
         <button id="start" class="tb go op-only" tabindex="-1">Start</button>
       </div>
       <div class="bar"><div id="progress"></div></div>
