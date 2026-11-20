@@ -5,8 +5,9 @@ commands are built from the plan and a time-conversion function, so this can be 
 How a plan becomes commands:
 - BODY -> a stand command whose mobility params carry `body_control.base_offset_rt_footprint`, an SE3
   trajectory. The plan gives the body at its keyframes; Spot interpolates linearly between points, so the
-  path is sampled every SAMPLE_S along a monotone cubic through the keys (ENCORE's own shape: each key
-  reached at its time, no overshoot, smooth starts and stops).
+  path is sampled along a monotone cubic through the keys (ENCORE's own shape: each key reached at its
+  time, no overshoot, smooth starts and stops). Spot refuses a body trajectory with too many points, so a
+  window sends every key plus in-between samples up to POINTS_MAX, the longest gaps split first.
 - ARM  -> an ArmJointTrajectory with the plan's positions and velocities at its keys, which Spot
   interpolates as a cubic: the same curve.
 - GRIP -> a claw-gripper ScalarTrajectory of jaw angles, sampled like the body.
@@ -23,7 +24,8 @@ from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.client.robot_command import RobotCommandBuilder
 from bosdyn.util import seconds_to_duration, seconds_to_timestamp
 
-SAMPLE_S = 0.1
+SAMPLE_S = 0.1               # the envelope checks speeds on this fine grid
+POINTS_MAX = 50              # body and jaw points sent per window (keys first); Spot refused 201
 JOINTS = ("sh0", "sh1", "el0", "el1", "wr0", "wr1")
 OPEN_RAD = -1.5708            # the claw's fully open angle (the SDK's own constant); 0 is closed
 
@@ -104,13 +106,26 @@ def body_channels(command):
     return out
 
 
-def sampled(command):
-    """A BODY or GRIP command sampled every SAMPLE_S: [(t, {channel: value})]."""
+def _sparse(keys, t_end, n_max=POINTS_MAX):
+    """Every key time, then the longest gaps halved until there are n_max times (or gaps reach SAMPLE_S)."""
+    ts = sorted({round(t, 6) for t in keys} | {0.0, round(t_end, 6)})
+    while len(ts) < n_max:
+        i = max(range(len(ts) - 1), key=lambda k: ts[k + 1] - ts[k])
+        if ts[i + 1] - ts[i] < 2 * SAMPLE_S:
+            break
+        ts.insert(i + 1, (ts[i] + ts[i + 1]) / 2)
+    return ts
+
+
+def sampled(command, fine=True):
+    """A BODY or GRIP command along its curve: [(t, {channel: value})]. fine: every SAMPLE_S (for the
+    envelope's speed checks); otherwise the keys and in-between samples Spot is sent (_sparse)."""
     chans = (body_channels(command) if command["part"] == "BODY"
              else {"open": [(p["time_since_reference"], p["open_fraction"]) for p in command["points"]]})
     fns = {c: _monotone([t for t, _ in kv], [v for _, v in kv]) for c, kv in chans.items()}
     t_end = command["points"][-1]["time_since_reference"]
-    return [(t, {c: f(t) for c, f in fns.items()}) for t in _samples(t_end)]
+    ts = _samples(t_end) if fine else _sparse([p["time_since_reference"] for p in command["points"]], t_end)
+    return [(t, {c: f(t) for c, f in fns.items()}) for t in ts]
 
 
 # ---- the envelope ------------------------------------------------------------------------------
@@ -122,6 +137,8 @@ def envelope_problems(plan, env=FIRST_RUN):
         out.append(f"moves {', '.join(sorted(parts - env['parts']))}: the first runs keep Spot's feet planted")
     for c in plan.get("commands", []):
         where = f"window {c['window']} {c['part']}"
+        if c["part"] in ("BODY", "GRIP") and len(c["points"]) > POINTS_MAX:
+            out.append(f"{where}: {len(c['points'])} keys, over the {POINTS_MAX} points Spot is sent")
         if len(c["points"]) > env["points_max"]:
             out.append(f"{where}: {len(c['points'])} points, over {env['points_max']}")
         if c["part"] in ("BODY", "GRIP"):
@@ -185,7 +202,7 @@ def build_window(commands, t0_wall, now_wall, robot_ts, carry):
     for c in sorted(commands, key=lambda c: c["part"]):
         part = c["part"]
         if part in ("BODY", "GRIP"):
-            pts = [{"time_since_reference": t, "values": v} for t, v in sampled(c)]
+            pts = [{"time_since_reference": t, "values": v} for t, v in sampled(c, fine=False)]
         else:
             pts = c["points"]
         ref, chain = _chain(carry.get(part), {"show_start_s": c["show_start_s"], "points": pts}, now_show)
