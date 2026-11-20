@@ -131,6 +131,9 @@ FACE tracks stay opendubs2's.
     excursion.
   - People stay outside a 3 m clear radius around Spot, the figure Spot's choreography documentation
     gives (`choreo-format-v1.md`).
+- **The lease is held for as long as Spot is up.** On this Spot (5.1.5, 2026-11-19), returning the lease
+  with the motors on made Spot sit and power off by itself a second or two later, with the E-Stop
+  released and no fault. So the driver holds the lease from power-on to sit.
 - **When the driver dies.** Its last window plays out (see Stopping), then Spot stands still. Losing the lease does not by
   itself make Spot sit: per Boston Dynamics' documentation, sitting and powering off on a lost link
   comes from the E-Stop's check-in timeout or a policy set with the Keepalive service. So the driver

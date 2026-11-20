@@ -43,6 +43,13 @@ for b in state.battery_states:
 for e in state.estop_states:
     print(f"e-stop {e.name} ({e.Type.Name(e.type)}): {e.State.Name(e.state)}")
 
+for f in state.behavior_fault_state.faults:
+    print(f"behavior fault {f.behavior_fault_id}: {f.Cause.Name(f.cause)}, {f.Status.Name(f.status)}")
+for f in state.system_fault_state.faults:
+    print(f"system fault {f.name} ({f.code}): {f.error_message}")
+for f in state.system_fault_state.historical_faults[-10:]:
+    print(f"past system fault {f.name} ({f.code}): {f.error_message}")
+
 st = robot.ensure_client(EstopClient.default_service_name).get_status()
 print(f"e-stop endpoints registered: {len(st.endpoints)}; stop level {st.stop_level}")
 for r in robot.ensure_client(LeaseClient.default_service_name).list_leases():
