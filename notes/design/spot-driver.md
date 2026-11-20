@@ -189,6 +189,18 @@ the maintainers' request:
   private socket (`~/.opendubs-spot/console.sock`, mode 0600). Releasing the E-Stop is never accepted
   there: a person releases it, in the window.
 
+**Agreed with ENCORE, 2026-11-19:**
+- **Stand-alone, under ENCORE.** The console is its own program. ENCORE's player interface (`describe`,
+  `load`, `ready`, `start(at)`, `stop`, `status`) goes on its socket, and `load` takes the spot plan JSON
+  that ENCORE's push dry run writes (`~/.encore/exports/<show-id>-<robot>.spot-plan.json`). ENCORE calls
+  the socket only once its Run on robot is approved; until then the console is used on its own.
+- **Invariant: the socket never releases the E-Stop.** The robot side keeps the last word, the E-Stop
+  and the lease.
+- **t = 0 of a Spot-only show is a Start press in the console,** by the person at Spot's E-Stop. With
+  several robots, ENCORE sends `start(at)` on the shared clock.
+- **Where the code lives:** the ENCORE repo as its own package is proposed, which changes ENCORE's
+  "connects to no robot" rule and is the maintainers' call. Until then it stays in `software/spot/`.
+
 This departs from "the driver is never the E-Stop client" above: the console is both, in one process,
 so that a dead console stops Spot. A separate stop (the tablet, or `estop.py` on another machine)
 can come back once Spot can keep one alongside the console.

@@ -361,7 +361,10 @@ class Console:
         if self.session and self.session.released:
             # The file dialog pauses this window, so the space bar can't reach it: stop first.
             self.stop("opening the file dialog")
-        path = filedialog.askopenfilename(title="ENCORE Spot plan", filetypes=[("JSON", "*.json")])
+        exports = os.path.expanduser("~/.encore/exports")     # where ENCORE's push dry run writes them
+        path = filedialog.askopenfilename(title="ENCORE Spot plan",
+                                          initialdir=exports if os.path.isdir(exports) else None,
+                                          filetypes=[("Spot plan", "*.spot-plan.json"), ("JSON", "*.json")])
         if not path:
             return
         try:
