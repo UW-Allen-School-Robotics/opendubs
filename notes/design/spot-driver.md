@@ -171,6 +171,38 @@ FACE tracks stay opendubs2's.
 - The driver's JSON-lines log carries no secrets and lives outside every repository
   (`~/.opendubs-spot/logs/`).
 
+### The player's login on the Orin (planned; the owner's decision, 2026-11-20)
+
+The Orin has no Keychain. The player gets **its own Spot user**, and that user's password goes in a
+**file only root can read**. This is a plan only: nothing is created on Spot or the Orin until the
+owner does it, at the robot, typing the password in the separate Terminal app.
+
+1. **On Spot**, the owner adds a user for the player (for example `opendubs-player`) on Spot's admin
+   page. It is separate from `admin`, so it can be removed without touching anyone else's login. If
+   Spot offers a role below administrator that can still take the lease and register an E-Stop, use
+   it; check that on the admin page.
+2. **On the Orin**, over ssh from the separate Terminal app, the owner stores the password. It is
+   read from a hidden prompt, so it never appears in a command line, the shell history or on screen:
+   ```sh
+   sudo install -d -m 700 -o root -g root /etc/opendubs-spot
+   sudo bash -c 'umask 077; IFS= read -rsp "Spot password: " p; echo; printf %s "$p" > /etc/opendubs-spot/spot-player.password'
+   ```
+   `bash`, not `sh`: Ubuntu's `sh` has no hidden `read -s`. `printf` is bash's own command, so the
+   password never appears in a process list. The file is `root:root`, mode `0600`. The user name is
+   not secret and goes in the service file.
+3. **The player runs as an unprivileged system user**, as a systemd service. The service gets the
+   password through `LoadCredential=spot-password:/etc/opendubs-spot/spot-player.password`: systemd
+   reads the root-only file and hands it to this service alone, in `$CREDENTIALS_DIRECTORY`. The
+   password never goes in the environment or the arguments, and other users can't read it.
+4. **`spot_credentials.py`** then has two sources. On macOS it reads the Keychain, as today. Under
+   systemd it reads `$CREDENTIALS_DIRECTORY/spot-password`, with the user name from the service's
+   configuration. Nothing else changes in the player.
+5. **To revoke:** delete the user on Spot's admin page and the file on the Orin. To rotate the
+   password: change it on Spot, then repeat step 2.
+
+The service file and the `spot_credentials.py` change are written when the Orin is reachable. Its
+address on the payload network is still unknown.
+
 ## The console (`software/spot/spot_console.py`)
 
 A window on the operator's Mac, the avenue towards playing ENCORE shows on Spot. Built 2026-11-19 at

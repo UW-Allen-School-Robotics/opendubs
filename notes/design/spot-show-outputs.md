@@ -64,6 +64,9 @@ any of this is built:
 
 ## Decisions for the owner
 
+**Decided by the owner, 2026-11-20:** Spot has no voice in the first group show; the music comes from
+the stage box only. The rest of this section is kept as the record of the options.
+
 1. **Spot's voice.** Choices:
    - none (music only);
    - a powered speaker on the Orin or the Pi that runs the Spot player (it plays `spot.voice` cues
