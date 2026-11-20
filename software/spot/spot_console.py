@@ -11,8 +11,9 @@ sends simple commands, and loads ENCORE plans (playing them comes next).
   Spot stops within the E-Stop timeout.
 - Power on + stand holds the lease until Sit + power off (Spot 5.1.5 sits by itself once the lease is
   returned). The lease is acquired only when nobody holds it, never taken from the tablet.
-- Other local programs (an agent session, a show player) can send `status`, `stand`, `sit` or `stop` on
-  a private socket, ~/.opendubs-spot/console.sock (mode 0600): one command per line, one JSON reply.
+- Spot's functions are listed once, in COMMANDS: each is a widget in the window and a name on the socket.
+- Other local programs (an agent session, a show player) can send `status`, `stop` or any COMMANDS name
+  on a private socket, ~/.opendubs-spot/console.sock (mode 0600): one command per line, one JSON reply.
   Releasing the E-Stop is never accepted there.
 """
 import json
@@ -24,12 +25,15 @@ import threading
 import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Callable
 from tkinter import filedialog, ttk
 
 import bosdyn.client
 from bosdyn.client.estop import EstopClient, EstopEndpoint, EstopKeepAlive
 from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
-from bosdyn.client.robot_command import RobotCommandClient, blocking_sit, blocking_stand
+from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient, blocking_sit,
+                                         blocking_stand)
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.token_manager import TokenManager
 
@@ -87,15 +91,36 @@ class SpotSession:
             if self.released and time.monotonic() - self.last_tick > FREEZE_STOP_S:
                 self.stop("the console window stopped responding")
 
-    # Commands: blocking, so they run on the console's command thread.
-    def stand(self):
+    # Commands: blocking, so they run on the console's command thread. Each one is listed in COMMANDS.
+    def _need_released(self):
         if not self.released:
             raise RuntimeError("refused: the E-Stop is STOPPED; release it in the console first")
+
+    def _need_powered(self):
+        if not self.robot.is_powered_on():
+            raise RuntimeError("refused: motors are off; Power on first")
+
+    def _ensure_lease(self):
         if self.lease is None:
             self.lease = LeaseKeepAlive(self.lease_client, must_acquire=True, return_at_exit=True)
+
+    def power_on(self):
+        self._need_released()
+        self._ensure_lease()
         self.robot.power_on(timeout_sec=20)
+        return "motors on, lease held (Spot stays where it is)"
+
+    def stand(self):
+        self.power_on()
         blocking_stand(self.cmd, timeout_sec=10)
         return "standing, motors on, lease held"
+
+    def gripper(self, fraction):
+        self._need_released()
+        self._need_powered()
+        self._ensure_lease()
+        self.cmd.robot_command(RobotCommandBuilder.claw_gripper_open_fraction_command(fraction))
+        return f"gripper to {fraction:.0%} open"
 
     def sit(self):
         if self.lease is None:
@@ -133,6 +158,28 @@ class SpotSession:
         self.tokens.stop()
 
 
+@dataclass(frozen=True)
+class Command:
+    """One of Spot's functions: a widget in the console and a name on the socket. Add new ones (standing
+    height, body pose, ...) to COMMANDS. `widget` says how the console shows it: "button" today; a
+    "slider" kind (one value between bounds, e.g. a standing height) is the planned next one."""
+    name: str
+    label: str
+    group: str
+    run: Callable
+    widget: str = "button"
+
+
+COMMANDS = [
+    Command("power_on", "Power on (stays sitting)", "Power", lambda s: s.power_on()),
+    Command("stand", "Power on + stand", "Power", lambda s: s.stand()),
+    Command("sit", "Sit + power off", "Power", lambda s: s.sit()),
+    Command("gripper_open", "Open gripper", "Gripper", lambda s: s.gripper(1.0)),
+    Command("gripper_close", "Close gripper", "Gripper", lambda s: s.gripper(0.0)),
+]
+BY_NAME = {c.name: c for c in COMMANDS}
+
+
 def summarize_plan(plan):
     """A few lines about an ENCORE spot_driver.plan() output."""
     cmds = plan.get("commands", [])
@@ -157,8 +204,9 @@ class Console:
         self.work = ThreadPoolExecutor(max_workers=1)       # one robot command at a time
         self.events = queue.Queue()
         self.plan = None
+        self.owns_socket = False
         root.title("OpenDubs Spot console")
-        root.geometry("640x760")
+        root.geometry("640x860")
         root.protocol("WM_DELETE_WINDOW", self.quit)
 
         top = ttk.Frame(root, padding=8)
@@ -178,14 +226,18 @@ class Console:
         self.estop_label = tk.Label(root, text="E-Stop: not connected", font=("Helvetica", 16, "bold"))
         self.estop_label.pack(fill="x")
 
-        row = ttk.Frame(root, padding=8)
+        row = ttk.Frame(root, padding=(8, 4))
         row.pack(fill="x")
         self.release_btn = self._button(row, "Release E-Stop", self.release)
         self.release_btn.pack(side="left")
-        self.stand_btn = self._button(row, "Power on + stand", lambda: self.run("stand"))
-        self.stand_btn.pack(side="left", padx=8)
-        self.sit_btn = self._button(row, "Sit + power off", lambda: self.run("sit"))
-        self.sit_btn.pack(side="left")
+        self.cmd_buttons, groups = [], {}
+        for c in COMMANDS:                       # one frame per group, one widget per command
+            if c.group not in groups:
+                groups[c.group] = ttk.LabelFrame(root, text=c.group, padding=6)
+                groups[c.group].pack(fill="x", padx=8, pady=2)
+            b = self._button(groups[c.group], c.label, lambda c=c: self.run(c.name))
+            b.pack(side="left", padx=4)
+            self.cmd_buttons.append(b)
 
         show = ttk.LabelFrame(root, text="ENCORE show", padding=8)
         show.pack(fill="x", padx=8, pady=4)
@@ -247,7 +299,7 @@ class Console:
             self.estop_label.config(text="E-Stop STOPPED", bg="#c40000", fg="white")
 
     def _set_connected(self, on):
-        for b in (self.release_btn, self.stand_btn, self.sit_btn):
+        for b in (self.release_btn, *self.cmd_buttons):
             b.state(["!disabled"] if on else ["disabled"])
         self.connect_btn.state(["disabled"] if on else ["!disabled"])
         self.conn_label.config(text=f"connected to {self.host.get()}" if on else "not connected")
@@ -282,7 +334,7 @@ class Console:
             try:
                 if not self.session:
                     raise RuntimeError("not connected")
-                out = {"ok": True, "result": getattr(self.session, name)()}
+                out = {"ok": True, "result": BY_NAME[name].run(self.session)}
             except Exception as e:
                 out = {"ok": False, "error": str(e)}
             self.log(f"{name}: {out.get('result') or out.get('error')}")
@@ -340,15 +392,15 @@ class Console:
                             out = {"ok": True, "result": console.session.status()}
                         except Exception as e:
                             out = {"ok": False, "error": str(e)}
-                    elif name in ("stand", "sit"):
+                    elif name in BY_NAME:
                         done = threading.Event()
                         box = {}
                         console.run(name, reply=lambda o: (box.update(o), done.set()))
                         done.wait(60)
                         out = box or {"ok": False, "error": "timed out"}
                     else:
-                        out = {"ok": False, "error": f"unknown or refused command {name!r}; "
-                               "allowed: status, stand, sit, stop"}
+                        out = {"ok": False, "error": f"unknown or refused command {name!r}; allowed: "
+                               + ", ".join(["status", "stop", *BY_NAME])}
                     self.wfile.write((json.dumps(out) + "\n").encode())
 
         os.makedirs(SOCK_DIR, mode=0o700, exist_ok=True)
@@ -368,6 +420,7 @@ class Console:
             server = socketserver.ThreadingUnixStreamServer(SOCK_PATH, Handler)
         finally:
             os.umask(old)
+        self.owns_socket = True
         self.log(f"commands accepted on {SOCK_PATH}")
         server.serve_forever()
 
@@ -375,7 +428,7 @@ class Console:
         if self.session:
             self.log("closing: stopping Spot and returning the lease")
             self.session.close()
-        if os.path.exists(SOCK_PATH):
+        if self.owns_socket and os.path.exists(SOCK_PATH):
             os.unlink(SOCK_PATH)
         self.root.destroy()
 
