@@ -312,7 +312,7 @@ def make_app(p):
                     elif op == "load":
                         p.load(msg.get("name"))
                     elif op == "arm":
-                        p.playback.arm(p.session)
+                        p.playback.arm(p.session, msg.get("speed", 1.0))
                     elif op == "start":
                         p.playback.start(p.session)
                 except Exception as e:

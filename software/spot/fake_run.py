@@ -2,14 +2,15 @@
 beat every 200 ms, release, stand, load, arm, start, and print every late window, stop and the end.
 It refuses a player that is not --fake.
 
-    uv run --no-project --python 3.12 --with websockets python software/spot/fake_run.py CODE PLAN.json
-    # CODE is the pairing code the fake player printed; PLAN.json a plan stored on it.
+    uv run --no-project --python 3.12 --with websockets python software/spot/fake_run.py CODE PLAN.json [SPEED] [PORT]
+    # CODE is the pairing code the fake player printed; PLAN.json a plan stored on it; SPEED 1 by default.
 """
 import asyncio, json, sys, urllib.request
 import websockets
 
-BASE = "127.0.0.1:8097"
 code, plan = sys.argv[1], sys.argv[2]
+SPEED = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
+BASE = f"127.0.0.1:{sys.argv[4] if len(sys.argv) > 4 else 8097}"
 
 
 def post(path, body):
@@ -37,7 +38,7 @@ async def main():
             await ws.send(json.dumps({"op": "connect"}))
         for op in [{"op": "release"}, {"op": "cmd", "name": "stand"}, {"op": "load", "name": plan}]:
             await asyncio.sleep(1.5); await ws.send(json.dumps(op))
-        await asyncio.sleep(2.0); await ws.send(json.dumps({"op": "arm"}))
+        await asyncio.sleep(2.0); await ws.send(json.dumps({"op": "arm", "speed": SPEED}))
         await asyncio.sleep(1.0); await ws.send(json.dumps({"op": "start"}))
         played = False
         while True:

@@ -65,6 +65,7 @@ main { max-width: 900px; margin: 0 auto; padding: 12px 16px 32px; display: flex;
 .tb.file input { display: none; }
 input, select { background: var(--bg-3); border: 1px solid var(--line); border-radius: 6px; min-height: 44px; padding: 0 10px; }
 select { min-width: 0; max-width: 100%; flex: 1 1 200px; }
+#speed { flex: 0 0 auto; }
 
 .state { font-weight: 800; letter-spacing: .08em; padding: 4px 10px; border-radius: 4px; background: var(--bg-3); }
 .state.ARMED { background: var(--warn); color: #201300; }

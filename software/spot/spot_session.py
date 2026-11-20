@@ -19,6 +19,7 @@ from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.token_manager import TokenManager
 
 from spot_credentials import load
+from spot_playback import build_window, envelope_problems
 
 DEFAULT_HOST = "192.168.50.3"
 ESTOP_TIMEOUT_S = 9.0
@@ -43,6 +44,7 @@ class SpotSession:
         self.cmd = self.robot.ensure_client(RobotCommandClient.default_service_name)
         self.lease_client = self.robot.ensure_client(LeaseClient.default_service_name)
         self.lease = None
+        self._carry = {}
         self.last_beat = time.monotonic()
         self.released = False
         estop_client = self.robot.ensure_client(EstopClient.default_service_name)
@@ -129,13 +131,33 @@ class SpotSession:
     def is_standing(self):
         return self.lease is not None and self.robot.is_powered_on()
 
-    # Playback (player.py). Not built for the real robot: the plan's ranges and caps are placeholders.
+    # Playback (player.py, spot_playback.py). ENCORE's limits for Spot are placeholders, so a real Spot plays
+    # only plans inside the player's own first-run envelope: feet planted, small body offsets, slow joints.
     @staticmethod
     def plan_refusal(plan):
-        return "real playback not built yet: placeholder limits (built: false); plays on the fake Spot only"
+        problems = envelope_problems(plan)
+        if problems:
+            return "outside the first-run envelope: " + "; ".join(problems[:4]) + \
+                (f"; and {len(problems) - 4} more" if len(problems) > 4 else "")
+        return None
 
-    def send_window(self, command, t0_wall):
-        raise RuntimeError(self.plan_refusal(None))
+    def send_window(self, commands, t0_wall):
+        """One window's commands (BODY, ARM, GRIP) as one synchronized command, sent ahead of its start."""
+        self._need_released()
+        self._need_powered()
+        if self.lease is None:
+            raise RuntimeError("refused: no lease held; Power on + stand first")
+        if commands[0]["window"] == 0:
+            self._carry = {}
+        ts = self.robot.time_sync
+        cmd, end_wall = build_window(commands, t0_wall, time.time(), ts.robot_timestamp_from_local_secs,
+                                     self._carry)
+        self.cmd.robot_command(cmd, end_time_secs=end_wall, timesync_endpoint=ts.endpoint)
+
+    def after_show(self):
+        """The show's over: stow the arm (the show ends there already) so Sit and walking work as usual."""
+        self.cmd.robot_command(RobotCommandBuilder.arm_stow_command())
+        return "arm stowed"
 
     def status(self):
         s = self.state_client.get_robot_state()

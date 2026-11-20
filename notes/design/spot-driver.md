@@ -264,12 +264,23 @@ shows. This gives Spot the same three roles opendubs2 has:
 - **The player interface** is JSON over HTTP, replacing the console's socket for ENCORE:
   `describe`, `plans`, `load`, `ready`, `start`, `stop`, `status`. It never releases the E-Stop,
   never arms a show and never sends a command.
-- **Real playback is refused** until the plan's ranges and speed caps are Spot's real ones
-  (`built: false` today). Until then it plays on the fake Spot only. The Werewolves plan played on the
-  fake on 2026-11-19: 33 windows, each received 1.00 s before it started.
+- **Real playback** (`spot_playback.py`, 2026-11-20) sends one synchronized command per window: the
+  body as a stand command with a `base_offset_rt_footprint` trajectory, sampled every 0.1 s along a
+  monotone cubic through the keys (Spot interpolates linearly between points); the arm as an
+  `ArmJointTrajectory` with the plan's positions and velocities (Spot's cubic is the same curve); the
+  jaw as a claw-gripper trajectory. Each window keeps the previous window's points and reference time,
+  so a window sent early carries on through the end of the one it replaces. Spot's default arm and
+  jaw speed limits stay in place. The arm is stowed when a show ends.
+- **The first-run envelope.** ENCORE's limits for Spot are still placeholders (`built: false`), so a
+  real Spot plays only plans inside the player's own envelope: no BASE (feet planted), body offsets
+  within 0.10 m and 20 to 22 deg, body speeds within 45 deg/s, arm joints within the profile's ranges
+  and 90 deg/s. A show is armed at 25, 50, 75 or 100 % speed. The Werewolves plan is outside the
+  envelope (body yaw 114 deg/s at 3.2 s); the first-moves show (`software/spot/shows/spot_moves.py`)
+  is inside it and played on the fake at 50 % speed, both windows on time.
 - **Open:**
   - the login on the Orin or Pi (there is no macOS Keychain there);
-  - turning plan windows into SDK trajectories;
+  - the first run at Spot: the arm's joint signs against the model's, the chained windows at 20 s,
+    and the body's return to its normal stand when the last window ends;
   - trying, at Spot, the refusal to connect while another E-Stop (the tablet's, or a second console's)
     is still checking in (`_refuse_live_estop`).
 

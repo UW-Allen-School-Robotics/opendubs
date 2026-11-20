@@ -77,20 +77,24 @@ class FakeSession:
     def plan_refusal(plan):
         return None
 
-    def send_window(self, command, t0_wall):
+    def send_window(self, commands, t0_wall):
         self._need_released()
         if not self.motors:
             raise RuntimeError("refused: motors are off")
         now = time.time()
-        due = t0_wall + command["show_start_s"]          # the trajectory's reference time
+        due = t0_wall + commands[0]["show_start_s"]      # the trajectory's reference time
         margin = due - now
-        entry = {"window": command["window"], "part": command["part"], "points": len(command["points"]),
+        entry = {"window": commands[0]["window"], "part": "+".join(sorted(c["part"] for c in commands)),
+                 "points": sum(len(c["points"]) for c in commands),
                  "show_s": round(now - t0_wall, 3), "margin_s": round(margin, 3), "on_time": margin > 0}
         self.sent.append(entry)
         self.log(f"fake Spot got window {entry['window']} {entry['part']} ({entry['points']} points) at show "
                  f"t={entry['show_s']:+.2f} s, {margin:.2f} s before it starts"
                  + ("" if entry["on_time"] else "  LATE"))
         return entry
+
+    def after_show(self):
+        return "arm stowed (fake)"
 
     def status(self):
         return {"motors": "ON" if self.motors else "OFF", "battery_pct": 100,

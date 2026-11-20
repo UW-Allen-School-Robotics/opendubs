@@ -47,7 +47,7 @@ $("claim").onclick = async () => {
 $("release").onclick = () => send({ op: "release" });
 $("connect").onclick = () => send({ op: "connect", host: $("host").value.trim() });
 $("disconnect").onclick = () => send({ op: "disconnect" });
-$("arm").onclick = () => send({ op: "arm" });
+$("arm").onclick = () => send({ op: "arm", speed: parseFloat($("speed").value) });
 $("start").onclick = () => send({ op: "start" });
 $("upload").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
@@ -133,11 +133,12 @@ function render(s) {
   $("pstate").textContent = WORDS[pb.state] || pb.state; $("pstate").className = `state ${pb.state}`;
   $("pwhy").textContent = pb.state === "PLAYING"
     ? `t = ${pb.show_s.toFixed(1)} of ${pb.length_s.toFixed(1)} s · sent ${pb.sent}/${pb.windows}`
-    : (pb.state === "ARMED" ? "nothing moves until Start (or ENCORE's start)" : pb.why);
+    : (pb.state === "ARMED" ? `at ${Math.round(pb.speed * 100)}% speed; nothing moves until Start (or ENCORE's start)` : pb.why);
   $("progress").style.width = pb.state === "PLAYING" ? `${Math.min(100, Math.max(0, 100 * pb.show_s / pb.length_s))}%`
                                                     : (pb.state === "DONE" ? "100%" : "0");
   const canArm = ["LOADED", "STOPPED", "DONE"].includes(pb.state) && s.problems.length === 0;
   $("arm").disabled = !canArm;
+  $("speed").disabled = !canArm;
   $("start").disabled = pb.state !== "ARMED";
   $("problems").innerHTML = "";
   if (pb.plan && !["ARMED", "PLAYING"].includes(pb.state))
