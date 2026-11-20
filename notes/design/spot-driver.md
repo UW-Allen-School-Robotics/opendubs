@@ -205,6 +205,44 @@ This departs from "the driver is never the E-Stop client" above: the console is 
 so that a dead console stops Spot. A separate stop (the tablet, or `estop.py` on another machine)
 can come back once Spot can keep one alongside the console.
 
+## The player (`software/spot/spot_player.py`) and parity with opendubs2
+
+Decided by the owner, 2026-11-19: the Spot player runs beside Spot (the Orin, or a Pi, on the payload
+network), the operator surface is a web page in ENCORE's look, and ENCORE is the conductor of group
+shows. This gives Spot the same three roles opendubs2 has:
+
+| Role | opendubs2 | Spot |
+|---|---|---|
+| Holds the shows, plays them from memory | the runner on the Thor | `spot_player.py` on the Orin or a Pi (the Mac until then) |
+| The operator: arms, GO, stop | the tablet and the deadman | the player's page on any browser, such as a tablet |
+| Follows | the stage box | the stage box, for its host's show |
+
+- **The session** is `spot_session.py`, shared with the Tk console. `fake_spot.py` has the same
+  interface and no robot; `--fake` uses it.
+- **The E-Stop stays with the person.** The page claims the operator role with a pairing code the
+  player prints where it runs (one operator at a time). It beats every 200 ms over its WebSocket. A
+  beat missing for 1 s, a closed or hidden page, or a dropped Wi-Fi link stops Spot. A dead player
+  stops checking in, and Spot stops within the 9 s timeout. Any open page can STOP, with the button or
+  the space bar. Only the operator page releases the E-Stop.
+- **Shows** are stored on the player (`~/.opendubs-spot/plans/`), loaded from the page or by ENCORE's
+  `POST /api/load`. As on opendubs2, a show waits **ARMED** until the operator arms it on the page.
+  Then Start on the page, or ENCORE's `start(at)` with a wall-clock t0, plays it. Each window is sent
+  `lead_s` before it starts. Any E-Stop ends playback. A window already sent keeps running on Spot,
+  so stopping a show is always the E-Stop.
+- **The player interface** is JSON over HTTP, replacing the console's socket for ENCORE:
+  `describe`, `plans`, `load`, `ready`, `start`, `stop`, `status`. It never releases the E-Stop,
+  never arms a show and never sends a command.
+- **Real playback is refused** until the plan's ranges and speed caps are Spot's real ones
+  (`built: false` today). Until then it plays on the fake Spot only. The Werewolves plan played on the
+  fake on 2026-11-19: 33 windows, each received 1.00 s before it started.
+- **Open:**
+  - the login on the Orin or Pi (there is no macOS Keychain there);
+  - turning plan windows into SDK trajectories;
+  - trying, at Spot, the refusal to connect while another E-Stop (the tablet's, or a second console's)
+    is still checking in (`_refuse_live_estop`).
+
+Sound, lights and the buzzer for Spot and for group shows: `notes/design/spot-show-outputs.md`.
+
 ## Where the code goes
 
 `software/spot/` in this repository, owned by the Spot lane (decided by the maintainers, 2026-10-27;

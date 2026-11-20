@@ -11,7 +11,8 @@ sends simple commands, and loads ENCORE plans (playing them comes next).
   Spot stops within the E-Stop timeout.
 - Power on + stand holds the lease until Sit + power off (Spot 5.1.5 sits by itself once the lease is
   returned). The lease is acquired only when nobody holds it, never taken from the tablet.
-- Spot's functions are listed once, in COMMANDS: each is a widget in the window and a name on the socket.
+- Spot's functions are listed once, in spot_session.COMMANDS: each is a widget in the window and a
+  name on the socket.
 - Other local programs (an agent session, a show player) can send `status`, `stop` or any COMMANDS name
   on a private socket, ~/.opendubs-spot/console.sock (mode 0600): one command per line, one JSON reply.
   Releasing the E-Stop is never accepted there.
@@ -25,176 +26,12 @@ import threading
 import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from typing import Callable
 from tkinter import filedialog, ttk
 
-import bosdyn.client
-from bosdyn.client.estop import EstopClient, EstopEndpoint, EstopKeepAlive
-from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
-from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient, blocking_sit,
-                                         blocking_stand)
-from bosdyn.client.robot_state import RobotStateClient
-from bosdyn.client.token_manager import TokenManager
+from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST, SpotSession, summarize_plan
 
-from spot_credentials import load
-
-DEFAULT_HOST = "192.168.50.3"
-ESTOP_TIMEOUT_S = 9.0
-FREEZE_STOP_S = 1.0                     # the window not ticking this long stops Spot
 SOCK_DIR = os.path.expanduser("~/.opendubs-spot")
 SOCK_PATH = os.path.join(SOCK_DIR, "console.sock")
-
-
-class SpotSession:
-    """Spot's login, the person's E-Stop and the lease, for one console session."""
-
-    def __init__(self, host, log):
-        self.log = log
-        self.robot = bosdyn.client.create_standard_sdk("opendubs-spot-console").create_robot(host)
-        user, password = load()
-        self.robot.authenticate(user, password)
-        del password
-        self.tokens = TokenManager(self.robot)
-        self.robot.time_sync.wait_for_sync()
-        self.state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
-        self.cmd = self.robot.ensure_client(RobotCommandClient.default_service_name)
-        self.lease_client = self.robot.ensure_client(LeaseClient.default_service_name)
-        self.lease = None
-        self.last_tick = time.monotonic()
-        self.released = False
-        endpoint = EstopEndpoint(self.robot.ensure_client(EstopClient.default_service_name),
-                                 name="opendubs-console-estop", estop_timeout=ESTOP_TIMEOUT_S)
-        endpoint.force_simple_setup()   # the console becomes Spot's only E-Stop
-        self.estop = EstopKeepAlive(endpoint, keep_running_cb=self._window_alive)
-        self.stop("connected")
-        self._watch = threading.Thread(target=self._watchdog, daemon=True)
-        self._watch.start()
-
-    # The E-Stop. stop() returns at once; the check-in goes on its own thread.
-    def stop(self, why):
-        self.released = False
-        threading.Thread(target=self.estop.settle_then_cut, daemon=True).start()
-        self.log(f"E-STOP: {why}")
-
-    def release(self):
-        self.estop.allow()
-        self.released = True
-        self.log("E-Stop released by the person at the console")
-
-    def _window_alive(self):
-        return time.monotonic() - self.last_tick < 3 * FREEZE_STOP_S
-
-    def _watchdog(self):
-        while True:
-            time.sleep(0.2)
-            if self.released and time.monotonic() - self.last_tick > FREEZE_STOP_S:
-                self.stop("the console window stopped responding")
-
-    # Commands: blocking, so they run on the console's command thread. Each one is listed in COMMANDS.
-    def _need_released(self):
-        if not self.released:
-            raise RuntimeError("refused: the E-Stop is STOPPED; release it in the console first")
-
-    def _need_powered(self):
-        if not self.robot.is_powered_on():
-            raise RuntimeError("refused: motors are off; Power on first")
-
-    def _ensure_lease(self):
-        if self.lease is None:
-            self.lease = LeaseKeepAlive(self.lease_client, must_acquire=True, return_at_exit=True)
-
-    def power_on(self):
-        self._need_released()
-        self._ensure_lease()
-        self.robot.power_on(timeout_sec=20)
-        return "motors on, lease held (Spot stays where it is)"
-
-    def stand(self):
-        self.power_on()
-        blocking_stand(self.cmd, timeout_sec=10)
-        return "standing, motors on, lease held"
-
-    def gripper(self, fraction):
-        self._need_released()
-        self._need_powered()
-        self._ensure_lease()
-        self.cmd.robot_command(RobotCommandBuilder.claw_gripper_open_fraction_command(fraction))
-        return f"gripper to {fraction:.0%} open"
-
-    def sit(self):
-        if self.lease is None:
-            return "no lease held: nothing to sit"
-        try:
-            if self.robot.is_powered_on():
-                blocking_sit(self.cmd, timeout_sec=10)
-                self.robot.power_off(cut_immediately=False, timeout_sec=20)
-        finally:
-            self.lease.shutdown()           # returns the lease (return_at_exit)
-            self.lease = None
-        return "sitting, motors off, lease returned"
-
-    def status(self):
-        s = self.state_client.get_robot_state()
-        ps = s.power_state
-        return {
-            "motors": ps.MotorPowerState.Name(ps.motor_power_state).removeprefix("STATE_"),
-            "battery_pct": round(s.battery_states[0].charge_percentage.value) if s.battery_states else None,
-            "estop": "RELEASED" if self.released else "STOPPED",
-            "estop_robot": [f"{e.name}:{e.State.Name(e.state).removeprefix('STATE_')}" for e in s.estop_states],
-            "lease": "held by the console" if self.lease else "not held",
-            "faults": [f.name for f in s.system_fault_state.faults]
-                      + [f.Cause.Name(f.cause) for f in s.behavior_fault_state.faults],
-        }
-
-    def close(self):
-        self.stop("console closing")
-        try:
-            self.sit()
-        except Exception as e:
-            self.log(f"sit on close failed: {e}")
-        time.sleep(0.5)
-        self.estop.shutdown()
-        self.tokens.stop()
-
-
-@dataclass(frozen=True)
-class Command:
-    """One of Spot's functions: a widget in the console and a name on the socket. Add new ones (standing
-    height, body pose, ...) to COMMANDS. `widget` says how the console shows it: "button" today; a
-    "slider" kind (one value between bounds, e.g. a standing height) is the planned next one."""
-    name: str
-    label: str
-    group: str
-    run: Callable
-    widget: str = "button"
-
-
-COMMANDS = [
-    Command("power_on", "Power on (stays sitting)", "Power", lambda s: s.power_on()),
-    Command("stand", "Power on + stand", "Power", lambda s: s.stand()),
-    Command("sit", "Sit + power off", "Power", lambda s: s.sit()),
-    Command("gripper_open", "Open gripper", "Gripper", lambda s: s.gripper(1.0)),
-    Command("gripper_close", "Close gripper", "Gripper", lambda s: s.gripper(0.0)),
-]
-BY_NAME = {c.name: c for c in COMMANDS}
-
-
-def summarize_plan(plan):
-    """A few lines about an ENCORE spot_driver.plan() output."""
-    cmds = plan.get("commands", [])
-    parts = {}
-    for c in cmds:
-        parts[c["part"]] = parts.get(c["part"], 0) + 1
-    end = max((c["show_start_s"] + c["points"][-1]["time_since_reference"]
-               for c in cmds if c.get("points")), default=0.0)
-    lines = [f"robot {plan.get('robot')}, driver {plan.get('driver')}",
-             f"{plan.get('windows')} windows of {plan.get('window_s')} s, lead {plan.get('lead_s')} s, "
-             f"about {end:.1f} s long",
-             "commands: " + (", ".join(f"{p} {n}" for p, n in sorted(parts.items())) or "none")]
-    for p in plan.get("problems", [])[:8]:
-        lines.append(f"problem: {p}")
-    return "\n".join(lines)
 
 
 class Console:
@@ -277,7 +114,7 @@ class Console:
 
     def tick(self):
         if self.session:
-            self.session.last_tick = time.monotonic()
+            self.session.last_beat = time.monotonic()
         while not self.events.empty():
             kind, payload = self.events.get()
             if kind == "log":

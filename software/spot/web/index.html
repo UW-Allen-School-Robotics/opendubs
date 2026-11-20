@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spot player</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="titlebar">
+    <span class="brand">ENCORE</span><span class="robot-tag">SPOT PLAYER</span>
+    <span id="fake" class="badge warn" hidden>FAKE SPOT</span>
+    <span class="spacer"></span>
+    <span id="link" class="pill">connecting…</span>
+  </header>
+
+  <main>
+    <button id="stop" class="stop" tabindex="-1">STOP<small>space bar</small></button>
+    <div id="estop" class="estop off">E-Stop: not connected</div>
+
+    <section id="pair" class="card" hidden>
+      <h2>Operator</h2>
+      <p class="dim">This page can stop Spot. To release the E-Stop and send commands, enter the pairing
+        code printed where the player runs. One operator at a time.</p>
+      <div class="row"><input id="code" inputmode="numeric" maxlength="6" placeholder="pairing code" autocomplete="off">
+        <button id="claim" class="tb" tabindex="-1">Become operator</button></div>
+      <p id="pair-msg" class="dim"></p>
+    </section>
+
+    <section id="op" class="card" hidden>
+      <div class="row">
+        <button id="release" class="tb go" tabindex="-1">Release E-Stop</button>
+        <span class="spacer"></span>
+        <input id="host" class="mono" size="14" autocomplete="off">
+        <button id="connect" class="tb" tabindex="-1">Connect</button>
+        <button id="disconnect" class="tb" tabindex="-1">Disconnect</button>
+      </div>
+      <div id="groups"></div>
+    </section>
+
+    <section class="card">
+      <h2>Show</h2>
+      <div class="row op-only">
+        <select id="plans"></select>
+        <button id="load" class="tb" tabindex="-1">Load</button>
+        <label class="tb file" tabindex="-1">Upload…<input id="upload" type="file" accept=".json"></label>
+      </div>
+      <pre id="summary" class="mono dim"></pre>
+      <div class="row">
+        <span id="pstate" class="state">EMPTY</span>
+        <span id="pwhy" class="dim"></span>
+        <span class="spacer"></span>
+        <button id="arm" class="tb op-only" tabindex="-1">Arm</button>
+        <button id="start" class="tb go op-only" tabindex="-1">Start</button>
+      </div>
+      <div class="bar"><div id="progress"></div></div>
+      <ul id="problems" class="problems"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Status</h2>
+      <div id="status" class="mono">-</div>
+    </section>
+
+    <section class="card log-card">
+      <h2>Log</h2>
+      <pre id="log" class="mono"></pre>
+    </section>
+  </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

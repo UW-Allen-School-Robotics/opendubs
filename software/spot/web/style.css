@@ -1,0 +1,84 @@
+/* Spot player: ENCORE's dark studio colours, sized for touch on a tablet. */
+:root {
+  --bg: #15171c;
+  --bg-2: #1c1f26;
+  --bg-3: #252933;
+  --bg-4: #2f3440;
+  --line: #343a47;
+  --fg: #d7dbe3;
+  --fg-dim: #8c93a3;
+  --accent: #6aa8ff;
+  --ok: #58c27d;
+  --warn: #e6b450;
+  --err: #ef5b5b;
+  --spot: #f2c94c;   /* Spot's colour in ENCORE */
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 var(--sans); }
+[hidden] { display: none !important; }
+.mono { font-family: var(--mono); }
+.dim { color: var(--fg-dim); }
+.spacer { flex: 1; }
+button, select, input { font: inherit; color: inherit; }
+
+.titlebar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px;
+  height: 44px; padding: 0 16px; background: var(--bg-2); border-bottom: 1px solid var(--line);
+  box-shadow: inset 0 -2px 0 var(--spot); }
+.brand { font-weight: 700; letter-spacing: 0.18em; color: var(--accent); }
+.robot-tag { font-weight: 700; letter-spacing: 0.12em; color: var(--spot); }
+.pill { padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-dim); }
+.pill.up { color: var(--ok); border-color: var(--ok); }
+.pill.down { color: var(--err); border-color: var(--err); }
+.badge { padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 12px; letter-spacing: .08em; }
+.badge.warn { background: var(--warn); color: #201300; }
+
+main { max-width: 900px; margin: 0 auto; padding: 12px 16px 32px; display: flex; flex-direction: column; gap: 10px; }
+
+.stop { width: 100%; min-height: 150px; border: 0; border-radius: 14px; background: #c40000; color: #fff;
+  font: 800 56px/1 var(--sans); letter-spacing: .06em; cursor: pointer; touch-action: manipulation;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 6px 0 #7a0000; }
+.stop small { font-size: 15px; font-weight: 600; letter-spacing: .1em; opacity: .8; }
+.stop:active { transform: translateY(4px); box-shadow: 0 2px 0 #7a0000; }
+
+.estop { text-align: center; font-weight: 800; font-size: 20px; padding: 10px; border-radius: 8px; }
+.estop.off { background: var(--bg-3); color: var(--fg-dim); }
+.estop.stopped { background: var(--err); color: #fff; }
+.estop.released { background: var(--ok); color: #0b1a10; }
+
+.card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.card h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-dim); }
+.card p { margin: 4px 0 8px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.group { margin-top: 10px; }
+.group h3 { margin: 0 0 6px; font-size: 13px; color: var(--fg-dim); font-weight: 600; }
+
+.tb { background: var(--bg-3); border: 1px solid var(--line); border-radius: 6px; min-height: 44px;
+  padding: 0 14px; cursor: pointer; touch-action: manipulation; display: inline-flex; align-items: center; }
+.tb:hover:not(:disabled) { background: var(--bg-4); }
+.tb:disabled { opacity: .4; cursor: default; }
+.tb.go:not(:disabled) { border-color: var(--ok); color: var(--ok); }
+.tb.file input { display: none; }
+input, select { background: var(--bg-3); border: 1px solid var(--line); border-radius: 6px; min-height: 44px; padding: 0 10px; }
+select { min-width: 0; max-width: 100%; flex: 1 1 200px; }
+
+.state { font-weight: 800; letter-spacing: .08em; padding: 4px 10px; border-radius: 4px; background: var(--bg-3); }
+.state.ARMED { background: var(--warn); color: #201300; }
+.state.PLAYING { background: var(--spot); color: #201300; }
+.state.STOPPED { background: var(--err); color: #fff; }
+.state.DONE { background: var(--ok); color: #0b1a10; }
+.bar { height: 8px; margin-top: 10px; background: var(--bg-3); border-radius: 4px; overflow: hidden; }
+#progress { height: 100%; width: 0; background: var(--spot); transition: width .25s linear; }
+.problems { margin: 8px 0 0; padding-left: 18px; color: var(--warn); }
+#summary { white-space: pre-wrap; margin: 8px 0; font-size: 13px; }
+#status { white-space: pre-wrap; font-size: 13px; }
+#log { margin: 0; max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 12px; color: var(--fg-dim); }
+
+@media (max-width: 520px) {
+  .stop { min-height: 120px; font-size: 44px; }
+  #host { flex: 1 1 100%; }
+}
