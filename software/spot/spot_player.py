@@ -341,9 +341,9 @@ def main():
     probe = socket.socket()
     try:
         probe.bind((args.listen, args.port))
-    except OSError:
-        raise SystemExit(f"refused: port {args.port} is busy (another player?). "
-                         f"See who holds it: lsof -nP -iTCP:{args.port}")
+    except OSError as e:
+        raise SystemExit(f"refused: cannot listen on {args.listen}:{args.port} ({e.strerror}). If it is busy, "
+                         f"see who holds it: lsof -nP -iTCP:{args.port}")
     finally:
         probe.close()
     p = Player(args)
