@@ -9,7 +9,7 @@ set -euo pipefail
 ROS_DISTRO=jazzy
 ROSDIR=/opt/opendubs/ros
 SERVICES="opendubs-rplidar opendubs-rplidar-rear opendubs-rosbridge opendubs-foxglove \
-opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge \
+opendubs-scan-watchdog opendubs-scan-watchdog-rear opendubs-stamplc-bridge opendubs-robot-state \
 opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-skeleton-relay \
 opendubs-robot-state-publisher opendubs-head-joints opendubs-slam opendubs-nav2 opendubs-floor-frames opendubs-dance-tracker \
 opendubs-base-selector opendubs-hallpass-runner"
