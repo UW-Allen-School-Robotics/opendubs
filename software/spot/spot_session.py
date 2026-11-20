@@ -51,6 +51,7 @@ class SpotSession:
         self._refuse_live_estop(estop_client)
         endpoint = EstopEndpoint(estop_client, name=name, estop_timeout=ESTOP_TIMEOUT_S)
         endpoint.force_simple_setup()   # this session becomes Spot's only E-Stop
+        self._endpoint = endpoint
         self.estop = EstopKeepAlive(endpoint, keep_running_cb=self._person_alive)
         self.stop("connected")
         self._watch = threading.Thread(target=self._watchdog, daemon=True)
@@ -72,6 +73,11 @@ class SpotSession:
         self.log(f"E-STOP: {why}")
 
     def release(self):
+        # A stale heartbeat ends the SDK's check-in thread for good (keep_running_cb), so Spot cuts even if
+        # the stop RPC is lost. Releasing again needs a new one, or the endpoint goes stale and Spot's
+        # E-Stop autopolicy holds the motors off (KeepaliveMotorsOffError on every power-on).
+        if not self.estop._thread.is_alive():
+            self.estop = EstopKeepAlive(self._endpoint, keep_running_cb=self._person_alive)
         self.estop.allow()
         self.released = True
         self.log(f"E-Stop released by the person at {self.heartbeat}")
