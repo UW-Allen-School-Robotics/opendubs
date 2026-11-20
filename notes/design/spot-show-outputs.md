@@ -1,7 +1,17 @@
 # Show outputs for Spot and for group shows: sound, lights, buzzer
 
-Status: a proposal from the Spot lane, 2026-11-19, for ENCORE (which owns the show format) and the
-Tablet lane (which owns the stage box). Nothing here is built.
+Status: proposed by the Spot lane and **taken on by ENCORE**, 2026-11-19. ENCORE owns the show format
+and will write it as an ENCORE proposal once Spot's motion playback is proven; lights and the buzzer
+come after motion. The Tablet lane owns the stage box. Nothing here is built.
+
+**ENCORE's changes to the proposal:**
+- Outputs join the venue's existing `outputs:` list, beside screens (`plays: music`,
+  `plays: <robot>.voice`).
+- Build refuses an output with no device, or with two.
+- The prefix is the show's robot name (its key under `robots:`), not the robot's kind, so a show with
+  two Spots works: `spot.voice`, `spot2.light`.
+- ENCORE agrees: one `music` per show, and any robot's stop stops the music.
+- Dialogue stays on the tablet face, so `od.voice` is the head tablet.
 
 ## The rule this extends
 
@@ -36,7 +46,8 @@ The SDK has an **AudioVisual service** (`bosdyn.client.audio_visual`):
 So `spot.light` and `spot.buzzer` cues become behaviours the Spot player sends ahead of time, like the
 motion windows, with `end_time` mapped through TimeSync. Two things to check at Spot, read-only, before
 any of this is built:
-1. that this Spot (release 5.1.5) lists the AudioVisual service in its directory;
+1. that this Spot (release 5.1.5) has the AudioVisual system (`software/spot/read_limits.py` prints
+   `has_audio_visual_system` and the directory's audio and light services);
 2. how show behaviours rank against Spot's own status and warning lights. A show must never mask the
    lights that tell a bystander the motors are on.
 
