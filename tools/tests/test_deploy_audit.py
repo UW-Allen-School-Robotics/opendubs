@@ -43,8 +43,11 @@ def test_classify_runtime_flags_unowned_home_services_and_containers():
         "---CONTAINERS---",
         "openarm\topenarm-ros2:opendubs2\tUp 2 hours",
         "rogue-vla\tvla:latest\tUp 10 minutes",
+        "---PROFILE---",
+        "sensor-rig",
     ])
-    units, containers = da.parse_runtime_probe(probe)
+    units, containers, active_profile = da.parse_runtime_probe(probe)
+    assert active_profile == "sensor-rig"
     suspect_units, unexpected_containers = da.classify_runtime(
         units,
         containers,

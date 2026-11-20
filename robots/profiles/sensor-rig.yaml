@@ -1,0 +1,20 @@
+# Research / sensor-rig profile (frees camera & base lease from show/tracker services)
+profile: sensor-rig
+description: Research & sensor-rig stack with SLAM enabled and show/YOLO trackers stopped
+flags:
+  drive-bridge.enabled: true
+  slam.enabled: true
+  nav2.enabled: false
+  hallpass.enabled: false
+  robot-state.enabled: false
+services:
+  start:
+    - opendubs-dash
+    - opendubs-slam
+    - opendubs-floor-frames
+  stop:
+    - opendubs-dance-tracker
+    - opendubs-yolo-tracker
+    - opendubs-nav2
+    - opendubs-hallpass-runner
+    - opendubs-robot-state
