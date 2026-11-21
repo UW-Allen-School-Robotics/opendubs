@@ -71,9 +71,11 @@ echo "# the running container, against pins.env"
 # shellcheck source=/dev/null
 . "$HERE/pins.env"
 if sudo docker inspect "$CONTAINER" >/dev/null 2>&1; then
-  can=$(sudo docker exec "$CONTAINER" dpkg-query -W -f='${Version}' libopenarm-can-dev 2>/dev/null)
+  # The library's own version, whether the container has the PPA's package or the source build.
+  can=$(sudo docker exec "$CONTAINER" sed -n 's/.*PACKAGE_VERSION "\([^"]*\)".*/\1/p' \
+        /usr/lib/aarch64-linux-gnu/cmake/OpenArmCAN/OpenArmCANConfigVersion.cmake 2>/dev/null | head -1)
   uvv=$(sudo docker exec "$CONTAINER" uv --version 2>/dev/null | awk '{print $2}')
-  echo "OPENARM_CAN_VERSION robot=$can pins.env=$OPENARM_CAN_VERSION"
+  echo "OPENARM_CAN         robot=$can pins.env=1.4.0 tag (commit ${OPENARM_CAN_COMMIT:0:7})"
   echo "UV_VERSION          robot=$uvv pins.env=$UV_VERSION"
 else
   echo "# no '$CONTAINER' container on this host"

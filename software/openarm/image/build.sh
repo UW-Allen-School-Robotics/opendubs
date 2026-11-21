@@ -41,9 +41,10 @@ ROS_BASE_IMAGE=$(sed -n 's/^ROS_BASE_IMAGE=//p' "$MANIFEST" | tail -1)
 
 # shellcheck source=/dev/null
 . "$PINS"
-for v in OPENARM_CAN_VERSION UV_VERSION; do
+for v in OPENARM_CAN_COMMIT UV_VERSION; do
   [ -n "${!v:-}" ] || die "$v is empty in pins.env (capture-pins.sh fills it from a robot)"
 done
+[[ "$OPENARM_CAN_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "OPENARM_CAN_COMMIT is not a full commit hash: $OPENARM_CAN_COMMIT"
 
 bad=0
 while read -r name kind url commit; do
@@ -113,7 +114,7 @@ echo "== building $TAG on $ROS_BASE_IMAGE"
 docker buildx build --load --network=host \
   -f "$CTX/Dockerfile.openarm" \
   --build-arg ROS_BASE_IMAGE="$ROS_BASE_IMAGE" \
-  --build-arg OPENARM_CAN_VERSION="$OPENARM_CAN_VERSION" \
+  --build-arg OPENARM_CAN_COMMIT="$OPENARM_CAN_COMMIT" \
   --build-arg UV_VERSION="$UV_VERSION" \
   --label org.opendubs.pins="$PIN_HASH" \
   --label org.opendubs.ros-base="$ROS_BASE_IMAGE" \
