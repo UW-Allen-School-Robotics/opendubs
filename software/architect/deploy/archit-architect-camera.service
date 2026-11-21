@@ -1,0 +1,23 @@
+# A TEST UNIT for the Halloween ARCHITECT demo (software/architect/README.md): the Orbbec's colour image for the dashboard's ARCHITECT tab, on 127.0.0.1:8097.
+# Not part of the robot's stack: no deploy or provisioner installs or touches it. Filled in and
+# installed by `software/architect/tools/dev.sh install`, removed by `dev.sh uninstall`. The
+# @...@ fields are filled in then; this file in the repo is the template.
+[Unit]
+Description=ARCHITECT test: the Orbbec's colour image for the dashboard's ARCHITECT tab, on 127.0.0.1:8097 (container archit-architect-camera)
+After=docker.service archit-perception-camera.service
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1
+ExecStartPre=-/usr/bin/sudo -n /usr/bin/docker rm -f archit-architect-camera
+ExecStart=@REPO@/software/architect/tools/dev.sh camera
+ExecStop=/usr/bin/sudo -n /usr/bin/docker stop -t 5 archit-architect-camera
+# The perception stack's camera driver not up yet (its frames are shared through its IPC): try again.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

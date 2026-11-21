@@ -1,0 +1,24 @@
+# A TEST UNIT for the Halloween ARCHITECT demo, MODE=gafro (software/architect/README.md): Archit's trick-or-treat
+# services on the REAL right arm (treat_services.py --real --no-head, /perception/treat/*) and his hand tracker, from a
+# checkout of daphne/treat-gripper. It moves nothing by itself: every motion is asked for by the runner, and needs
+# CH5, the e-stop and the deadman. Not part of the robot's stack; filled in and installed by `dev.sh install`.
+[Unit]
+Description=ARCHITECT test: Archit's trick-or-treat services on the real right arm, and the hand tracker
+After=docker.service network.target
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1 TREAT_REPO=@TREAT_REPO@
+ExecStart=@REPO@/software/architect/tools/dev.sh treat
+# His node stops on SIGINT; TERM can leave it
+KillSignal=SIGINT
+TimeoutStopSec=10
+# The camera driver not up yet (the tracker joins it): try again.
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

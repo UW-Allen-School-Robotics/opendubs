@@ -1,0 +1,25 @@
+# A TEST UNIT for the Halloween ARCHITECT demo (software/architect/README.md): the demo day's coordinator on 127.0.0.1:8096, started PAUSED.
+# Not part of the robot's stack: no deploy or provisioner installs or touches it. Filled in and
+# installed by `software/architect/tools/dev.sh install`, removed by `dev.sh uninstall`. The
+# @...@ fields are filled in then; this file in the repo is the template.
+[Unit]
+Description=ARCHITECT test: the demo day's coordinator on 127.0.0.1:8096, started PAUSED (container archit-architect-day)
+After=docker.service
+Requires=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+Environment=REPO=@REPO@ DATA=@DATA@ FOREGROUND=1
+# The mode's settings (dev.sh mode_env): MODE=show, the candy show; MODE=gafro, the runner's program, no random picks
+Environment=@MODE_ENV@
+ExecStartPre=-/usr/bin/sudo -n /usr/bin/docker rm -f archit-architect-day
+ExecStart=@REPO@/software/architect/tools/dev.sh day
+ExecStop=/usr/bin/sudo -n /usr/bin/docker stop -t 5 archit-architect-day
+# The dashboard not up yet (the palette is checked at start): try again.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
