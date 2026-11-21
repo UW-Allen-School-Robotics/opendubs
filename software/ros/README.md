@@ -287,7 +287,11 @@ dashboard's localhost socket `/ws/skeleton/in`, which fans it out to the page.
 ## SLAM and the building floor plan
 
 `opendubs-robot-state-publisher` publishes the robot's frames from `description/opendubs/opendubs.urdf`
-(in the `/opendubs` namespace, so it never touches the arms' `/robot_description`). `opendubs-slam` runs
+(in the `/opendubs` namespace, so it never touches the arms' `/robot_description`). The arms' container
+publishes its own tree, rooted at `world` (`world -> openarm_body_link0 -> ... -> openarm_<side>_hand_tcp`);
+our URDF ends with `arm_mount -> world`, identity, because `openarm_body_link0`'s origin is `arm_mount`
+(`dimensions.yaml` `arms`). So the arms and grippers resolve from `base_link`, and rise with the lift.
+`opendubs-slam` runs
 slam_toolbox on the front scan, after `scan_body_filter.py` drops the robot's own returns. It is off
 unless `/etc/opendubs/slam.enabled` exists.
 

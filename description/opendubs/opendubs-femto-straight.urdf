@@ -125,6 +125,12 @@
     <child link="arm_mount"/>
     <origin xyz="0.423 0 0.3575" rpy="0 0 0"/>
   </joint>
+  <link name="world"/>
+  <joint name="arm_tf_root_joint" type="fixed">
+    <parent link="arm_mount"/>
+    <child link="world"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
   <link name="head_pan_link">
     <visual>
       <origin xyz="-0.01 0 -0.0357" rpy="0 0 0"/>

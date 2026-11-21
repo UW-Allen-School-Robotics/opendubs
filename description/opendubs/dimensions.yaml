@@ -45,6 +45,7 @@ arms:
   # We include it and place its ROOT BODY; we do not redraw any of it.
   model: openarm_bimanual_decorated.xml
   root_body: openarm_body_link0
+  tf_root: world                       # the root of the arms container's TF tree (world -> root_body); gen_urdf joins arm_mount to it
   root_mass_kg: 13.89                  # from that model
   shoulder_offset_from_root_mm: [0, 31, 698]   # from that model: left arm link0 pos
   mount:
