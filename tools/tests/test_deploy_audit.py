@@ -55,3 +55,13 @@ def test_classify_runtime_flags_unowned_home_services_and_containers():
     assert suspect_units[0]["reason"] == "runs from /home"
     assert suspect_units[1]["reason"] == "not in repo"
     assert [c["name"] for c in unexpected_containers] == ["rogue-vla"]
+
+
+def test_flat_reader_matches_pyyaml_on_records():
+    """deploy-all.sh runs the audit on a python3 without PyYAML; its fallback must read every record as PyYAML does."""
+    import yaml
+    da = _load_deploy_audit()
+    paths = sorted((ROOT / "robots").glob("*/robot.yaml"))
+    assert paths
+    for p in paths:
+        assert da._flat_yaml(p.read_text()) == yaml.safe_load(p.read_text()), p
