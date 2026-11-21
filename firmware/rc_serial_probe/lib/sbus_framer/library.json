@@ -1,0 +1,8 @@
+{
+  "name": "sbus_framer",
+  "version": "1.0.0",
+  "description": "The StamPLC's SBUS framer: finds radio frames in the byte stream and refuses a misaligned one (issue 642). Header only; tests/ runs it on a laptop.",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": { "srcDir": "src", "includeDir": "src" }
+}

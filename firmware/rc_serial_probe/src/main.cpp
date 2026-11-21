@@ -20,6 +20,7 @@
 #include <Update.h>          // ESP32 OTA writer — Ethernet firmware pull (OTA command)
 #include "ota_verify.h"      // signed OTA: the shared check (firmware/common/ota_verify, firmware-signing.md)
 #include "ota_keys.h"        // the signing keys this build trusts (generated from that library's keys/)
+#include "sbus_framer.h"     // finds the radio frames in the byte stream (lib/sbus_framer, issue 642)
 static constexpr const char* kOtaBoard = "stamplc";   // what our signatures must name
 static bool ota_selftest_ok = false;   // set in setup(); a broken check accepts nothing (there is USB)
 static char ota_key_ids[40] = "none";  // "id" or "id,id" during a rotation
@@ -662,7 +663,6 @@ unsigned long last_pdh_pub_ms = 0;
 unsigned long last_io_pub_ms = 0;
 unsigned long total_bytes = 0;
 uint32_t valid_frames = 0;
-uint32_t invalid_frames = 0;
 uint32_t can_rx_frames = 0;
 uint32_t can_rx_std_unique = 0;
 uint32_t can_rx_ext_unique = 0;
@@ -698,8 +698,12 @@ static uint8_t can_ext_seen_count = 0;
 char host_cmd_buf[96] = {0};
 size_t host_cmd_len = 0;
 
-uint8_t frame_buf[25];
-size_t frame_pos = 0;
+// The SBUS framer lives in lib/sbus_framer so that the same code runs in its host tests. It
+// replaces a 25-byte buffer that, after a bad frame, resumed its hunt at the same offset in the
+// next frame and so could lock onto a data byte that happened to be 0x0F: 70 minutes without
+// radio on 2026-10-26 (issue 642).
+static sbus::Framer g_sbus;
+static bool         sbus_selftest_ok = false;   // set in setup(): the framer's known-answer test
 
 // ================= Local UI: onboard screen + buttons + status LED =================
 // Shows safety + health straight from THIS MCU — valid even when Thor / ROS / the
@@ -1836,41 +1840,6 @@ void decodePdhStatusFrame(const twai_message_t& can_msg)
     }
 }
 
-bool decodeSbusFrame(const uint8_t* frame, uint16_t* ch, bool* failsafe, bool* frame_lost)
-{
-    if (frame[0] != 0x0F) {
-        return false;
-    }
-
-    // Accept common SBUS footer variants seen across receivers.
-    const uint8_t footer = frame[24];
-    if (!(footer == 0x00 || footer == 0x04 || footer == 0x14 || footer == 0x24)) {
-        return false;
-    }
-
-    ch[0]  = (frame[1] | frame[2] << 8) & 0x07FF;
-    ch[1]  = (frame[2] >> 3 | frame[3] << 5) & 0x07FF;
-    ch[2]  = (frame[3] >> 6 | frame[4] << 2 | frame[5] << 10) & 0x07FF;
-    ch[3]  = (frame[5] >> 1 | frame[6] << 7) & 0x07FF;
-    ch[4]  = (frame[6] >> 4 | frame[7] << 4) & 0x07FF;
-    ch[5]  = (frame[7] >> 7 | frame[8] << 1 | frame[9] << 9) & 0x07FF;
-    ch[6]  = (frame[9] >> 2 | frame[10] << 6) & 0x07FF;
-    ch[7]  = (frame[10] >> 5 | frame[11] << 3) & 0x07FF;
-    ch[8]  = (frame[12] | frame[13] << 8) & 0x07FF;
-    ch[9]  = (frame[13] >> 3 | frame[14] << 5) & 0x07FF;
-    ch[10] = (frame[14] >> 6 | frame[15] << 2 | frame[16] << 10) & 0x07FF;
-    ch[11] = (frame[16] >> 1 | frame[17] << 7) & 0x07FF;
-    ch[12] = (frame[17] >> 4 | frame[18] << 4) & 0x07FF;
-    ch[13] = (frame[18] >> 7 | frame[19] << 1 | frame[20] << 9) & 0x07FF;
-    ch[14] = (frame[20] >> 2 | frame[21] << 6) & 0x07FF;
-    ch[15] = (frame[21] >> 5 | frame[22] << 3) & 0x07FF;
-
-    const uint8_t flags = frame[23];
-    *frame_lost         = (flags & (1 << 2)) != 0;
-    *failsafe           = (flags & (1 << 3)) != 0;
-    return true;
-}
-
 bool probeI2CAddress(m5::I2C_Class& i2c, uint8_t addr)
 {
     return i2c.scanID(addr, 400000);
@@ -1997,54 +1966,38 @@ void scanI2CFull()
 
 void consumeByte(uint8_t b)
 {
-    if (frame_pos == 0) {
-        if (b != 0x0F) {
-            return;
-        }
-        frame_buf[frame_pos++] = b;
+    // The framer (lib/sbus_framer) decides what is a frame. Below is what the firmware does
+    // with one; none of that changed with the framer.
+    if (!g_sbus.feed(b)) {
         return;
     }
+    const sbus::Frame& f = g_sbus.frame();
 
-    frame_buf[frame_pos++] = b;
-    if (frame_pos < sizeof(frame_buf)) {
-        return;
+    valid_frames++;
+    last_valid_frame_ms = millis();
+    memcpy(rc_ch, f.ch, sizeof(rc_ch));   // mirror to the local UI
+    rc_failsafe   = f.failsafe;
+    rc_frame_lost = f.frame_lost;
+    // Range-sanitize the analog sticks CH1-CH4 (ROTATE/MAST/FWD-REV/STRAFE). A value
+    // outside the plausible SBUS band is not a real command — a receiver failsafe-preset
+    // pegged to an extreme (e.g. CH3=0) or bus corruption. Flag it so the drive arm gate
+    // blocks motion EVEN IF the SBUS failsafe flag was not set. Switch channels CH5-8
+    // legitimately sit at their endpoints, so they are excluded.
+    // Sanitize the channels actually carrying axes, whichever they are.
+    rc_range_bad = false;
+    for (const RcFn fn : {FN_FWD, FN_ROT, FN_STR, FN_MAST}) {
+        const int8_t c = rcCfgGet(fn).ch;
+        if (c >= 0 && !sbusInBand(f.ch[c])) { rc_range_bad = true; break; }
     }
 
-    uint16_t ch[16];
-    bool failsafe = false;
-    bool lost = false;
-
-    if (decodeSbusFrame(frame_buf, ch, &failsafe, &lost)) {
-        valid_frames++;
-        last_valid_frame_ms = millis();
-        memcpy(rc_ch, ch, sizeof(rc_ch));   // mirror to the local UI
-        rc_failsafe   = failsafe;
-        rc_frame_lost = lost;
-        // Range-sanitize the analog sticks CH1-CH4 (ROTATE/MAST/FWD-REV/STRAFE). A value
-        // outside the plausible SBUS band is not a real command — a receiver failsafe-preset
-        // pegged to an extreme (e.g. CH3=0) or bus corruption. Flag it so the drive arm gate
-        // blocks motion EVEN IF the SBUS failsafe flag was not set. Switch channels CH5-8
-        // legitimately sit at their endpoints, so they are excluded.
-        // Sanitize the channels actually carrying axes, whichever they are.
-        rc_range_bad = false;
-        for (const RcFn f : {FN_FWD, FN_ROT, FN_STR, FN_MAST}) {
-            const int8_t c = rcCfgGet(f).ch;
-            if (c >= 0 && !sbusInBand(ch[c])) { rc_range_bad = true; break; }
-        }
-
-        // NO PRINT HERE. A Serial.printf on this path blocked the control loop and was
-        // the root cause of the intermittent "RC signal loss" chased in August; the fix
-        // then was to print less often, which reduced the odds rather than removing the
-        // hazard. It came back: 170-250 ms stalls in the SBUS drain, dropping the
-        // drive-safe gate and — because armOK gates it — silently suppressing RC pan/tilt.
-        //
-        // It was redundant anyway. The 1 Hz [SBUS] status line carries the same counters
-        // and is tee'd over Ethernet, which is the only place anyone can read it in service.
-    } else {
-        invalid_frames++;
-    }
-
-    frame_pos = 0;
+    // NO PRINT HERE. A Serial.printf on this path blocked the control loop and was
+    // the root cause of the intermittent "RC signal loss" chased in August; the fix
+    // then was to print less often, which reduced the odds rather than removing the
+    // hazard. It came back: 170-250 ms stalls in the SBUS drain, dropping the
+    // drive-safe gate and — because armOK gates it — silently suppressing RC pan/tilt.
+    //
+    // It was redundant anyway. The 1 Hz [SBUS] status line carries the same counters
+    // and is tee'd over Ethernet, which is the only place anyone can read it in service.
 }
 
 void beginProfile(int idx)
@@ -2054,9 +2007,8 @@ void beginProfile(int idx)
     delay(20);
     rc.begin(p.baud, p.config, kBluePortRxPin, kBluePortTxPin, p.inverted);
 
-    frame_pos          = 0;
+    g_sbus.reset();
     valid_frames       = 0;
-    invalid_frames     = 0;
     total_bytes        = 0;
     last_valid_frame_ms = 0;
     last_status_ms      = millis();
@@ -2901,6 +2853,12 @@ void setup()
     }
     tprintf("[OTA] signed updates: trusts key %s, check self-test %s\n", ota_key_ids,
             ota_selftest_ok ? "ok" : "FAILED (no update will be accepted)");
+
+    // The SBUS framer's known-answer test, on its own framer, not the live one: the 2026-10-26
+    // stream entered at its false header, then a lost byte (a few hundred bytes, well under a
+    // millisecond). It reports and does not gate: it says whether THIS image carries the fix.
+    sbus_selftest_ok = sbus::selfTest();
+    tprintf("[SBUS] framer self-test %s\n", sbus_selftest_ok ? "ok" : "FAILED (this image's framer is not the tested one)");
 }
 
 // Broadcast a compact JSON snapshot over UDP for Thor / the dashboard to consume.
@@ -3308,12 +3266,24 @@ void loop()
     else           rs485Poll();
 
     if ((millis() - last_status_ms) > 1000) {
-        tprintf("[SBUS] prof=%s bytes=%lu ok=%lu bad=%lu last_ok_ms=%lu\n",
+        // The first five fields are what the dashboard and the telemetry tools parse; the rest
+        // are new and come after them. bad = frames the framer saw and did not accept.
+        // resync = times it lost its place; hunt / maxhunt = bytes spent finding it again, in
+        // all and in the worst case; ambig = frames refused because two alignments both held;
+        // starve = times 1000 bytes arrived with no frame accepted, which is what 2026-10-26
+        // looked like and should now stay 0; st = the boot self-test of the framer.
+        tprintf("[SBUS] prof=%s bytes=%lu ok=%lu bad=%lu last_ok_ms=%lu resync=%lu hunt=%lu maxhunt=%lu ambig=%lu starve=%lu st=%d\n",
                       kProfiles[0].name,
                       static_cast<unsigned long>(total_bytes),
                       static_cast<unsigned long>(valid_frames),
-                      static_cast<unsigned long>(invalid_frames),
-                      static_cast<unsigned long>(last_valid_frame_ms));
+                      static_cast<unsigned long>(g_sbus.rejected),
+                      static_cast<unsigned long>(last_valid_frame_ms),
+                      static_cast<unsigned long>(g_sbus.resyncs),
+                      static_cast<unsigned long>(g_sbus.hunt_bytes),
+                      static_cast<unsigned long>(g_sbus.max_hunt),
+                      static_cast<unsigned long>(g_sbus.ambiguous),
+                      static_cast<unsigned long>(g_sbus.starved),
+                      sbus_selftest_ok ? 1 : 0);
         last_status_ms = millis();
     }
 
