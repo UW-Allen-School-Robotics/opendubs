@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import bosdyn.client
+from bosdyn.api import arm_command_pb2
 from bosdyn.client.estop import EstopClient, EstopEndpoint, EstopKeepAlive
 from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
 from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient, blocking_sit,
@@ -19,9 +20,43 @@ from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.token_manager import TokenManager
 
 from spot_credentials import load
-from spot_playback import build_window, envelope_problems
+from spot_playback import build_window, command_problems, envelope_problems
 
 DEFAULT_HOST = "192.168.50.3"
+
+# What each Spot SDK error means here, and what the person at Spot does about it. Keyed by class name, so
+# one table covers the lease, power and command clients.
+ADVICE = {
+    "KeepaliveMotorsOffError": "an E-Stop or lease stopped checking in, so Spot holds its motors off. Press "
+                               "Release again, then power on. If it stays, run keepalive_status.py",
+    "EstoppedError": "an E-Stop is stopping Spot. Release it on the operator page, and check the tablet and "
+                     "Spot's own E-Stop buttons",
+    "ResourceAlreadyClaimedError": "another client holds Spot's lease, usually the tablet. Release control "
+                                   "on the tablet, then try again",
+    "BehaviorFaultError": "Spot has a behavior fault, for example after a bump. Its status lists the fault. "
+                          "Sit + power off, then stand again",
+    "FaultedError": "Spot has a system fault. Its status lists the fault",
+    "ShorePowerConnectedError": "Spot is on its charger. Unplug it first",
+    "NotPoweredOnError": "Spot's motors are off. Power on + stand first",
+    "DockedError": "Spot is docked. Undock it first",
+    "NoTimeSyncError": "time sync with Spot was lost. Disconnect, then Connect again",
+    "ExpiredError": "the command reached Spot after its time. Disconnect, then Connect again to resync clocks",
+    "TooDistantError": "the command's end time is too far ahead. Disconnect, then Connect again to resync clocks",
+    "InvalidRequestError": "Spot refused the command as built. Tell the Spot lane; check_plan.py should have "
+                           "caught it",
+    "TimedOutError": "Spot did not answer in time. Check the cable and network. An E-Stop at the same moment "
+                     "also does this",
+    "CommandTimedOutError": "Spot did not finish in time. An E-Stop at the same moment also does this",
+    "LicenseError": "Spot's licence does not allow this",
+}
+
+
+def explain(e):
+    """An SDK error with what it means here and what to do; any other error as it is."""
+    for cls in type(e).__mro__:
+        if cls.__name__ in ADVICE:
+            return f"{e} -> {ADVICE[cls.__name__]}"
+    return str(e)
 ESTOP_TIMEOUT_S = 9.0
 FREEZE_STOP_S = 1.0                     # no heartbeat for this long stops Spot
 
@@ -44,6 +79,7 @@ class SpotSession:
         self.cmd = self.robot.ensure_client(RobotCommandClient.default_service_name)
         self.lease_client = self.robot.ensure_client(LeaseClient.default_service_name)
         self.lease = None
+        self.stood = False              # set by stand(); a show needs Spot standing, not just powered
         self._carry = {}
         self.last_beat = time.monotonic()
         self.released = False
@@ -69,6 +105,7 @@ class SpotSession:
     # The E-Stop. stop() returns at once; the check-in goes on its own thread.
     def stop(self, why):
         self.released = False
+        self.stood = False              # settle_then_cut sits Spot, then cuts power
         threading.Thread(target=self.estop.settle_then_cut, daemon=True).start()
         self.log(f"E-STOP: {why}")
 
@@ -107,12 +144,15 @@ class SpotSession:
     def power_on(self):
         self._need_released()
         self._ensure_lease()
+        if not self.robot.is_powered_on():
+            self.stood = False
         self.robot.power_on(timeout_sec=20)
         return "motors on, lease held (Spot stays where it is)"
 
     def stand(self):
         self.power_on()
         blocking_stand(self.cmd, timeout_sec=10)
+        self.stood = True
         return "standing, motors on, lease held"
 
     def gripper(self, fraction):
@@ -123,6 +163,7 @@ class SpotSession:
         return f"gripper to {fraction:.0%} open"
 
     def sit(self):
+        self.stood = False
         if self.lease is None:
             return "no lease held: nothing to sit"
         try:
@@ -135,7 +176,9 @@ class SpotSession:
         return "sitting, motors off, lease returned"
 
     def is_standing(self):
-        return self.lease is not None and self.robot.is_powered_on()
+        """From what this session did, with no call to Spot: the operator page asks it four times a second,
+        on the same loop that takes the heartbeat. send_window asks Spot itself."""
+        return self.lease is not None and self.stood
 
     # Playback (player.py, spot_playback.py). ENCORE's limits for Spot are placeholders, so a real Spot plays
     # only plans inside the player's own first-run envelope: feet planted, small body offsets, slow joints.
@@ -155,10 +198,30 @@ class SpotSession:
             raise RuntimeError("refused: no lease held; Power on + stand first")
         if commands[0]["window"] == 0:
             self._carry = {}
-        ts = self.robot.time_sync
-        cmd, end_wall = build_window(commands, t0_wall, time.time(), ts.robot_timestamp_from_local_secs,
-                                     self._carry)
-        self.cmd.robot_command(cmd, end_time_secs=end_wall, timesync_endpoint=ts.endpoint)
+        now = time.time()
+        cmd = build_window(commands, t0_wall, now, self._carry)
+        problems = command_problems(cmd, t0_wall, now)
+        if problems:
+            raise RuntimeError("refused before sending: " + "; ".join(problems))
+        cmd_id = self.cmd.robot_command(cmd, timesync_endpoint=self.robot.time_sync.endpoint)  # to Spot's clock
+        threading.Thread(target=self._arm_planner, args=(cmd_id, commands[0]["window"]), daemon=True).start()
+
+    def _arm_planner(self, cmd_id, window):
+        """Say when Spot's arm planner could not follow a window: it then keeps within its own speed and
+        acceleration limits (MODIFIED) and the arm lags the beat, or it goes to the first point (FAILED)."""
+        time.sleep(0.3)
+        try:
+            fb = self.cmd.robot_command_feedback(cmd_id).feedback
+            ps = fb.synchronized_feedback.arm_command_feedback.arm_joint_move_feedback.planner_status
+        except Exception as e:
+            self.log(f"window {window}: arm feedback unavailable: {explain(e)}")
+            return
+        name = arm_command_pb2.ArmJointMoveCommand.Feedback.PlannerStatus.Name(ps)
+        if name == "PLANNER_STATUS_MODIFIED":
+            self.log(f"window {window}: the arm cannot keep up, so it lags the beat (planner MODIFIED). "
+                     "Play it at a lower speed")
+        elif name == "PLANNER_STATUS_FAILED":
+            self.log(f"window {window}: the arm planner FAILED and goes to the window's first point")
 
     def after_show(self):
         """The show's over: stow the arm (the show ends there already) so Sit and walking work as usual."""

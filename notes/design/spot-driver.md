@@ -265,18 +265,41 @@ shows. This gives Spot the same three roles opendubs2 has:
   `describe`, `plans`, `load`, `ready`, `start`, `stop`, `status`. It never releases the E-Stop,
   never arms a show and never sends a command.
 - **Real playback** (`spot_playback.py`, 2026-11-20) sends one synchronized command per window: the
-  body as a stand command with a `base_offset_rt_footprint` trajectory, sampled every 0.1 s along a
-  monotone cubic through the keys (Spot interpolates linearly between points); the arm as an
+  body as a stand command with a `base_offset_rt_footprint` trajectory: every key, plus samples along a
+  monotone cubic through the keys, 50 points a window at most (Spot interpolates linearly between
+  points); the arm as an
   `ArmJointTrajectory` with the plan's positions and velocities (Spot's cubic is the same curve); the
   jaw as a claw-gripper trajectory. Each window keeps the previous window's points and reference time,
   so a window sent early carries on through the end of the one it replaces. Spot's default arm and
-  jaw speed limits stay in place. The arm is stowed when a show ends.
+  jaw speed limits stay in place. The arm is stowed when a show ends. Every trajectory is built in the
+  local clock: the SDK's `robot_command` converts each `reference_time` to Spot's clock itself.
 - **The first-run envelope.** ENCORE's limits for Spot are still placeholders (`built: false`), so a
   real Spot plays only plans inside the player's own envelope: no BASE (feet planted), body offsets
   within 0.10 m and 20 to 22 deg, body speeds within 45 deg/s, arm joints within the profile's ranges
   and 90 deg/s. A show is armed at 25, 50, 75 or 100 % speed. The Werewolves plan is outside the
   envelope (body yaw 114 deg/s at 3.2 s); the first-moves show (`software/spot/shows/spot_moves.py`)
   is inside it and played on the fake at 50 % speed, both windows on time.
+- **What the first session at Spot taught us (2026-11-20), and the fixes:**
+  - Spot refused a body trajectory of 201 points ("too many points"). The player now sends at most 50
+    body and jaw points a window. Spot's real limit is not documented.
+  - Our code converted reference times to Spot's clock, and the SDK converted them again. The player
+    now builds every command in the local clock.
+  - ENCORE gives two arm points at the same time where one key ends and the next starts. The player
+    keeps one of them. The ENCORE lane has the finding.
+  - A hidden operator page stopped Spot, as designed, and the SDK's E-Stop check-in thread then ended
+    for good. The next Release checked in once and went quiet. Spot's E-Stop keepalive policy then held
+    the motors off, so every power-on failed with `KeepaliveMotorsOffError`. Release now starts a fresh
+    check-in thread. `keepalive_status.py` lists Spot's keepalive policies, read-only.
+  - Ready passed while Spot was powered on but sitting, so Start would have stood Spot up as part of
+    the show. A show now needs Stand to have finished.
+  - The page's status asked Spot whether it was powered, four times a second, on the loop that takes
+    the heartbeat. A slow answer could stall the heartbeat and stop Spot. The status now comes from
+    what the session did.
+- **The checks before Spot.** `check_plan.py` builds every window of every stored plan at every speed,
+  as the player sends it, and says what Spot would refuse. The fake Spot runs the same envelope,
+  builder and check, so a fake run fails where a real Spot would. Each SDK error in the player's log
+  carries what it means and what to do (`ADVICE` in `spot_session.py`). When Spot's arm planner cannot
+  follow a window, the log says so and suggests a lower speed.
 - **Open:**
   - the login on the Orin or Pi (there is no macOS Keychain there);
   - the first run at Spot: the arm's joint signs against the model's, the chained windows at 20 s,

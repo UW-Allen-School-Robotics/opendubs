@@ -44,7 +44,7 @@ from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from player import Playback
-from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST, plan_length_s
+from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST, explain, plan_length_s
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INTERFACE_VERSION = 1
@@ -105,7 +105,7 @@ class Player:
                 self.session = s
                 self.log("connected; the operator page is Spot's E-Stop, STOPPED")
             except Exception as e:
-                self.log(f"connect failed: {e}")
+                self.log(f"connect failed: {explain(e)}")
             finally:
                 self.connecting = False
         self.work.submit(go)
@@ -124,7 +124,7 @@ class Player:
                     raise RuntimeError("not connected")
                 self.log(f"{name}: {BY_NAME[name].run(self.session)}")
             except Exception as e:
-                self.log(f"{name}: {e}")
+                self.log(f"{name}: {explain(e)}")
         self.log(f"{name} ...")
         self.work.submit(go)
 

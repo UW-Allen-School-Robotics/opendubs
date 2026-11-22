@@ -1,6 +1,7 @@
 """ENCORE's Spot plan, as Spot SDK commands: one synchronized command per window (body, arm and jaw
 together), and the first-run envelope the player holds a real Spot to. No robot is needed here: the
-commands are built from the plan and a time-conversion function, so this can be checked at a desk.
+commands are built from the plan in the local clock (the SDK converts to Spot's), so this can be checked
+at a desk, and command_problems() says what Spot would refuse before anything is sent.
 
 How a plan becomes commands:
 - BODY -> a stand command whose mobility params carry `body_control.base_offset_rt_footprint`, an SE3
@@ -22,10 +23,11 @@ import re
 from bosdyn.api import geometry_pb2, trajectory_pb2
 from bosdyn.api.spot import robot_command_pb2 as spot_command_pb2
 from bosdyn.client.robot_command import RobotCommandBuilder
-from bosdyn.util import seconds_to_duration, seconds_to_timestamp
+from bosdyn.util import duration_to_seconds, seconds_to_duration, seconds_to_timestamp
 
 SAMPLE_S = 0.1               # the envelope checks speeds on this fine grid
 POINTS_MAX = 50              # body and jaw points sent per window (keys first); Spot refused 201
+ARM_POINTS_MAX = 250         # ENCORE's own cap per arm command
 JOINTS = ("sh0", "sh1", "el0", "el1", "wr0", "wr1")
 OPEN_RAD = -1.5708            # the claw's fully open angle (the SDK's own constant); 0 is closed
 
@@ -192,22 +194,29 @@ def _chain(carry, command, now_show_s):
     return ref, keep + new
 
 
-def build_window(commands, t0_wall, now_wall, robot_ts, carry):
-    """One RobotCommand for a window's commands (BODY, ARM, GRIP). `robot_ts(wall_s)` gives the robot's
-    Timestamp for a local wall time (the SDK's TimeSync). `carry` maps part -> (reference show time,
-    [(t, point)]) from the previous window, and is updated. Returns (command, end_wall or None): the
-    mobility command must be given an end time."""
+def build_window(commands, t0_wall, now_wall, carry):
+    """One RobotCommand for a window's commands (BODY, ARM, GRIP), its times in the LOCAL clock: the SDK's
+    RobotCommandClient.robot_command converts every trajectory's reference_time to Spot's clock itself
+    (EDIT_TREE_CONVERT_LOCAL_TIME_TO_ROBOT_TIME), so converting here as well would shift it twice.
+    `carry` maps part -> (reference show time, [(t, point)]) from the previous window, and is updated.
+    A stand command has no end time (the SDK sets end_time only for velocity, trajectory and stance
+    requests): after its last point the body holds that pose until the next mobility command."""
     now_show = now_wall - t0_wall
-    cmd, end_wall = None, None
+    cmd = None
     for c in sorted(commands, key=lambda c: c["part"]):
         part = c["part"]
         if part in ("BODY", "GRIP"):
             pts = [{"time_since_reference": t, "values": v} for t, v in sampled(c, fine=False)]
-        else:
-            pts = c["points"]
+        else:                           # ENCORE gives two points at a time where one key ends and the next
+            pts = []                    # starts, same pose: keep one, as _monotone does for the body
+            for q in c["points"]:
+                if pts and abs(q["time_since_reference"] - pts[-1]["time_since_reference"]) < 1e-6:
+                    pts[-1] = q
+                else:
+                    pts.append(q)
         ref, chain = _chain(carry.get(part), {"show_start_s": c["show_start_s"], "points": pts}, now_show)
         carry[part] = (ref, chain)
-        ref_ts = robot_ts(t0_wall + ref)
+        ref_ts = seconds_to_timestamp(t0_wall + ref)
         if part == "BODY":
             traj = trajectory_pb2.SE3Trajectory(reference_time=ref_ts)
             for t, p in chain:
@@ -218,7 +227,6 @@ def build_window(commands, t0_wall, now_wall, robot_ts, carry):
             params = spot_command_pb2.MobilityParams(
                 body_control=spot_command_pb2.BodyControlParams(base_offset_rt_footprint=traj))
             part_cmd = RobotCommandBuilder.synchro_stand_command(params=params)
-            end_wall = t0_wall + ref + chain[-1][0] + 1.0
         elif part == "ARM":
             part_cmd = RobotCommandBuilder.arm_joint_move_helper(
                 joint_positions=[[p["position"][j] for j in JOINTS] for _, p in chain],
@@ -236,9 +244,45 @@ def build_window(commands, t0_wall, now_wall, robot_ts, carry):
         else:
             raise RuntimeError(f"refused: {part} is not played on a real Spot yet")
         cmd = part_cmd if cmd is None else RobotCommandBuilder.build_synchro_command(cmd, part_cmd)
-    return cmd, end_wall
+    return cmd
 
 
-def wall_timestamp(wall_s):
-    """For checking at a desk: the robot's clock taken to be the local one."""
-    return seconds_to_timestamp(wall_s)
+# ---- what the robot would refuse, checked before sending (and by the fake Spot) --------------------
+def _trajectories(cmd):
+    """(name, reference_time, [seconds since reference]) for each trajectory in a built command."""
+    out, sc = [], cmd.synchronized_command
+    if sc.HasField("mobility_command") and sc.mobility_command.HasField("params"):
+        mp = spot_command_pb2.MobilityParams()
+        sc.mobility_command.params.Unpack(mp)
+        b = mp.body_control.base_offset_rt_footprint
+        if b.points:
+            out.append(("BODY", b.reference_time, [duration_to_seconds(p.time_since_reference) for p in b.points]))
+    a = sc.arm_command.arm_joint_move_command.trajectory
+    if a.points:
+        out.append(("ARM", a.reference_time, [duration_to_seconds(p.time_since_reference) for p in a.points]))
+    g = sc.gripper_command.claw_gripper_command.trajectory
+    if g.points:
+        out.append(("GRIP", g.reference_time, [duration_to_seconds(p.time_since_reference) for p in g.points]))
+    return out
+
+
+def command_problems(cmd, t0_wall, now_wall):
+    """Why Spot would refuse or misplay this built command; empty when it looks right. Checked on the
+    command as built (local clock), against what has gone wrong or the SDK documents."""
+    out = []
+    for name, ref, ts in _trajectories(cmd):
+        cap = POINTS_MAX + 10 if name in ("BODY", "GRIP") else ARM_POINTS_MAX
+        if len(ts) > cap:
+            out.append(f"{name}: {len(ts)} points, over {cap} (Spot refused 201 body points)")
+        if any(b <= a for a, b in zip(ts, ts[1:])):
+            out.append(f"{name}: point times are not strictly increasing")
+        ref_s = ref.seconds + ref.nanos * 1e-9
+        if abs(ref_s - t0_wall) > 24 * 3600:
+            out.append(f"{name}: reference time is {ref_s - t0_wall:+.0f} s from the show start; it must be in the "
+                       f"local clock (the SDK converts it)")
+        if ref_s + ts[-1] < now_wall:
+            out.append(f"{name}: ends {now_wall - ref_s - ts[-1]:.1f} s in the past")
+    g = cmd.synchronized_command.gripper_command.claw_gripper_command.trajectory
+    if any(not OPEN_RAD - 1e-6 <= p.point <= 1e-6 for p in g.points):
+        out.append(f"GRIP: a jaw angle is outside {OPEN_RAD}..0 rad")
+    return out

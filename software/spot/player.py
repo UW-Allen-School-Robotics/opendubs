@@ -14,7 +14,7 @@ import copy
 import threading
 import time
 
-from spot_session import plan_length_s, summarize_plan
+from spot_session import explain, plan_length_s, summarize_plan
 
 ARM_EXPIRES_S = 120.0       # an armed show nobody starts disarms itself
 SPEEDS = (0.25, 0.5, 0.75, 1.0)
@@ -148,8 +148,8 @@ class Playback:
                 session.send_window(cs, self.t0)
                 self.sent += 1
             except Exception as e:
-                session.stop(f"sending window {cs[0]['window']} failed: {e}")
-                self.stopped(f"send failed: {e}")
+                session.stop(f"sending window {cs[0]['window']} failed: {explain(e)}")
+                self.stopped(f"send failed: {explain(e)}")
                 return
         end = self.t0 + plan_length_s(plan)
         while self._going(session) and time.time() < end:
@@ -159,4 +159,4 @@ class Playback:
             try:
                 self.log(f"show DONE; {session.after_show()}")
             except Exception as e:
-                self.log(f"show DONE; stowing the arm failed: {e}")
+                self.log(f"show DONE; stowing the arm failed: {explain(e)}")
