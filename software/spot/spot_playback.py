@@ -179,19 +179,22 @@ def envelope_problems(plan, env=FIRST_RUN):
 
 
 # ---- the commands ------------------------------------------------------------------------------
+FUTURE_MARGIN_S = 0.3          # every point sent is at least this far ahead of now (send latency, clock sync)
+
+
 def _chain(carry, command, now_show_s):
-    """This window's points joined to the previous window's, timed from the previous window's start;
-    points already past are dropped. Returns (reference show time, [(t, point)])."""
+    """This window's points joined to the previous window's, timed from the previous window's start.
+    Every point not at least FUTURE_MARGIN_S ahead is dropped: Spot's gripper refuses a multipoint
+    trajectory with any point before its current time (2026-11-23), and Spot starts each trajectory from
+    where the part is now, so a past point adds nothing. Returns (reference show time, [(t, point)])."""
     if carry is None:
-        return command["show_start_s"], [(p["time_since_reference"], p) for p in command["points"]]
-    ref, old = carry
-    shift = command["show_start_s"] - ref
-    new = [(p["time_since_reference"] + shift, p) for p in command["points"]]
-    keep = [(t, p) for t, p in old if t < new[0][0] - 1e-6]
-    past = [i for i, (t, _) in enumerate(keep) if ref + t < now_show_s - 0.5]
-    if past:
-        keep = keep[past[-1]:]          # keep the last point already past, so Spot interpolates from it
-    return ref, keep + new
+        ref, chain = command["show_start_s"], [(p["time_since_reference"], p) for p in command["points"]]
+    else:
+        ref, old = carry
+        shift = command["show_start_s"] - ref
+        new = [(p["time_since_reference"] + shift, p) for p in command["points"]]
+        chain = [(t, p) for t, p in old if t < new[0][0] - 1e-6] + new
+    return ref, [(t, p) for t, p in chain if ref + t > now_show_s + FUTURE_MARGIN_S]
 
 
 def build_window(commands, t0_wall, now_wall, carry):
@@ -215,6 +218,8 @@ def build_window(commands, t0_wall, now_wall, carry):
                 else:
                     pts.append(q)
         ref, chain = _chain(carry.get(part), {"show_start_s": c["show_start_s"], "points": pts}, now_show)
+        if not chain:
+            raise RuntimeError(f"refused: window {c['window']} {part} was built too late; every point is past")
         carry[part] = (ref, chain)
         ref_ts = seconds_to_timestamp(t0_wall + ref)
         if part == "BODY":
@@ -280,8 +285,8 @@ def command_problems(cmd, t0_wall, now_wall):
         if abs(ref_s - t0_wall) > 24 * 3600:
             out.append(f"{name}: reference time is {ref_s - t0_wall:+.0f} s from the show start; it must be in the "
                        f"local clock (the SDK converts it)")
-        if ref_s + ts[-1] < now_wall:
-            out.append(f"{name}: ends {now_wall - ref_s - ts[-1]:.1f} s in the past")
+        if ref_s + ts[0] <= now_wall:     # Spot's gripper refused this (2026-11-23); none is sent past
+            out.append(f"{name}: its first point is {now_wall - ref_s - ts[0]:.1f} s in the past")
     g = cmd.synchronized_command.gripper_command.claw_gripper_command.trajectory
     if any(not OPEN_RAD - 1e-6 <= p.point <= 1e-6 for p in g.points):
         out.append(f"GRIP: a jaw angle is outside {OPEN_RAD}..0 rad")
