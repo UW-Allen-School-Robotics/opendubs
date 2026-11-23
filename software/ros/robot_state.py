@@ -58,6 +58,14 @@ def zaxis_cmd_to_mast(cmd: str) -> str:
     return MAST_COMMANDS[key]
 
 
+def check_zaxis_motion_allowed(snap: dict, software_estop: bool = False) -> tuple[bool, str]:
+    """Return `(allowed, reason)` for active Z-axis motion against hardware and software e-stop."""
+    saf = _derive_safety(snap, software_estop=software_estop)
+    if saf["estopped"]:
+        return False, saf["source"] or "estopped"
+    return True, "ok"
+
+
 def _ch5_position(rc: dict) -> str | None:
     """Decode RC CH5 switch state from StamPLC [RC] mode token."""
     mode = rc.get("mode")
@@ -233,6 +241,10 @@ def main():
         def cb(msg):
             if lease.current(now()) != owner:
                 return
+            allowed, _ = check_zaxis_motion_allowed(reader.snapshot(), software_estop=sw_estop["latched"])
+            if not allowed:
+                reader.send(MAST_COMMANDS["stop"])
+                return
             try:
                 mast_cmd = zaxis_cmd_to_mast(msg.data)
             except ValueError as e:
@@ -281,8 +293,17 @@ def main():
     node.create_subscription(String, "/zaxis/claim", on_zclaim, 10)
     node.create_subscription(String, "/zaxis/release", on_zrelease, 10)
 
-    def mk_cmd_srv(wire_cmd):
+    def mk_cmd_srv(wire_cmd, require_motion_ok: bool = False):
         def cb(req, resp):
+            if require_motion_ok:
+                allowed, reason = check_zaxis_motion_allowed(
+                    reader.snapshot(), software_estop=sw_estop["latched"]
+                )
+                if not allowed:
+                    reader.send(MAST_COMMANDS["stop"])
+                    resp.success = False
+                    resp.message = f"refused: {reason}"
+                    return resp
             ok = bool(reader.send(wire_cmd))
             resp.success = ok
             resp.message = wire_cmd if ok else "StamPLC link unavailable"
@@ -294,7 +315,9 @@ def main():
 
     def on_estop(req, resp):
         sw_estop["latched"] = True
+        reader.send(MAST_COMMANDS["stop"])
         delivered = bool(reader.send("ESTOP"))
+        tick_state()
         resp.success = True
         resp.message = "ESTOP sent" if delivered else "software latch set (StamPLC link unavailable)"
         return resp
@@ -318,7 +341,7 @@ def main():
     node.create_service(Trigger, "/robot/estop_clear", on_estop_clear)
     node.create_service(Trigger, "/zaxis/encoder_reset", mk_cmd_srv("ENC_RESET"))
     for cmd in ("up", "down", "stop"):
-        node.create_service(Trigger, f"/zaxis/{cmd}", mk_cmd_srv(MAST_COMMANDS[cmd]))
+        node.create_service(Trigger, f"/zaxis/{cmd}", mk_cmd_srv(MAST_COMMANDS[cmd], require_motion_ok=(cmd != "stop")))
 
     def tick_state():
         snap = reader.snapshot()

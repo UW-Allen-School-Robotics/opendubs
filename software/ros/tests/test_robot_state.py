@@ -109,3 +109,25 @@ def test_can_clear_estop_guard():
     assert st["estopped"] is True
     assert "SOFTWARE" in st["safety"]["source"]
 
+
+def test_check_zaxis_motion_allowed_blocks_estop():
+    healthy = {
+        "fresh": True,
+        "di": [True, False, False, False, False, False, False, False],
+        "relay": [True, False, False, False],
+        "rc": {"mode": "AUTO", "dead": True, "live": True},
+    }
+    assert robot_state.check_zaxis_motion_allowed(healthy) == (True, "ok")
+    ok_sw, reason_sw = robot_state.check_zaxis_motion_allowed(healthy, software_estop=True)
+    assert ok_sw is False and "SOFTWARE" in reason_sw
+    ok_btn, reason_btn = robot_state.check_zaxis_motion_allowed(
+        {**healthy, "di": [False, False, False, False, False, False, False, False]}
+    )
+    assert ok_btn is False and "BUTTON" in reason_btn
+    ok_plc, reason_plc = robot_state.check_zaxis_motion_allowed(
+        {**healthy, "rc": {"mode": "ESTOP", "dead": False, "live": True}}
+    )
+    assert ok_plc is False and "STAMPLC" in reason_plc
+    ok_stale, _ = robot_state.check_zaxis_motion_allowed({**healthy, "fresh": False})
+    assert ok_stale is False
+

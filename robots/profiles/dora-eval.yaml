@@ -1,0 +1,21 @@
+# Opt-in Dora evaluation profile (stops ROS stamplc/robot_state & autonomous stacks so Dora can evaluate cleanly)
+profile: dora-eval
+description: Isolated Dora evaluation profile (disables ROS stamplc/robot_state bridges so Dora can own StamPLC)
+flags:
+  drive-bridge.enabled: true
+  slam.enabled: false
+  nav2.enabled: false
+  hallpass.enabled: false
+  robot-state.enabled: false
+services:
+  start:
+    - opendubs-dash
+  stop:
+    - opendubs-stamplc-bridge
+    - opendubs-robot-state
+    - opendubs-dance-tracker
+    - opendubs-yolo-tracker
+    - opendubs-slam
+    - opendubs-floor-frames
+    - opendubs-nav2
+    - opendubs-hallpass-runner
