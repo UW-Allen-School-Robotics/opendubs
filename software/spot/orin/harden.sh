@@ -16,6 +16,10 @@ set -eu
 [ "$(id -u)" = 0 ] || { echo "refused: run it with sudo" >&2; exit 1; }
 
 command -v ufw >/dev/null || apt-get install -y ufw || { apt-get update && apt-get install -y ufw; }
+# This Jetson kernel has no ip6t_rt, which ufw's IPv6 rules use to drop type-0 routing headers, so ufw
+# failed to start ("Couldn't load match `rt'", 2026-11-23). Linux has ignored type-0 headers since 2007,
+# so those lines go.
+sed -i 's/^\(-A .*-m rt .*\)$/# opendubs: no ip6t_rt in this kernel: \1/' /etc/ufw/before6.rules
 ufw default deny incoming
 ufw default allow outgoing
 ufw default deny routed
