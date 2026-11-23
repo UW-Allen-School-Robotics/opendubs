@@ -297,7 +297,8 @@ shows. This gives Spot the same three roles opendubs2 has:
     what the session did.
 - **The second session at Spot (2026-11-23).** spot-moves played to the end at 100 %, both windows
   chained, and matched ENCORE's preview. A second version added one handed move: the shoulder (sh0)
-  turns +60 deg, and Spot's head turned to its own left, as the preview shows. Two things went wrong
+  turns +60 deg, and Spot's head turned to its own left, as the preview shows. After the last window
+  the body settled back to its normal stand. Two things went wrong
   first:
   - Spot's gripper refused window 1 because its first point was 1.0 s in the past. Chaining had kept
     the last past point for Spot to blend from. The player now sends only points at least 0.3 s
@@ -312,8 +313,6 @@ shows. This gives Spot the same three roles opendubs2 has:
   follow a window, the log says so and suggests a lower speed.
 - **Open:**
   - the login on the Orin or Pi (there is no macOS Keychain there);
-  - the body's return to its normal stand when the last window ends (the chained windows and the
-    shoulder's sign were confirmed at Spot on 2026-11-23);
   - trying, at Spot, the refusal to connect while another E-Stop (the tablet's, or a second console's)
     is still checking in (`_refuse_live_estop`).
 
