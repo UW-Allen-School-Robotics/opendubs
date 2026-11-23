@@ -3,14 +3,16 @@ beat every 200 ms, release, stand, load, arm, start, and print every late window
 It refuses a player that is not --fake.
 
     uv run --no-project --python 3.12 --with websockets python software/spot/fake_run.py CODE PLAN.json [SPEED] [PORT]
-    # CODE is the pairing code the fake player printed; PLAN.json a plan stored on it; SPEED 1 by default.
+    # CODE is the pairing code the fake player printed; PLAN.json a plan stored on it; SPEED 1 by default;
+    # PORT a port on this machine (8097 by default) or HOST:PORT, e.g. 192.168.50.5:8099 for the Orin.
 """
 import asyncio, json, sys, urllib.request
 import websockets
 
 code, plan = sys.argv[1], sys.argv[2]
 SPEED = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
-BASE = f"127.0.0.1:{sys.argv[4] if len(sys.argv) > 4 else 8097}"
+_where = sys.argv[4] if len(sys.argv) > 4 else "8097"     # a port on this machine, or HOST:PORT (the Orin)
+BASE = _where if ":" in _where else f"127.0.0.1:{_where}"
 
 
 def post(path, body):

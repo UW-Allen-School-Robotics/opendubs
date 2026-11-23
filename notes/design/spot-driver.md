@@ -306,13 +306,23 @@ shows. This gives Spot the same three roles opendubs2 has:
   - The player's E-Stop check-ins timed out after the stop, and Spot cut its motors. The Mac's Ethernet
     link had come up at 100 Mbit/s. A reseated cable brought it to 1000 Mbit/s, and the next run was
     clean. Check the link speed before a run.
+- **The onboard Orin (2026-11-23).** Spot carries an AGX Orin (JetPack 5.1.2, Ubuntu 20.04) on its
+  payload network at 192.168.50.5, listed on Spot as the "RL KIT" payload. Another team uses it, so
+  the player has its own account, `opendubs`, with key login only and no sudo. Its files live in
+  `~/opendubs-spot` (copied from a commit, which `COMMIT` names), with uv in `~/.local/bin`. The Orin
+  is also on campus Wi-Fi, so the player listens on 192.168.50.5 only (`--listen 192.168.50.5`). The
+  fake player there played spot-moves to the end, driven from the Mac over the wired network
+  (`fake_run.py CODE PLAN 1 192.168.50.5:8099`). Never run the other team's RL stack while the player
+  is connected: both talk to Spot, and the player refuses to connect while another E-Stop checks in.
 - **The checks before Spot.** `check_plan.py` builds every window of every stored plan at every speed,
   as the player sends it, and says what Spot would refuse. The fake Spot runs the same envelope,
   builder and check, so a fake run fails where a real Spot would. Each SDK error in the player's log
   carries what it means and what to do (`ADVICE` in `spot_session.py`). When Spot's arm planner cannot
   follow a window, the log says so and suggests a lower speed.
 - **Open:**
-  - the login on the Orin or Pi (there is no macOS Keychain there);
+  - Spot's login on the Orin. There is no macOS Keychain there. The plan is Spot's payload
+    credentials: the player registers as its own payload, an admin approves it once on Spot's admin
+    page, and it logs in with its own ID and secret, kept in a file only its account reads;
   - trying, at Spot, the refusal to connect while another E-Stop (the tablet's, or a second console's)
     is still checking in (`_refuse_live_estop`).
 
