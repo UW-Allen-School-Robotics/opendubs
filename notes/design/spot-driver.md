@@ -295,6 +295,14 @@ shows. This gives Spot the same three roles opendubs2 has:
   - The page's status asked Spot whether it was powered, four times a second, on the loop that takes
     the heartbeat. A slow answer could stall the heartbeat and stop Spot. The status now comes from
     what the session did.
+- **The second session at Spot (2026-11-23).** spot-moves played to the end at 100 %, both windows
+  chained. Two things went wrong first:
+  - Spot's gripper refused window 1 because its first point was 1.0 s in the past. Chaining had kept
+    the last past point for Spot to blend from. The player now sends only points at least 0.3 s
+    ahead, and `command_problems` flags a first point in the past.
+  - The player's E-Stop check-ins timed out after the stop, and Spot cut its motors. The Mac's Ethernet
+    link had come up at 100 Mbit/s. A reseated cable brought it to 1000 Mbit/s, and the next run was
+    clean. Check the link speed before a run.
 - **The checks before Spot.** `check_plan.py` builds every window of every stored plan at every speed,
   as the player sends it, and says what Spot would refuse. The fake Spot runs the same envelope,
   builder and check, so a fake run fails where a real Spot would. Each SDK error in the player's log
@@ -302,8 +310,8 @@ shows. This gives Spot the same three roles opendubs2 has:
   follow a window, the log says so and suggests a lower speed.
 - **Open:**
   - the login on the Orin or Pi (there is no macOS Keychain there);
-  - the first run at Spot: the arm's joint signs against the model's, the chained windows at 20 s,
-    and the body's return to its normal stand when the last window ends;
+  - the arm's joint signs against the model's, and the body's return to its normal stand when the
+    last window ends (the chained windows played at Spot on 2026-11-23);
   - trying, at Spot, the refusal to connect while another E-Stop (the tablet's, or a second console's)
     is still checking in (`_refuse_live_estop`).
 
