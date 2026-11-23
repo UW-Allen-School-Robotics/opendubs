@@ -23,7 +23,7 @@ The player interface (agreed with ENCORE), JSON over HTTP:
   GET  /api/ready           {"ok": bool, "problems": [...]}
   POST /api/start           {"at": wall-clock seconds}; accepted only while the operator has ARMED the show
   POST /api/stop            {"why": ...}: the E-Stop (sit, then cut)
-  GET  /api/status          everything the page shows
+  GET  /api/status          everything the page shows, and "now": this player's clock (time.time())
 The interface never releases the E-Stop, never arms a show and never sends Spot a command.
 """
 import argparse
@@ -254,6 +254,7 @@ def make_app(p):
     def status():
         st = p.state()
         st.pop("log")
+        st["now"] = time.time()         # this player's clock, so a client (ENCORE's song) can measure its offset
         return st
 
     @app.post("/api/claim")
