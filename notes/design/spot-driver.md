@@ -296,7 +296,8 @@ shows. This gives Spot the same three roles opendubs2 has:
     the heartbeat. A slow answer could stall the heartbeat and stop Spot. The status now comes from
     what the session did.
 - **The second session at Spot (2026-11-23).** spot-moves played to the end at 100 %, both windows
-  chained. Two things went wrong first:
+  chained, and matched ENCORE's preview. The show has no strongly handed move, so the run doesn't
+  yet show whether a left turn of the arm comes out left. Two things went wrong first:
   - Spot's gripper refused window 1 because its first point was 1.0 s in the past. Chaining had kept
     the last past point for Spot to blend from. The player now sends only points at least 0.3 s
     ahead, and `command_problems` flags a first point in the past.
