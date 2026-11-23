@@ -314,6 +314,11 @@ shows. This gives Spot the same three roles opendubs2 has:
   fake player there played spot-moves to the end, driven from the Mac over the wired network
   (`fake_run.py CODE PLAN 1 192.168.50.5:8099`). Never run the other team's RL stack while the player
   is connected: both talk to Spot, and the player refuses to connect while another E-Stop checks in.
+  The Orin runs ufw (`orin/harden.sh`, 2026-11-23): from campus only SSH answers, with passwords still
+  on by choice. Everything is allowed on the payload network, docker0 and the USB-C rescue port, and
+  nothing is forwarded between networks. Before it, campus could reach the ROS 1 master, its node ports,
+  port 4000 and rpcbind. Start the player from the Mac with `orin/start.sh` (it asks for Spot's login
+  and tunnels the operator page to http://127.0.0.1:18099/), and update the Orin with `orin/sync.sh`.
 - **The checks before Spot.** `check_plan.py` builds every window of every stored plan at every speed,
   as the player sends it, and says what Spot would refuse. The fake Spot runs the same envelope,
   builder and check, so a fake run fails where a real Spot would. Each SDK error in the player's log
