@@ -218,9 +218,9 @@ def expected_containers(record: dict | None) -> set[str]:
     return {"openarm"}
 
 
-def parse_runtime_probe(stdout: str) -> tuple[list[dict], list[dict]]:
-    """Parse batched SSH output of custom /etc/systemd/system/*.service units and docker ps -a."""
-    units, containers = [], []
+def parse_runtime_probe(stdout: str) -> tuple[list[dict], list[dict], str | None]:
+    """Parse batched SSH output of custom /etc/systemd/system/*.service units, docker ps -a, and /etc/opendubs/profile."""
+    units, containers, active_profile = [], [], None
     section = None
     for line in stdout.splitlines():
         if line == "---UNITS---":
@@ -228,6 +228,9 @@ def parse_runtime_probe(stdout: str) -> tuple[list[dict], list[dict]]:
             continue
         if line == "---CONTAINERS---":
             section = "containers"
+            continue
+        if line == "---PROFILE---":
+            section = "profile"
             continue
         if not line.strip():
             continue
@@ -248,7 +251,9 @@ def parse_runtime_probe(stdout: str) -> tuple[list[dict], list[dict]]:
                     "image": parts[1],
                     "status": parts[2],
                 })
-    return units, containers
+        elif section == "profile" and active_profile is None:
+            active_profile = line.strip()
+    return units, containers, active_profile
 
 
 def classify_runtime(
@@ -272,8 +277,8 @@ def classify_runtime(
     return suspect_units, unexpected_containers
 
 
-def remote_runtime_probe(robot: str) -> tuple[list[dict], list[dict]]:
-    """Inspect /etc/systemd/system/*.service and docker containers in one SSH round trip."""
+def remote_runtime_probe(robot: str) -> tuple[list[dict], list[dict], str | None]:
+    """Inspect /etc/systemd/system/*.service, docker containers, and /etc/opendubs/profile in one SSH round trip."""
     script = (
         "echo '---UNITS---'; "
         "for f in /etc/systemd/system/*.service; do "
@@ -287,7 +292,9 @@ def remote_runtime_probe(robot: str) -> tuple[list[dict], list[dict]]:
         "echo '---CONTAINERS---'; "
         "if command -v docker >/dev/null 2>&1; then "
         "docker ps -a --format '{{.Names}}\\t{{.Image}}\\t{{.Status}}' 2>/dev/null || true; "
-        "fi"
+        "fi; "
+        "echo '---PROFILE---'; "
+        "cat /etc/opendubs/profile 2>/dev/null || true"
     )
     r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", robot, script],
                        capture_output=True, text=True)
@@ -320,10 +327,16 @@ def main():
         return
 
     if a.check_records:
+        tools_dir = str(pathlib.Path(__file__).resolve().parent)
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import profiles
+
+        profs, _ = profiles.check_all(ROOT)
         records = list_robot_records()
         for unit, rec in sorted(records.items()):
             print(f"  {unit}: rev={rec.get('revision', '?')} profile={rec.get('profile', '?')} modules={len(rec.get('modules', []))}")
-        print(f"\n{len(records)} robot record(s) OK")
+        print(f"\n{len(records)} robot record(s), {len(profs)} profile(s) OK")
         return
 
     pairs = build_pairs()
@@ -378,7 +391,11 @@ def main():
     else:
         print("  last deploy: unknown (no /opt/opendubs/DEPLOYED; deployed before deploy-all.sh wrote it)\n")
 
-    units, containers = remote_runtime_probe(a.robot)
+    units, containers, active_profile = remote_runtime_probe(a.robot)
+    if active_profile:
+        expected_prof = record.get("profile") if record else None
+        mismatch = f"  <-- MISMATCH (record expects {expected_prof})" if expected_prof and active_profile != expected_prof else ""
+        print(f"  active profile: {active_profile}{mismatch}\n")
     suspect_units, unexpected_containers = classify_runtime(
         units, containers, expected_systemd_units(), expected_containers(record)
     )

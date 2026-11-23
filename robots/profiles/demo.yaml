@@ -1,0 +1,19 @@
+# Standard outreach / show / kiosk demo profile
+profile: demo
+description: Default kiosk, face, voice, and choreography demo stack
+flags:
+  drive-bridge.enabled: true
+  slam.enabled: false
+  nav2.enabled: false
+  hallpass.enabled: false
+  robot-state.enabled: false
+services:
+  start:
+    - opendubs-dash
+    - opendubs-dance-tracker
+  stop:
+    - opendubs-slam
+    - opendubs-floor-frames
+    - opendubs-nav2
+    - opendubs-hallpass-runner
+    - opendubs-robot-state

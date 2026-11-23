@@ -216,6 +216,26 @@ deploy_kiosk
 deploy_stage
 deploy_voice
 
+ROBOT_ID=$(ssh "$HOST" "sed -n 's/^OPENDUBS_ROBOT_ID=//p' /etc/opendubs/robot.env 2>/dev/null | tail -1 | tr -d '\"'\'''" 2>/dev/null || true)
+if [ -z "$ROBOT_ID" ]; then
+  ROBOT_ID="${HOST##*@}"
+  ROBOT_ID="${ROBOT_ID%.local}"
+fi
+RECORD_REV="unknown"
+if [ -f "$REPO/robots/$ROBOT_ID/robot.yaml" ]; then
+  RECORD_REV=$(sed -n 's/^revision:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID/robot.yaml" | head -1 | tr -d "\"' ")
+fi
+RECORD_PROFILE=$(python3 "$REPO/tools/profiles.py" --resolve "$ROBOT_ID" --override "${OPENDUBS_PROFILE:-}")
+
+if [ "${OPENDUBS_APPLY_PROFILE:-0}" = "1" ]; then
+  echo "== applying profile '$RECORD_PROFILE' on $HOST =="
+  python3 "$REPO/tools/profiles.py" --apply-script "$RECORD_PROFILE" | ssh "$HOST" "bash -s"
+  DEPLOYED_PROFILE="$RECORD_PROFILE"
+else
+  DEPLOYED_PROFILE=$(ssh "$HOST" "cat /etc/opendubs/profile 2>/dev/null" | tr -d '[:space:]' || true)
+  [ -n "$DEPLOYED_PROFILE" ] || DEPLOYED_PROFILE="$RECORD_PROFILE"
+fi
+
 # Post-deploy health readout — every opendubs unit, including the StamPLC->ROS bridge.
 SERVICES="opendubs-dash opendubs-rplidar opendubs-rosbridge opendubs-foxglove opendubs-scan-watchdog opendubs-stamplc-bridge opendubs-yolo-tracker opendubs-drive-bridge opendubs-tablet-camera-demand opendubs-netmon"
 echo "== service status on $HOST =="
@@ -244,20 +264,8 @@ fi
 exit "$bad"
 EOF
 
-ROBOT_ID=$(ssh "$HOST" "sed -n 's/^OPENDUBS_ROBOT_ID=//p' /etc/opendubs/robot.env 2>/dev/null | tail -1 | tr -d '\"'\'''" 2>/dev/null || true)
-if [ -z "$ROBOT_ID" ]; then
-  ROBOT_ID="${HOST##*@}"
-  ROBOT_ID="${ROBOT_ID%.local}"
-fi
-RECORD_REV="unknown"
-RECORD_PROFILE="unknown"
-if [ -f "$REPO/robots/$ROBOT_ID/robot.yaml" ]; then
-  RECORD_REV=$(sed -n 's/^revision:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID/robot.yaml" | head -1 | tr -d "\"' ")
-  RECORD_PROFILE=$(sed -n 's/^profile:[[:space:]]*//p' "$REPO/robots/$ROBOT_ID/robot.yaml" | head -1 | tr -d "\"' ")
-fi
-
 printf 'robot=%s\nrevision=%s\nprofile=%s\nsource=%s\nsha=%s\nbranch=%s\nmain=%s\nwhen=%s\nfrom=%s\nhallpass_sitekit=%s\n' \
-  "$ROBOT_ID" "${RECORD_REV:-unknown}" "${RECORD_PROFILE:-unknown}" \
+  "$ROBOT_ID" "${RECORD_REV:-unknown}" "${DEPLOYED_PROFILE:-unknown}" \
   "$SOURCE" "$SRC_SHA" "$SRC_BRANCH" "$MAIN_SHA" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(hostname -s)" "$SITEKIT_SHA" \
   | ssh "$HOST" "cat > $DEST/DEPLOYED"
 echo "== deployed from $SOURCE =="
