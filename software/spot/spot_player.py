@@ -43,6 +43,7 @@ import uvicorn
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+import spot_credentials
 from player import Playback
 from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST, explain, plan_length_s
 
@@ -346,6 +347,15 @@ def main():
                          f"see who holds it: lsof -nP -iTCP:{args.port}")
     finally:
         probe.close()
+    if not args.fake and not spot_credentials.keychain():
+        # No Keychain (the Orin): ask for the login now, on the SSH terminal, and check it with Spot
+        # (a login only, nothing is sent to Spot). It stays in memory for every Connect this run.
+        import bosdyn.client
+
+        def check(user, password):
+            bosdyn.client.create_standard_sdk("opendubs-spot-login").create_robot(args.spot).authenticate(user, password)
+        print(f"Spot at {args.spot}: its login is asked for here and kept in memory only.", flush=True)
+        spot_credentials.ask(check)
     p = Player(args)
     print(f"Spot player{' (FAKE Spot)' if args.fake else ''}: open http://{args.listen}:{args.port}/  "
           f"pairing code {p.code}", flush=True)

@@ -1,4 +1,4 @@
-"""Spot's login, kept in the macOS Keychain.
+"""Spot's login: kept in the macOS Keychain on a Mac, typed at the start on the Orin (or any Linux).
 
 The user name and password live in one Keychain item that trusts no application, so every read
 pops a macOS dialog and goes ahead only when the person at the Mac clicks Allow. Click Allow, never
@@ -20,8 +20,14 @@ Use it in the driver:
 Check it is stored without reading the password (no dialog):
 
     python3 spot_credentials.py
+
+On Linux there is no Keychain. ask() asks for the login on the terminal (the password hidden) and keeps
+it in this process's memory only: nothing on disk, in the environment or in the arguments. The player
+calls it before it starts serving, so the person starting it over SSH types the login once per run.
 """
+import getpass
 import re
+import shutil
 import subprocess
 import sys
 
@@ -43,8 +49,40 @@ def user(service=SERVICE):
     return m.group(1)
 
 
+_typed = None                       # (user, password) typed at the start, on Linux; memory only
+
+
+def keychain():
+    return sys.platform == "darwin" and shutil.which("security") is not None
+
+
+def ask(check=None, tries=3):
+    """Ask for Spot's login on the terminal and keep it in memory for load(). `check(user, password)`
+    raises on a wrong login, which is asked again. Returns the user name."""
+    global _typed
+    if not sys.stdin.isatty():
+        raise NotStored("no terminal to ask for Spot's login on: start this over `ssh -t`, in the foreground")
+    for n in range(tries):
+        name = input("Spot user name: ").strip()
+        password = getpass.getpass(f"Spot password for {name} (hidden): ")
+        try:
+            if check:
+                check(name, password)
+        except Exception as e:
+            print(f"login refused ({type(e).__name__}); try again" if n + 1 < tries else "login refused")
+            continue
+        _typed = (name, password)
+        return name
+    raise PermissionError("Spot refused the login")
+
+
 def load(service=SERVICE):
-    """(user, password). macOS asks the person at the Mac to allow this read."""
+    """(user, password). On a Mac, macOS asks the person at the Mac to allow this read. On Linux, the
+    login typed at the start (ask()), or asked for now when there is a terminal."""
+    if not keychain():
+        if _typed is None:
+            ask()
+        return _typed
     name = user(service)
     r = subprocess.run(["security", "find-generic-password", "-s", service, "-a", name, "-w"],
                        capture_output=True, text=True)
@@ -54,6 +92,8 @@ def load(service=SERVICE):
 
 
 if __name__ == "__main__":
+    if not keychain():
+        sys.exit("no Keychain here: the login is typed when the player or a script starts")
     try:
         print(f"Keychain item {SERVICE!r} holds a login for user {user()!r}. Password not read.")
     except NotStored as e:
