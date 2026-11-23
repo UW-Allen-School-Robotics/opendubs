@@ -6,12 +6,12 @@ One folder per physical OpenDubs unit, named by its immutable unit name (`opendu
 
 Used by `deploy-all.sh` (recorded into `/opt/opendubs/DEPLOYED`) and `tools/deploy-audit.py` to answer:
 - **Hardware generation (`revision`)**: which physical build revision the unit carries (`rev-A`, `rev-B`, ...).
-- **Purpose (`profile`)**: which operational profile (`robots/profiles/<profile>.yaml`, e.g. `demo`, `sensor-rig`) the unit runs.
+- **Purpose (`profile`)**: which operational profile (`robots/profiles/<profile>.yaml`, e.g. `demo`, `sensor-rig`, `dora-eval`) the unit runs.
 - **Fitted modules (`modules`)**: optional hardware/software subsystems present on the unit.
 - **Runtime expectations (`containers`)**: Docker containers expected to exist on the unit.
 
 ## Profiles (`robots/profiles/`)
-Each profile YAML (`demo.yaml`, `sensor-rig.yaml`, ...) declares:
+Each profile YAML (`demo.yaml`, `sensor-rig.yaml`, `dora-eval.yaml`, ...) declares:
 - `flags`: `/etc/opendubs/*.enabled` `ConditionPathExists` flag files (`true` = `touch`, `false` = `rm -f`).
 - `services.start` / `services.stop`: systemd units to restart or stop when switching profiles.
 

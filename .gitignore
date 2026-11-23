@@ -56,6 +56,9 @@ sdkconfig.*
 # MuJoCo scribbles a load log next to whatever it compiles
 MUJOCO_LOG.TXT
 
+# dora-rs writes per-run logs next to the dataflow
+software/dora/out/
+
 # --- Keys and certificates. Public SSH keys (*.pub) are fine; private material never is. ---
 .env.*
 !.env.example

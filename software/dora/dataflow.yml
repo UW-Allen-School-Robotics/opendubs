@@ -1,0 +1,19 @@
+nodes:
+  - id: robot_state_source
+    path: nodes/robot_state_node.py
+    env:
+      # Safe default while opendubs-dash owns StamPLC; set to "0" only with opendubs-dash stopped.
+      OPENDUBS_DORA_MOCK: "1"
+    inputs:
+      tick: dora/timer/millis/100
+      estop: ros2_bridge/estop_cmd
+    outputs:
+      - robot_state
+
+  - id: ros2_bridge
+    path: nodes/ros2_bridge_node.py
+    inputs:
+      robot_state: robot_state_source/robot_state
+      spin_tick: dora/timer/millis/20
+    outputs:
+      - estop_cmd
