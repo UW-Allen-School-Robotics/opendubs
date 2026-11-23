@@ -14,7 +14,7 @@ import copy
 import threading
 import time
 
-from spot_session import explain, plan_length_s, summarize_plan
+from spot_session import SpotSession, explain, plan_length_s, summarize_plan
 
 ARM_EXPIRES_S = 120.0       # an armed show nobody starts disarms itself
 SPEEDS = (0.25, 0.5, 0.75, 1.0)
@@ -75,15 +75,16 @@ class Playback:
 
     def problems(self, session):
         """Why this show can't be armed or started now; empty when it can."""
-        out = []
         if self.plan is None:
             return ["no plan loaded"]
-        if session is None:
-            return ["not connected"]
-        out += [f"plan problem: {p}" for p in self.plan.get("problems", [])]
-        refusal = session.plan_refusal(self.plan)
+        # The plan's own problems first, connected or not: ENCORE loads a show before anyone connects,
+        # and Ready is how it hears that the show is outside Spot's first-run envelope.
+        out = [f"plan problem: {p}" for p in self.plan.get("problems", [])]
+        refusal = (session or SpotSession).plan_refusal(self.plan)
         if refusal:
             out.append(refusal)
+        if session is None:
+            return out + ["not connected"]
         if not session.released:
             out.append("the E-Stop is STOPPED")
         elif not session.is_standing():
