@@ -76,12 +76,28 @@ def ask(check=None, tries=3):
     raise PermissionError("Spot refused the login")
 
 
+def from_stdin(check=None):
+    """Read Spot's login as two lines on stdin (user name, then password), as ENCORE's Connect sends it
+    over SSH, and keep it in memory for load(). `check(user, password)` raises on a wrong login. Nothing
+    is echoed or logged. Returns the user name."""
+    global _typed
+    name = sys.stdin.readline().rstrip("\r\n")
+    password = sys.stdin.readline().rstrip("\r\n")
+    if not name or not password:
+        raise NotStored("no login on stdin: expected the user name and the password, one per line")
+    if check:
+        check(name, password)
+    _typed = (name, password)
+    return name
+
+
 def load(service=SERVICE):
     """(user, password). On a Mac, macOS asks the person at the Mac to allow this read. On Linux, the
     login typed at the start (ask()), or asked for now when there is a terminal."""
+    if _typed is not None:              # typed at the start, or sent on stdin by ENCORE
+        return _typed
     if not keychain():
-        if _typed is None:
-            ask()
+        ask()
         return _typed
     name = user(service)
     r = subprocess.run(["security", "find-generic-password", "-s", service, "-a", name, "-w"],

@@ -25,6 +25,12 @@ The player interface (agreed with ENCORE), JSON over HTTP:
   POST /api/stop            {"why": ...}: the E-Stop (sit, then cut)
   GET  /api/status          everything the page shows, and "now": this player's clock (time.time())
 The interface never releases the E-Stop, never arms a show and never sends Spot a command.
+
+For ENCORE's Connect (notes/design/spot-encore-only.md): with --login-stdin the player reads Spot's login
+as two lines on stdin and prints ENCORE-LOGIN-OK or ENCORE-LOGIN-REFUSED <error>. Once it takes
+connections it prints ENCORE-PAIRING <code>, and it exits when stdin closes, so Spot sits. /ws accepts
+the Origins http://127.0.0.1 and http://localhost on any port, this player's own page and any
+--allow-origin, and refuses the rest. /api/describe carries the player's commit.
 """
 import argparse
 import asyncio
@@ -33,7 +39,10 @@ import json
 import os
 import re
 import secrets
+import signal
 import socket
+import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +58,22 @@ from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST, explain, plan_length_s
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 INTERFACE_VERSION = 1
+ORIGIN_LOCAL = re.compile(r"http://(127\.0\.0\.1|localhost)(:\d+)?")
+
+
+def _commit():
+    """The commit this player came from: COMMIT, which orin/sync.sh writes, or git in a checkout."""
+    try:
+        return open(os.path.join(HERE, "COMMIT")).read().strip()
+    except OSError:
+        try:
+            return subprocess.run(["git", "-C", HERE, "rev-parse", "--short", "HEAD"], capture_output=True,
+                                  text=True, timeout=3).stdout.strip() or None
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+
+COMMIT = _commit()
 
 
 class Player:
@@ -69,6 +94,7 @@ class Player:
         self.Session = Session
         self._shows = {}                                     # name -> (mtime, summary of the plan)
         self.code = f"{secrets.randbelow(10**6):06d}"
+        self.origins = {f"http://{args.listen}:{args.port}", *getattr(args, "allow_origin", [])}   # also allowed on /ws
         self.operator_token = None
         self.operator_ws = None
         os.makedirs(args.plans, exist_ok=True)
@@ -204,6 +230,9 @@ class Player:
 def make_app(p):
     @asynccontextmanager
     async def lifespan(app):
+        # Printed once the server takes connections, so it also tells ENCORE the player is ready:
+        # the pairing code on one line for ENCORE to read.
+        print(f"ENCORE-PAIRING {p.code}", flush=True)
         yield
         if p.session:
             p.log("player closing: Spot sits, the lease is returned")
@@ -216,7 +245,7 @@ def make_app(p):
 
     @app.get("/api/describe")
     def describe():
-        return {"robot": "spot", "player": "opendubs-spot-player", "interface": INTERFACE_VERSION,
+        return {"robot": "spot", "player": "opendubs-spot-player", "interface": INTERFACE_VERSION, "commit": COMMIT,
                 "fake": p.args.fake, "parts": ["BASE", "BODY", "ARM", "GRIP"],
                 "states": ["EMPTY", "LOADED", "ARMED", "PLAYING", "DONE", "STOPPED"],
                 "start": "accepted only while the operator has ARMED the show; at is wall-clock seconds",
@@ -269,6 +298,13 @@ def make_app(p):
 
     @app.websocket("/ws")
     async def ws(sock: WebSocket):
+        # A browser always sends its page's Origin. Accept this player's own page, ENCORE (127.0.0.1 or
+        # localhost, any port, which is also the SSH tunnel) and any --allow-origin; refuse other sites,
+        # so a web page elsewhere in the browser can't open the socket. Scripts send no Origin.
+        origin = sock.headers.get("origin")
+        if origin and not (ORIGIN_LOCAL.fullmatch(origin) or origin in p.origins):
+            await sock.close(code=1008)
+            return
         await sock.accept()
         token = sock.query_params.get("token")
         is_op = bool(token) and token == p.operator_token
@@ -339,8 +375,16 @@ def main():
     ap.add_argument("--listen", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8097)
     ap.add_argument("--plans", default=os.path.expanduser("~/.opendubs-spot/plans"))
+    ap.add_argument("--login-stdin", action="store_true",
+                    help="for ENCORE's Connect: read Spot's login as two lines on stdin, then exit when stdin closes")
+    ap.add_argument("--allow-origin", action="append", default=[],
+                    help="another browser origin allowed on /ws, e.g. http://192.168.80.3:21099")
     args = ap.parse_args()
     probe = socket.socket()
+    # As uvicorn binds: connections from a player that just stopped linger in TIME_WAIT for up to a
+    # minute, and without this the next start (ENCORE's reconnect after a drop) would read "busy". A
+    # live listener still refuses the bind.
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         probe.bind((args.listen, args.port))
     except OSError as e:
@@ -348,13 +392,33 @@ def main():
                          f"see who holds it: lsof -nP -iTCP:{args.port}")
     finally:
         probe.close()
-    if not args.fake and not spot_credentials.keychain():
-        # No Keychain (the Orin): ask for the login now, on the SSH terminal, and check it with Spot
-        # (a login only, nothing is sent to Spot). It stays in memory for every Connect this run.
-        import bosdyn.client
+    def check(user, password):
+        import bosdyn.client                # a login only: nothing is sent to Spot
+        bosdyn.client.create_standard_sdk("opendubs-spot-login").create_robot(args.spot).authenticate(user, password)
 
-        def check(user, password):
-            bosdyn.client.create_standard_sdk("opendubs-spot-login").create_robot(args.spot).authenticate(user, password)
+    if args.login_stdin:
+        # ENCORE's Connect sends the login down the SSH session's stdin and keeps the session open. When
+        # it closes (ENCORE quits, the link drops), stdin ends and the player exits, so Spot sits and the
+        # lease and the port are freed. A player left behind would block the next Connect.
+        try:
+            if args.fake:
+                sys.stdin.readline(), sys.stdin.readline()          # the fake takes any login
+            else:
+                spot_credentials.from_stdin(check)
+        except Exception as e:
+            print(f"ENCORE-LOGIN-REFUSED {type(e).__name__}", flush=True)
+            raise SystemExit(f"refused: Spot's login failed ({type(e).__name__})")
+        print("ENCORE-LOGIN-OK", flush=True)
+
+        def until_eof():
+            for _ in sys.stdin:
+                pass
+            print("stdin closed: the player stops, and Spot sits", flush=True)
+            os.kill(os.getpid(), signal.SIGINT)
+        threading.Thread(target=until_eof, daemon=True).start()
+    elif not args.fake and not spot_credentials.keychain():
+        # No Keychain (the Orin): ask for the login now, on the SSH terminal, and check it with Spot.
+        # It stays in memory for every Connect this run.
         print(f"Spot at {args.spot}: its login is asked for here and kept in memory only.", flush=True)
         spot_credentials.ask(check)
     p = Player(args)
@@ -364,4 +428,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:           # stdin closed (--login-stdin) before the server was up
+        pass
