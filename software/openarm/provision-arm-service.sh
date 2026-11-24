@@ -15,6 +15,8 @@
 #   /etc/opendubs/arm-service.env            this robot's settings, from opendubs-arm.env.example: only if absent, a deploy never overwrites it
 #   /opt/opendubs/ws                         the ROS workspace with opendubs_arm_interfaces (the `command` action's type), built from interfaces/ here; the wrapper
 #                                            sources it. Skipped, with a warning, where ROS or colcon is missing; ROOT= does not build it
+#   /etc/opendubs/model/openarm_bimanual.xml the arm model with this robot's head cap (description/openarm/gafro), and /etc/opendubs/meshes beside it so its
+#                                            meshdir (../meshes) resolves: what gafro-opendubs' opendubs.yaml runs the arms' gafro-robot-node on (always replaced)
 #   /etc/sudoers.d/opendubs-arm              kiosk may `systemctl start|stop|restart opendubs-arm@left|right.service` and nothing else; checked with visudo first
 set -euo pipefail
 
@@ -50,6 +52,23 @@ else
   echo "-- installed $ROOT/etc/opendubs/arm-service.env from the template: EDIT IT (OPENDUBS_REPO, OPENDUBS_ARM_CONFIG)"
 fi
 install -D -m0440 "${owner[@]}" "$DIR/opendubs-arm.sudoers" "$ROOT/etc/sudoers.d/opendubs-arm"
+# The model for gafro-robot-node: from a checkout (description/ two up from here) or from the robot's bundle (/opt/opendubs/arm/description).
+model_src=""
+for candidate in "$DIR/../../description/openarm" "$(dirname "$DIR")/arm/description/openarm"; do
+  if [ -f "$candidate/gafro/openarm_bimanual.xml" ] && [ -d "$candidate/meshes" ]; then
+    model_src=$candidate
+    break
+  fi
+done
+if [ -n "$model_src" ]; then
+  install -D -m0644 "${owner[@]}" "$model_src/gafro/openarm_bimanual.xml" "$ROOT/etc/opendubs/model/openarm_bimanual.xml"
+  rm -rf "$ROOT/etc/opendubs/meshes"
+  cp -a "$model_src/meshes" "$ROOT/etc/opendubs/meshes"
+  [ -z "$ROOT" ] && chown -R root:root "$ROOT/etc/opendubs/meshes"
+  echo "-- installed the arm model in $ROOT/etc/opendubs/model, its meshes in $ROOT/etc/opendubs/meshes"
+else
+  echo "!! no description/openarm (gafro/openarm_bimanual.xml and meshes/) beside $DIR: the arms' gafro-robot-node has no model in /etc/opendubs"
+fi
 
 if [ -n "$ROOT" ]; then
   echo "== installed under $ROOT (nothing else changed) =="
