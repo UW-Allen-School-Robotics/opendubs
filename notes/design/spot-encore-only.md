@@ -119,3 +119,50 @@ song sync is unchanged: it measures the player's clock (`now` in `/api/status`) 
 - **The Spot lane:** `--login-stdin`, the Origin check on the WebSocket, the commit in `/api/describe`,
   and a fake-player test of ENCORE's build before it reaches Spot.
 - **The owner:** Q7 (ENCORE's rule) and Q10 (where the code lives).
+
+## The ENCORE lane's answers (2026-11-23)
+
+The ENCORE lane agrees with the shape and with Q1–Q5 and Q8–Q10. It builds nothing until the owner
+agrees. Its additions:
+
+- **Q1.** ENCORE's dialog posts the login to ENCORE's own server, which writes it to ssh's stdin and
+  drops it. A test checks that the login never reaches a log, the audit file or an argument.
+- **Q2.** Without a terminal, a dropped SSH connection doesn't always end the remote process. A stale
+  player would keep the lease and the port, and the next Connect would fail. So `--login-stdin` keeps
+  reading stdin, and the player exits on EOF. ENCORE also ends its ssh when its window closes or it quits.
+- **Q3.** ENCORE runs `ssh -T -o ExitOnForwardFailure=yes -o ServerAliveInterval=2 -o
+  ServerAliveCountMax=2`, so a lost link shows within about 4 s. The beat stops sooner than that.
+  The tunnel has to point at `192.168.50.5:8099`, because the player listens on the payload network
+  only. A local port other than 8099 avoids clashing with a player on the Mac.
+- **Q4.** The player prints the pairing code as one machine-readable line, `ENCORE-PAIRING <code>`.
+  ENCORE's server claims with it and hands the token to the window only.
+- **Q5.** The window opens `ws://127.0.0.1:<port>/ws?token=…` itself, with no relay. The player
+  accepts the Origins `http://127.0.0.1:<any port>` and `http://localhost:<any port>`, and the token
+  is the real gate. The window sends stop on `visibilitychange` to hidden and on `pagehide`, so Spot
+  doesn't wait out the 1 s.
+- **Q6.** ENCORE writes the test. It expects WebKit to report hidden when the window is minimised,
+  fully covered or on another Space, but not when it's partly covered. WebKit or App Nap may slow
+  timers in a visible but unfocused window, so a 200 ms beat could slip past 1 s and stop Spot for no
+  reason. The test measures beat gaps in each case, and ENCORE holds off App Nap while it's connected.
+- **Q7.** The change is wider than Start and STOP: ENCORE would also press Release, Stand and Ready.
+  The proposed wording gains three clauses: ENCORE never makes a beat itself, every command comes from a
+  person's press in the visible window, and ENCORE's tests run only against the fake player.
+- **Q8.** Spare pages on a phone get STOP only. The operator role stays with ENCORE.
+- **Q9.** ENCORE refuses to connect when the interface version differs. It warns when the player's
+  commit is behind and says to run `orin/sync.sh`, and it never copies code to the Orin.
+- **Q10.** The player stays in opendubs, owned by the Spot lane.
+
+New items:
+- **The space bar.** While ENCORE is connected to Spot, Space means STOP and nothing else, everywhere in
+  the window. It no longer plays or pauses the song.
+- **STOP outside the Robot pane.** While connected, a red STOP stays pinned in ENCORE's toolbar in every
+  mode and pane. Start works only from the Robot pane.
+- **The song** still starts on the player's `t0`, not on the press.
+- **Tests.** The fake player runs on the Mac with the same WebSocket and claim, so ENCORE's tests can
+  drive Connect and the controls. A fake Orin over ssh to localhost would cover Connect as well.
+
+**Effort, once agreed:** about two days in ENCORE, including the visibility test. The Spot lane's part
+is small: `--login-stdin` with exit on EOF, the pairing line, the Origin check and the commit in
+`/api/describe`.
+
+**Left for the owner:** Q7 (ENCORE's rule and its wording), and the go-ahead to build.
