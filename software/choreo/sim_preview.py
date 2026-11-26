@@ -134,16 +134,19 @@ def head(events: list, t: float) -> tuple:
     return _slew(pan, tgt_pan, t - last), _slew(tilt, tgt_tilt, t - last)
 
 
-def base_pose(events: list, t: float, drive: list | None = None) -> tuple:
-    """(x m, y m, yaw deg) of the base at t, in the robot's starting frame: the DRIVE moves made by t
-    (twin-only; cue.drive_path), then a DANCE move in progress on top, from wherever the base is.
+def base_pose(events: list, t: float, drive: list | None = None, base: list | None = None) -> tuple:
+    """(x m, y m, yaw deg) of the base at t, in the robot's starting frame: where the BASE keys have put it
+    (cue.base_state) or the DRIVE moves made by t (twin-only; cue.drive_path), then a DANCE move in progress
+    on top, from wherever the base is.
 
     Every library dance returns the base to where it started, so only the move in progress
     displaces it. Open loop and at the PLACEHOLDER speeds in cue.py (+x forward, +y to the robot's
     left, assumed); this is how a show reads, not where the real robot would end up."""
     import math
     bx = by = byaw = 0.0
-    if drive:
+    if base:
+        bx, by, byaw = cue.base_state(base_segments_of(base), t)[:3]
+    elif drive:
         pts = cue.drive_path([(e["start"], e["cue"]) for e in drive])
         for pt in pts:
             if pt[0] > t + 1e-9:
@@ -152,6 +155,11 @@ def base_pose(events: list, t: float, drive: list | None = None) -> tuple:
     dx, dy, dyaw = _dance_pose(events, t)
     c, s_ = math.cos(byaw), math.sin(byaw)
     return bx + dx * c - dy * s_, by + dx * s_ + dy * c, math.degrees(byaw) + dyaw
+
+
+def base_segments_of(events: list) -> list:
+    """cue.base_segments from a timeline's BASE events ({"start", "t", "cue"})."""
+    return cue.base_segments([(e["start"], e["t"], e["cue"]) for e in events])
 
 
 def _dance_pose(events: list, t: float) -> tuple:
@@ -216,7 +224,7 @@ def sample(tl: dict, t: float) -> dict:
         "grip_left": grip_open(tr.get("GRIP_L", []), t),
         "grip_right": grip_open(tr.get("GRIP_R", []), t),
         "head_pan": pan, "head_tilt": tilt,
-        "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []))),
+        "base": tuple(round(v, 4) for v in base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []), tr.get("BASE", []))),
         # a crawling hand, and tools other than today's gripper, only in a show that has them (effectors.py)
         **({"crawler": crawler_state(tl, t)} if tl.get("crawler") else {}),
         **({"tools": tool_channels(tl, t)} if tl.get("tools") else {}),
@@ -252,7 +260,7 @@ def crawler_state(tl: dict, t: float) -> dict:
     legs = [dict(leg, **{"from": tuple(leg["from"]), "to": tuple(leg["to"])}) for leg in cr["legs"]]
     st = effectors.state_at(legs, tuple(cr["start"]), t)
     tr = tl["tracks"]
-    base = base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []))
+    base = base_pose(tr.get("DANCE", []), t, tr.get("DRIVE", []), tr.get("BASE", []))
     x, y, h = st["x"], st["y"], st["heading"]
     chans = tool.rest()
     z, roll, pitch = 0.05, 0.0, 0.0

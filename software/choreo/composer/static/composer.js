@@ -13,7 +13,7 @@
  */
 "use strict";
 
-const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE", "DEVICE", "CRAWL"];
+const SLOTS = ["ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "BASE", "DRIVE", "DEVICE", "CRAWL"];
 const LANES = ["NOTES", "CLIPS", ...SLOTS];
 const $ = (id) => document.getElementById(id);
 
@@ -453,6 +453,7 @@ function label(ev) {
     case "SOUND": return (c.sound || c.do) + (ev.output ? ` → ${ev.output}` : "");
     case "FACE": return c.do === "theme" ? `theme ${c.name}` : (c.name || c.do);
     case "DANCE": return c.move + (c.amp !== undefined ? ` ×${c.amp}` : "");
+    case "BASE": return [c.x !== undefined ? `x${c.x}` : "", c.y !== undefined ? `y${c.y}` : "", c.yaw !== undefined ? `${c.yaw}°` : ""].filter(Boolean).join(" ");
     case "DRIVE": return [c.forward_m ? `↑${c.forward_m} m` : "", c.left_m ? `←${c.left_m} m` : "", c.turn_deg ? `↺${c.turn_deg}°` : ""].filter(Boolean).join(" ") + " (twin)";
     case "LIGHT": return c.do === "color" ? "■" : c.do;
     case "CRAWL": return c.do === "walk" ? `${c.dir === "back" ? "◀ back" : "▶ walk"}${c.to ? " to " + (c.to === "start" ? "start" : c.to.join(",")) : c.dist_m ? ` ${c.dist_m} m` : ` ${c.secs}s`} (twin)`

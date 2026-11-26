@@ -109,8 +109,9 @@ browser's local storage. A show diff is always a diff of *what the robot does*.
 
 ## 2. Slots
 
-`ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT DANCE DEVICE` (and the twin-only `DRIVE`,
-§12). One slot per independently commandable thing, one owner at a time.
+`ARM_L ARM_R GRIP_L GRIP_R HEAD LIFT SOUND FACE LIGHT DANCE BASE DEVICE` (and the twin-only `DRIVE`,
+§12). One slot per independently commandable thing, one owner at a time. `BASE` (§12, 2026-11-25) takes the
+base somewhere: a pose, closed loop on the same tracker as `DANCE`.
 
 **`DRIVE` is not a slot and v1 does not add it.** The reason is in `software/choreo/README.md` and
 is unchanged: the robot cannot yet say where it is. **`DANCE` is the bounded alternative** (§12):
@@ -620,6 +621,33 @@ cues:
 
 How far a move strays and how the twin draws it use **placeholder speeds** (0.70 m/s and 1.40 rad/s
 at full command, from the simulator), not measurements.
+
+### `BASE`: where the base goes — adopted 2026-11-25 (ENCORE's proposal)
+
+A `BASE` cue is a **pose** in the show's starting frame: `x` forward and `y` left in metres, `yaw` in
+degrees (+ to the left) about the middle of the wheels. It is a **keyframe**, like an arm's: the move
+arrives at its time and sets off when the previous `BASE` cue ends (its `t` plus `hold_s`; for the first,
+at 0, from home). A field a cue leaves out keeps its previous value. Between two poses the base runs a
+straight line in x and y, turning as it goes, on the same "step" stroke a `DANCE` uses, so it starts and
+arrives at rest. Unlike a `DANCE` it need not come home: the base ends where the last `BASE` cue puts it.
+
+```yaml
+dance: { floor_radius_m: 2.0 }
+cues:
+  - { t: 8.0, slot: BASE, x: 1.0, y: 0.0, hold_s: 1.0 }     # out 1 m, then rest
+  - { t: 13.0, slot: BASE, yaw: 45, hold_s: 4.0 }           # turn, and stay for the dance
+  - { t: 14.0, slot: DANCE, move: sway, secs: 2 }           # a sway around where BASE put it
+```
+
+| rule | value | kind |
+|---|---|---|
+| speed | at its peak a move asks at most 70 % of the show cap (`DANCE_PEAK_OF_CAP`), forward, strafe and turn each over its speed at the cap and summed, as the tracker budgets them; the validator gives the time a faster move needs | the same rule as `DANCE` |
+| floor | each pose, with the base's ~0.46 m footprint, inside `dance: { floor_radius_m }`, which a show that uses `BASE` must declare; a `DANCE` after a `BASE` move is measured from where the base stands | declaration |
+| one owner | no `DANCE` while a `BASE` move runs; no `DRIVE` in a show that uses `BASE` | the base has one move at a time |
+| robot | on a live run the runner streams the pose and the body velocity to the base tracker (`/dance/target`, `base_output.py`), the one `DANCE` uses: closed loop on `/odom`, its people guard, the base lease (`base_selector`); without a ready tracker the show runs without its base moves, or is refused with `dance: { required: true }` | — |
+
+The ceilings in ENCORE's proposal (0.245 m/s, 28°/s) predate the re-measured speeds at the cap; the 70 %
+budget above replaces them, so a straight run forward averages at most about 0.17 m/s.
 
 The original proposal follows.
 

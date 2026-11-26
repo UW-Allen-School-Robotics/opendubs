@@ -1,0 +1,17 @@
+format: 1
+id: base-travel
+name: Base travel
+# The BASE slot's example: the base goes somewhere and stays there. Each BASE cue is a pose in the show's
+# starting frame (x forward, y left, metres; yaw degrees, + to the left) that ARRIVES at its time and sets
+# off when the previous one ends. It crosses 1 m of floor, turns to face its left, dances once where it
+# stopped (the sway plays around that spot, not the start), then comes back and turns home. A key's hold_s
+# keeps the next move from setting off under the dance. The arms, head and face stay idle: the base is the subject.
+slots: [BASE, DANCE]
+requires: { rc_authority: AUTO }
+dance: { floor_radius_m: 2.0 }
+cues:
+  - { t: 8.0, slot: BASE, x: 1.0, y: 0.0, hold_s: 1.0 }        # out 1 m in 8 s, then a beat's rest
+  - { t: 13.0, slot: BASE, yaw: 45, hold_s: 4.0 }             # turn to face its left; stay for the sway
+  - { t: 14.0, slot: DANCE, move: sway, secs: 2 }             # a sway around where BASE put it
+  - { t: 29.0, slot: BASE, x: 0.0, y: 0.0 }                   # back to the start, still facing left
+  - { t: 33.0, slot: BASE, yaw: 0 }                           # and turn home

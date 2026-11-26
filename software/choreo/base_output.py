@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""The BASE on a live run: a show's DANCE moves (small dance steps that return the base to where they
-started) played on the real robot, through the Thor lane's base tracker (notes/design/choreo-dance-live.md).
+"""The BASE on a live run: a show's BASE poses (where the base goes, in the show's starting frame) and its
+DANCE moves (small dance steps that return the base to where they started), played on the real robot through
+the Thor lane's base tracker (notes/design/choreo-dance-live.md). A DANCE plays around wherever BASE has put
+the base; the two never overlap (cue.py refuses it).
 
     runner.py palette ... --base ros       # live runs send DANCE to the tracker
     runner.py palette ... --base none      # they do not (the default): DANCE plays in the twin only
@@ -61,6 +63,25 @@ def dance_command(events: list, t: float) -> dict | None:
         x, y, yaw, vx, vy, w = cue.dance_state(c["move"], secs, float(c.get("amp", cue.DANCE_DEFAULT_AMP)),
                                                t - start)
         return {"x": x, "y": y, "yaw": yaw, "vx": vx, "vy": vy, "w": w, "settle": False}
+    return None
+
+
+def base_command(dance: list, base_segs: list, t: float) -> dict | None:
+    """The base target at show time t, in the show's origin frame, with the body velocity: a BASE move under
+    way; else a DANCE move (or its settle) around wherever BASE has put the base; else, for SETTLE_S after a
+    BASE move arrives, its pose held; else None (nothing is sent: the tracker stops, and the base stays put)."""
+    for start, arrive, _p0, _p1 in base_segs:
+        if start <= t < arrive:
+            x, y, yaw, vx, vy, w = cue.base_state(base_segs, t)
+            return {"x": x, "y": y, "yaw": yaw, "vx": vx, "vy": vy, "w": w, "settle": False}
+    d = dance_command(dance, t) if dance else None
+    if d is not None:
+        bx, by, byaw = cue.base_state(base_segs, t)[:3]
+        c, s = math.cos(byaw), math.sin(byaw)
+        return {**d, "x": bx + d["x"] * c - d["y"] * s, "y": by + d["x"] * s + d["y"] * c, "yaw": byaw + d["yaw"]}
+    for start, arrive, _p0, p1 in base_segs:
+        if arrive <= t < arrive + SETTLE_S:
+            return {"x": p1[0], "y": p1[1], "yaw": p1[2], "vx": 0.0, "vy": 0.0, "w": 0.0, "settle": True}
     return None
 
 
@@ -134,7 +155,8 @@ class BaseOutput:
         return {"ready": True, "why": None}
 
     def make_run(self, tl: dict, log=None) -> "BaseRun":
-        return BaseRun(self.link, (tl.get("tracks") or {}).get("DANCE") or [], log)
+        tracks = tl.get("tracks") or {}
+        return BaseRun(self.link, tracks.get("DANCE") or [], log, base_events=tracks.get("BASE") or [])
 
 
 class BaseRun:
@@ -142,11 +164,15 @@ class BaseRun:
     thread (the runner's loop never waits on ROS), and a stop on every end — after the last settle on a
     completion — which also releases the base."""
 
-    def __init__(self, link, events, log=None):
+    def __init__(self, link, events, log=None, base_events=None):
         self.link, self.events, self.log = link, events, log or (lambda *a, **k: None)
+        self.base_segs = cue.base_segments([(e["start"], e["t"], e["cue"]) for e in base_events or []])
         self.sent, self.done, self.failed = 0, False, None
         self._clock, self._stop, self._thread, self._origin = None, threading.Event(), None, False
         self._finishing = None                 # wall time by which a completed run's last settle ends
+        # A stop must be the LAST thing the tracker hears: it resumes on any later target (until 250 ms of
+        # silence). The loop sends under this lock and checks the stop inside it; end() stops under it.
+        self._send = threading.Lock()
         self._last_guard = self._last_mode = None
 
     def begin(self):
@@ -170,13 +196,16 @@ class BaseRun:
                 if not self._origin:
                     self.link.origin()                     # the base is at rest at the show's t0
                     self._origin = True
-                    self.log("base", note="the show's origin is latched; DANCE moves follow it")
-                c = self.events and dance_command(self.events, t)
+                    self.log("base", note="the show's origin is latched; BASE and DANCE moves follow it")
+                c = (self.events or self.base_segs) and base_command(self.events, self.base_segs, t)
                 if self._finishing is not None and (not c or time.monotonic() > self._finishing):
                     self._stop_base()                      # a completed show: its last move has settled
                     break
                 if c:
-                    self.link.target(c)
+                    with self._send:
+                        if self._stop.is_set():
+                            break
+                        self.link.target(c)
                     self.sent += 1
                 self._watch()
         except Exception as e:  # noqa: BLE001  the base output never crashes the run; the tracker stops on silence
@@ -216,11 +245,12 @@ class BaseRun:
             # the show's end may fall inside a move's settle: finish it (home, held still) — never past
             # SETTLE_S — then stop, which releases the base
             self._finishing = time.monotonic() + SETTLE_S
-            self.log("base", note=f"DANCE targets end after the last move settles ({self.sent} sent so far)")
+            self.log("base", note=f"base targets end after the last move settles ({self.sent} sent so far)")
             return
-        self._stop.set()
-        self._stop_base()                                    # any other end: stop at once
-        self.log("base", note=f"DANCE targets ended ({self.sent} sent)", end=status)
+        with self._send:                                     # no target can follow the stop
+            self._stop.set()
+            self._stop_base()                                # any other end: stop at once
+        self.log("base", note=f"base targets ended ({self.sent} sent)", end=status)
 
     def state(self) -> dict:
         return {"output": "base", "sent": self.sent, "error": self.failed, "guard": self._last_guard}
