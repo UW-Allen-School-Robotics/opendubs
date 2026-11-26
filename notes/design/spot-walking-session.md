@@ -55,6 +55,13 @@ don't cover them. Spot sits. The tablet holds control for steps 1 and 2.
   45° in place.
 - The owner judges by eye which reads as tip-toeing. Replay it as often as wanted.
 
+**4b. Sugar Plum at its own speed (GO: Spot walks the show's 1.45 m circle round opendubs2).**
+- Play Sugar Plum itself, at 50 % and then at 100 %. Its tip-toe sections carry CRAWL with swing HIGH.
+  Its promenade peaks at 0.32 m/s, far faster than walk-check's crawl.
+- Watch whether Spot keeps up with the music on the circle. Spot holds to its own top speed for each
+  gait, so a crawl that is too slow falls behind the song. That is not unsafe.
+- If it lags, crawl the steps in place and use a slow TROT with swing HIGH for the promenade.
+
 **End.** Sit + power off. Copy `~/captures/fiducials/` off the Orin to OpenDubs Data.
 
 ## What each answer feeds
