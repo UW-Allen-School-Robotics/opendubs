@@ -579,7 +579,14 @@ check("joints are handed to sim/scene.py in each arm's own sense",
       "left:2=20.0" in sim_preview.joints_arg(sim_preview.sample(tl, 3.0)))
 check("a show's head turns the model's head the way the neck turns: tilt up is the model's negative tilt, "
       "pan left its positive pan (firmware/neck_dial/README.md; opendubs.xml)",
-      sim_preview.head_joint_deg({"head_pan": 120.0, "head_tilt": 120.0}) == (30.0, -30.0))
+      sim_preview.head_joint_deg({"head_pan": 120.0, "head_tilt": 120.0}, span_deg=180.0) == (30.0, -30.0))
+check("... by the REAL angle: a commanded degree turns the 300-degree servos 300/180 real degrees, so a "
+      "pan of 150 turns the twin's head 100 degrees, as it turns the robot's (neck_state.py)",
+      all(abs(a - b) < 1e-9 for a, b in zip(
+          sim_preview.head_joint_deg({"head_pan": 150.0, "head_tilt": 120.0}, span_deg=300.0), (100.0, -50.0))))
+check("... and no further than the head travels: a tilt of 70 asks for 33 degrees down and gets the "
+      "neck's 15.75 (dimensions.yaml)",
+      sim_preview.head_joint_deg({"head_pan": 90.0, "head_tilt": 70.0}, span_deg=300.0)[1] == 15.75)
 _ev = [{"t": 1.0, "start": 1.0, "end": 3.0, "cue": {"move": "sway", "secs": 2}}]
 _mid = sim_preview.base_pose(_ev, 1.5)
 check("a dance move displaces the base while it runs", abs(_mid[1]) > 0.01, _mid)

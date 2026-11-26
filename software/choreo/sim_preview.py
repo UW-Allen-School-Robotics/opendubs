@@ -28,7 +28,10 @@ THREE ASSUMPTIONS, stated because the timeline does not settle them, and one fac
   * head degrees: 90 is the model's zero on both axes. The neck's own directions were MEASURED on the
     robot (firmware/neck_dial/README.md): pan rises toward the robot's left, tilt rises UP. The model's
     pan turns left for a positive angle too, but its tilt turns DOWN (description/opendubs/opendubs.xml),
-    so tilt changes sign on the way in (head_joint_deg);
+    so tilt changes sign on the way in (head_joint_deg). A show's degree is a COMMANDED one (0-180
+    over the servos' pulse range), and the servos travel HEAD_SERVO_SPAN_DEG over that range, so one
+    commanded degree turns the head span/180 real degrees: 1.67 for the 300-degree goBILDA servos. The
+    twin turns by the real angle (neck_state.py converts the same way for /head/joint_states);
   * the head turns toward each target at HEAD_SLEW_DPS per axis, the neck's own slew limit, so the
     preview shows where it IS, not its target.
 
@@ -58,10 +61,34 @@ LIFT_MAX_MM = 275.1       # measured stroke (sim/README)
 HEAD_CENTRE_DEG = 90.0    # the show's 90 is the model's 0, on both axes
 
 
-def head_joint_deg(s) -> tuple:
-    """(pan, tilt) of a sample in the model's joint degrees. A show's tilt rises UP (measured on the neck);
-    the model's head_tilt turns +y, which is DOWN, so tilt changes sign. Pan agrees: both turn left."""
-    return s["head_pan"] - HEAD_CENTRE_DEG, HEAD_CENTRE_DEG - s["head_tilt"]
+def _servo_span() -> float:
+    """The neck servos' travel over their pulse range, in real degrees: 300 (goBILDA 2000-series, from the
+    servo's specification), or this robot's OPENDUBS_NECK_SERVO_SPAN_DEG, read and bounded as the
+    dashboard's neck_state.py reads it."""
+    try:
+        v = float(os.environ.get("OPENDUBS_NECK_SERVO_SPAN_DEG") or 300)
+    except ValueError:
+        v = 300.0
+    return v if 90 <= v <= 360 else 300.0
+
+
+HEAD_SERVO_SPAN_DEG = _servo_span()
+# The head's real travel, in the model's joint degrees (description/opendubs/dimensions.yaml: pan
+# +/-150, tilt 93.75 up and 15.75 down; the model's tilt is + DOWN). The neck stops there whatever a show
+# asks, so the twin does too: a tilt of 70 asks for 33 degrees down and gets 15.75.
+HEAD_PAN_TRAVEL_DEG = (-150.0, 150.0)
+HEAD_TILT_TRAVEL_DEG = (-93.75, 15.75)
+
+
+def head_joint_deg(s, span_deg: float | None = None) -> tuple:
+    """(pan, tilt) of a sample in the model's joint degrees: the REAL angles the neck turns to. A show's
+    degrees are commanded ones, and each turns the head span/180 real degrees. A show's tilt rises UP
+    (measured on the neck); the model's head_tilt turns +y, which is DOWN, so tilt changes sign. Pan
+    agrees: both turn left. Each is held inside the head's real travel, where the neck stops."""
+    k = (HEAD_SERVO_SPAN_DEG if span_deg is None else span_deg) / 180.0
+    pan = min(max((s["head_pan"] - HEAD_CENTRE_DEG) * k, HEAD_PAN_TRAVEL_DEG[0]), HEAD_PAN_TRAVEL_DEG[1])
+    tilt = min(max((HEAD_CENTRE_DEG - s["head_tilt"]) * k, HEAD_TILT_TRAVEL_DEG[0]), HEAD_TILT_TRAVEL_DEG[1])
+    return pan, tilt
 # The head turns toward each target at this rate, each axis independently: the Tab5 firmware's
 # own slew limit (kSlewDps in firmware/tab5_idf/app_face/pantilt.cpp), which no caller can
 # override. The servos themselves are faster, so the firmware is what governs.
