@@ -14,7 +14,9 @@ The tag logger only reads. It takes no lease and sends no command.
 
 ## Before the session (the Spot lane, at a desk)
 
-- Sync the Orin to the commit with walking (`software/spot/orin/sync.sh`), and copy
+- Sync the Orin to the commit with walking (`software/spot/orin/sync.sh`). If that commit isn't on
+  `main` yet, tell the orchestrator about the sync that day. The same day, either merge the PR or sync
+  the Orin back to `main` (the repo's lane rule 5). Then copy
   `walk-check.spot-plan.json` into the Orin's `~/.opendubs-spot/plans/`. Build it with
   `software/spot/shows/walk_check.py`.
 - Print four AprilTags: family tag36h11, Boston Dynamics' standard 146 mm size, IDs 1 to 4 (never 500 to
