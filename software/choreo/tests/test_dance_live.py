@@ -145,6 +145,57 @@ ok = cue.show_from_text("id: d\nname: d\nslots: [DANCE]\ndance: { floor_radius_m
 check("a DANCE show says how to stage it: away from glass, an out-and-back first on a polished floor",
       any("glass" in n and "out-and-back" in n for n in ok["notices"]), ok["notices"])
 
+print("\nBASE: the base goes somewhere (a pose in the show's starting frame), on the same tracker")
+
+
+def probs(text):
+    return [q["msg"] for q in cue.show_from_text(text, "").export(LIMITS)["problems"]]
+
+
+HEAD_ = "id: b\nname: b\nrequires: { rc_authority: AUTO }\nslots: [BASE, DANCE]\n"
+TRAVEL = ("  - { t: 12, slot: BASE, x: 1.0, y: 0.5, yaw: 30 }\n"     # 1.1 m and 30 deg over 12 s
+          "  - { t: 14, slot: DANCE, move: sway, secs: 1 }\n")
+check("a travel inside the floor and the tracker's budget is a valid show",
+      probs(HEAD_ + "dance: { floor_radius_m: 2.5 }\ncues:\n" + TRAVEL) == [])
+fast = probs(HEAD_ + "dance: { floor_radius_m: 2.5 }\ncues:\n  - { t: 1, slot: BASE, x: 1.0 }\n")
+check("a move too fast for the tracker's budget is refused, with the time it needs",
+      any("of the show cap at its peak" in q and "give it at least" in q for q in fast), fast)
+far = probs(HEAD_ + "dance: { floor_radius_m: 1.0 }\ncues:\n" + TRAVEL)
+check("a pose outside the declared floor radius is refused", any("outside the declared floor radius" in q for q in far), far)
+both_ = probs(HEAD_ + "dance: { floor_radius_m: 2.5 }\ncues:\n  - { t: 12, slot: BASE, x: 1.0 }\n"
+              "  - { t: 3, slot: DANCE, move: sway, secs: 1 }\n")
+check("a DANCE while a BASE move runs is refused: the base has one move at a time",
+      any("while a BASE move runs" in q for q in both_), both_)
+nofloor = probs(HEAD_ + "cues:\n  - { t: 12, slot: BASE, x: 1.0 }\n")
+check("a show that travels must declare its floor space", any("declares no floor space" in q for q in nofloor), nofloor)
+
+ev = cue.show_from_text(HEAD_ + "dance: { floor_radius_m: 2.5 }\ncues:\n" + TRAVEL, "").export(LIMITS)["tracks"]
+segs = P.base_segments_of(ev["BASE"])
+mid, end_ = B.base_command(ev["DANCE"], segs, 6.0), B.base_command(ev["DANCE"], segs, 12.5)
+check("mid-move the target is on the way, moving forward in the body frame",
+      0.2 < mid["x"] < 0.8 and mid["vx"] > 0 and not mid["settle"], mid)
+check("after it arrives the pose is held for the settle (never home), then nothing is sent",
+      end_["settle"] and abs(end_["x"] - 1.0) < 1e-9 and abs(end_["yaw"] - math.radians(30)) < 1e-9
+      and B.base_command([], segs, 12.0 + B.SETTLE_S + 0.1) is None, end_)
+d = B.base_command(ev["DANCE"], segs, 14.5)
+sway_home = B.dance_command(ev["DANCE"], 15.2)
+check("a DANCE after it plays around where BASE put the base, and settles there, not at the show's start",
+      math.hypot(d["x"] - 1.0, d["y"] - 0.5) < 0.3 and sway_home["settle"]
+      and abs(B.base_command(ev["DANCE"], segs, 15.2)["x"] - 1.0) < 1e-9, (d, B.base_command(ev["DANCE"], segs, 15.2)))
+tw = P.base_pose(ev["DANCE"], 13.0, None, ev["BASE"])
+check("the twin draws the same: at the BASE pose after the move (x, y, yaw in degrees)",
+      abs(tw[0] - 1.0) < 1e-6 and abs(tw[1] - 0.5) < 1e-6 and abs(tw[2] - 30) < 1e-6, tw)
+
+pb = os.path.join(TMP, "travel.yaml")
+open(pb, "w").write(HEAD_ + "dance: { floor_radius_m: 2.5 }\ncues:\n  - { t: 2.5, slot: BASE, x: 0.3 }\n")
+link = FakeLink()
+r, end, _ = live(pb, link)
+tg = [x[1] for x in link.sent if x[0] == "target"]
+kinds = [x[0] for x in link.sent]
+check("a live run with only BASE: origin once, the targets stream to the pose, one stop after its settle",
+      end[0] == "COMPLETED" and kinds.count("origin") == 1 and abs(tg[-1]["x"] - 0.3) < 1e-9 and tg[-1]["settle"]
+      and kinds.count("stop") == 1 and kinds[-1] == "stop", (end, kinds[:3], tg[-1:] if tg else None))
+
 print()
 if FAILS:
     for x in FAILS:

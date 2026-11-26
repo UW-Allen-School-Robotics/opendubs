@@ -149,6 +149,7 @@ ABORT_STATE = {
     "HEAD": "stop where it is — its target becomes its current angle",
     "LIFT": "relays off — the lift stops where it is; nothing drives it",
     "DANCE": "base at zero velocity, immediately",
+    "BASE": "base at zero velocity, immediately, where it is",
     "SOUND": "stopped",
     "FACE": "handed back to the face's own state-driven behaviour (EMOTE AUTO), with the robot's idle "
             "skin and theme (SKIN IDLE, THEME IDLE)",
@@ -499,7 +500,7 @@ def prep_moves(tl: dict, measured: dict, skip=()) -> tuple:
 # What each slot is, on the Shows page's routine buttons (an icon each), in this order.
 USE_PARTS = (("ARM_L", "arms"), ("ARM_R", "arms"), ("GRIP_L", "grippers"), ("GRIP_R", "grippers"),
              ("HEAD", "head"), ("FACE", "face"), ("SOUND", "sound"), ("LIGHT", "light"),
-             ("LIFT", "lift"), ("DANCE", "base"), ("DRIVE", "base"), ("DEVICE", "device"))
+             ("LIFT", "lift"), ("DANCE", "base"), ("BASE", "base"), ("DRIVE", "base"), ("DEVICE", "device"))
 
 
 def twin_only_tools(tl: dict) -> str | None:
@@ -967,21 +968,22 @@ class Runner:
         return [self.base_run] if self.base_run is not None else []
 
     def _base_preflight(self, tl) -> list:
-        """A live run's DANCE moves, on the Thor's base tracker. Not ready: the show runs WITHOUT its base
-        moves, saying why — or, for `dance: {required: true}`, it is refused (SHOW_BASE_NOT_READY)."""
+        """A live run's BASE and DANCE moves, on the Thor's base tracker. Not ready: the show runs WITHOUT its
+        base moves, saying why — or, for `dance: {required: true}`, it is refused (SHOW_BASE_NOT_READY)."""
         dance = tl.get("dance")
-        if not (self.live and self.base_out is not None and (tl.get("tracks") or {}).get("DANCE")):
+        tracks = tl.get("tracks") or {}
+        if not (self.live and self.base_out is not None and (tracks.get("DANCE") or tracks.get("BASE"))):
             return []
         rd = self.base_out.readiness()
         if not rd["ready"]:
             # @fault SHOW_BASE_NOT_READY
             if (dance or {}).get("required"):
                 return [("SHOW_BASE_NOT_READY", rd["why"])]
-            self.base_note = rd["why"] + " — running without the base's dance steps"
+            self.base_note = rd["why"] + " — running without the base's moves"
             self._log("base_warning", note=self.base_note)
             return []
         self.base_run = self.base_out.make_run(tl, log=self._log)
-        self._log("base", note="DANCE moves go to the base tracker on this run")
+        self._log("base", note="BASE and DANCE moves go to the base tracker on this run")
         return []
 
     def _video_preflight(self, show, tl) -> list:
@@ -1207,7 +1209,7 @@ class Runner:
             # a crawling hand, or a tool with no driver (effectors.py): nothing on the robot can play it
             return self._end(REFUSED, "SHOW_TOOL_TWIN_ONLY", why)
         if tl.get("dance") is not None and not (self.live and self.base_out is not None):
-            self._log("note", note="DANCE plays in the twin only: this run does not drive the base")
+            self._log("note", note="BASE and DANCE play in the twin only: this run does not drive the base")
         self.feed.show(self.path, tl)
 
         if self.stop_requested:

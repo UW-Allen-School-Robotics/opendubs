@@ -61,7 +61,7 @@ EXPORT_SCHEMA = "opendubs.choreo.timeline/1"
 
 # ---- what a robot will accept -------------------------------------------------------------
 SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "SOUND", "FACE", "LIGHT", "DANCE", "DRIVE",
-         "DEVICE", "VIDEO", "CRAWL")
+         "DEVICE", "VIDEO", "CRAWL", "BASE")
 # DRIVE (the user's composer item #4, 2026-10-11) is TWIN-ONLY: shows may be authored with it and
 # the twin drives the base, but the runner refuses any show that uses it on the robot, because the
 # robot cannot yet say where it is (opendubs2 reported y_mm NaN with a climbing failure count) —
@@ -79,7 +79,7 @@ CH5_OLD_NAMES = {"OFF": "STANDBY", "RC": "MANUAL", "RC_MANUAL": "MANUAL", "SAFE_
 REQUIRES_KEYS = ("arms", "head", "rc_authority")
 REQUIRES_OLD_NAMES = {"tab5": "head"}   # the old names a show may still use; read as the new one
 
-MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE", "CRAWL")
+MOTION_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE", "CRAWL", "BASE")
 TAB5_SLOTS = ("HEAD", "FACE", "DEVICE")   # the parts the head drives: the neck, the face and its volume/brightness
 
 # ---- DEVICE: the head's media volume and screen brightness (head protocol v5) -------------------
@@ -230,6 +230,63 @@ def dance_excursion_m(move: str, secs: float, amp: float = DANCE_DEFAULT_AMP) ->
     """Farthest the base strays from where the move started, at the measured speeds (open loop)."""
     n = 200
     return max(math.hypot(*dance_state(move, secs, amp, secs * k / n)[:2]) for k in range(n + 1))
+
+
+# ---- BASE: where the base goes, as a pose in the show's starting frame (ENCORE's proposal, 2026-11-25) --
+# A BASE cue is a pose: x forward and y left (metres), yaw (degrees, + to the left) about the middle of the
+# wheels, in the frame the base had at the show's t0. It is a KEYFRAME, like an arm's: the move ARRIVES at
+# its time and sets off when the previous BASE cue ends (its t plus hold_s; for the first, at 0, from home).
+# A field a cue leaves out keeps its previous value. The path between two poses is a straight line in x
+# and y with yaw turning along it, on the "step" stroke DANCE uses, so it starts and arrives at rest. At its
+# peak it may ask at most DANCE_PEAK_OF_CAP of the show cap, summed over forward, strafe and turn as the
+# base tracker sums them, so the tracker keeps the rest to correct an error. Unlike DANCE it need not come
+# home: a show can take the base somewhere and leave it there. On a live run the runner streams the pose to
+# the Thor's base tracker, the one DANCE uses (base_output.py: closed loop on /odom, its people guard, the
+# base lease), and a DANCE move plays around wherever BASE has put the base.
+BASE_SAMPLES = 40          # points per move at which the speed is checked
+
+
+def base_segments(keys) -> list:
+    """[(start, arrive, (x0, y0, yaw0 rad), (x1, y1, yaw1 rad))] of BASE keys given as [(start, t, cue)]."""
+    segs, cur = [], (0.0, 0.0, 0.0)
+    for start, t, c in sorted(keys, key=lambda k: k[1]):
+        nxt = (float(c["x"]) if "x" in c else cur[0], float(c["y"]) if "y" in c else cur[1],
+               math.radians(float(c["yaw"])) if "yaw" in c else cur[2])
+        segs.append((min(start, t), t, cur, nxt))
+        cur = nxt
+    return segs
+
+
+def base_state(segs: list, t: float) -> tuple:
+    """(x, y, yaw rad, vx, vy, w): the base's pose at t in the show's starting frame, and its BODY velocity
+    (forward, left, turn), from base_segments. Before the first move it is home; after a move, at its pose."""
+    pose = (0.0, 0.0, 0.0)
+    for start, arrive, p0, p1 in segs:
+        if t < start:
+            break
+        if t >= arrive or arrive <= start:
+            pose = p1
+            continue
+        dur = arrive - start
+        u = (t - start) / dur
+        f, fd = (1 - math.cos(math.pi * u)) / 2, math.pi / 2 * math.sin(math.pi * u) / dur
+        x, y, yaw = (a + (b - a) * f for a, b in zip(p0, p1))
+        wx, wy, w = ((b - a) * fd for a, b in zip(p0, p1))
+        c, s = math.cos(yaw), math.sin(yaw)
+        return x, y, yaw, c * wx + s * wy, -s * wx + c * wy, w
+    return pose + (0.0, 0.0, 0.0)
+
+
+def base_demand(seg) -> float:
+    """The most one BASE move asks of the base, as a fraction of the show cap: forward, strafe and turn,
+    each over its speed at the cap, summed (the tracker's own budget)."""
+    start, arrive = seg[0], seg[1]
+    worst = 0.0
+    for k in range(BASE_SAMPLES + 1):
+        _, _, _, vx, vy, w = base_state([seg], start + (arrive - start) * k / BASE_SAMPLES)
+        worst = max(worst, abs(vx) / BASE_M_PER_S_AT_CAP + abs(vy) / BASE_M_PER_S_STRAFE_AT_CAP
+                    + abs(w) / BASE_RAD_PER_S_AT_CAP)
+    return worst
 
 MARGIN_DEG = 5.0
 # MEASURED, 2026-10-08 (workplan 6.1; speed_test.py on opendubs2's right arm, the left a mirror of
@@ -410,6 +467,7 @@ SLOT_KEYS = {
     "FACE": {"do", "name"},
     "LIGHT": {"do", "rgb", "br"},
     "DANCE": {"move", "secs", "amp"},
+    "BASE": {"x", "y", "yaw"},
     "DRIVE": {"forward_m", "left_m", "turn_deg", "secs"},
     "DEVICE": {"do", "level", "fade_s"},
     "VIDEO": {"do", "video", "from_s", "secs", "end", "output"},
@@ -507,6 +565,10 @@ ADDRESS_RE = re.compile(r"^(relay|r\d|gpio|pin|ch\d|udp|di\d|do\d|servo\d)")
 NOT_EXECUTABLE = {
     "DRIVE": "DRIVE runs only in the twin until odometry is trusted — the runner REFUSES this show on "
              "the robot (format 12); the distances shown are open-loop estimates at the speeds at the show cap",
+    "BASE": "BASE moves the real base on a live run, through the Thor's base tracker, as DANCE does (closed "
+            "loop on /odom, a people guard on the LIDARs; without a ready tracker the show runs without its base "
+            "moves). The base ENDS where the show's last BASE cue puts it. STAGE IT: keep the declared floor "
+            "radius clear, glass included (the LIDARs see through glass)",
     "DANCE": "DANCE moves the real base on a live run, through the Thor's base tracker (closed loop on "
              "/odom, a people guard on the LIDARs; without a ready tracker the show runs without its base "
              "moves). STAGE IT: keep the declared floor radius clear of glass railings and glass walls (the "
@@ -534,7 +596,7 @@ NOT_EXECUTABLE = {
 # IS NOW (the motion hash). Required wherever a show meets the robot (require_sweep — the runner,
 # the composer, `cue.py validate`); at least SWEEP_MIN_MM or the show is refused.
 SWEEP_MIN_MM = 30.0
-SWEEP_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE")
+SWEEP_SLOTS = ("ARM_L", "ARM_R", "GRIP_L", "GRIP_R", "HEAD", "LIFT", "DANCE", "DRIVE", "BASE")
 
 
 def motion_hash(events: list) -> str:
@@ -1062,6 +1124,7 @@ class Show:
                           "tracker is not ready, rather than run it without its base moves)"))
         dance_total = 0.0
         drive_cues = []
+        base_keys, base_free_at = [], 0.0      # BASE: its keys so far, and when its last move ends
         # where the head is and where it is going, as the firmware would slew it from centre
         head_pos = {"pan": 90.0, "tilt": 90.0}
         head_tgt = dict(head_pos)
@@ -1101,6 +1164,35 @@ class Show:
             if t < busy_until - 1e-9:
                 p(f"{where}: {slot} is still busy until t={busy_until:.1f}s — "
                   "two cues on one slot is a collision, not a blend")
+
+            if slot == "BASE":
+                start = base_free_at
+                msgs = self._check_base(where, c)
+                if not msgs:
+                    base_keys.append((start, t, c))
+                    seg = base_segments(base_keys)[-1]
+                    moves = any(abs(a - b) > 1e-9 for a, b in zip(seg[2], seg[3]))
+                    if moves and t - start <= 1e-9:
+                        msgs.append(f"{where}: BASE has no time to move since its last cue")
+                    elif moves:
+                        need = base_demand(seg)
+                        if need > DANCE_PEAK_OF_CAP + 1e-9:
+                            msgs.append(f"{where}: this BASE move asks {need:.0%} of the show cap at its peak, over "
+                                        f"the {DANCE_PEAK_OF_CAP:.0%} the base tracker allows a move (it keeps the rest "
+                                        f"to correct) — give it at least {(t - start) * need / DANCE_PEAK_OF_CAP:.1f} s "
+                                        f"(it has {t - start:.1f} s)")
+                    far = math.hypot(seg[3][0], seg[3][1])
+                    if floor_r is not None and far + ROBOT_FOOTPRINT_RADIUS_M > floor_r + 1e-9:
+                        msgs.append(f"{where}: this BASE pose is {far:.2f} m from where the show starts; with the "
+                                    f"base's own ~{ROBOT_FOOTPRINT_RADIUS_M:g} m that is outside the declared floor "
+                                    f"radius {floor_r:g} m")
+                for q in msgs:
+                    p(q)
+                e["kind"] = "keyframe"
+                e["start"], e["end"] = min(start, t), t + hold
+                base_free_at = t + hold
+                owner_until[slot] = t + hold
+                continue
 
             if slot in ARM_SLOTS:
                 start = arm_free_at.get(slot, 0.0)
@@ -1204,7 +1296,10 @@ class Show:
                 (P if is_problem else warnings.append)(Problem(msg, *cue_ref))
         else:
             self._crawl = None
-        if ("DANCE" in used or "DRIVE" in used) and floor_r is None and dance_doc is None:
+        if base_keys:
+            for msg in self._check_base_with_others(events, base_keys, floor_r):
+                P(Problem(msg))
+        if ("DANCE" in used or "DRIVE" in used or "BASE" in used) and floor_r is None and dance_doc is None:
             P(Problem("the show moves the base but declares no floor space — add dance: { floor_radius_m: "
                       "<metres> }; the runner asks a human to confirm it before the base moves"))
         if dance_total > DANCE_TOTAL_MAX_S + 1e-9:
@@ -1735,6 +1830,8 @@ class Show:
         import sim_preview
         dance = [{"start": e["start"], "cue": e["fields"]} for e in events if e["slot"] == "DANCE" and "start" in e and not e.get("bad")]
         drive = [{"start": e["start"], "cue": e["fields"]} for e in events if e["slot"] == "DRIVE" and "start" in e and not e.get("bad")]
+        base_ev = [{"start": e["start"], "t": e["t"], "cue": e["fields"]} for e in events
+                   if e["slot"] == "BASE" and "start" in e and not e.get("bad")]
         t_end = max([leg["t"] + leg["secs"] for leg in legs] + [0.0])
         worst = {"leash": (None, -1e9), "foot": (None, 1e9), "area": (None, -1e9)}
         r, margin_acc = cfg["hand_r"], 0.0
@@ -1754,7 +1851,7 @@ class Show:
                 f = min(1.0, (tt - lg["t"]) / lg["secs"]) if lg["secs"] else 1.0
                 grow = f * (lg.get("drift_m", 0.0) + max(0.0, lg.get("dist_range", (0, 0))[1] - lg.get("dist_m", 0.0)))
                 cur = (cur * (1.0 - f) + grow) if lg.get("targeted") else cur + grow
-            base = sim_preview.base_pose(dance, tt, drive)
+            base = sim_preview.base_pose(dance, tt, drive, base_ev)
             ax, ay = effectors.base_to_world(base, cfg["anchor"][0], cfg["anchor"][1])
             reach = math.hypot(st["x"] - ax, st["y"] - ay) + cur
             gap = effectors.footprint_gap(base, st["x"], st["y"]) - r - cur
@@ -2036,6 +2133,50 @@ class Show:
         if need > float(secs) + 1e-9:
             p.append(f"{where}: this drive needs at least {need:.1f}s at the show cap "
                      f"({DRIVE_V_MAX:.2f} m/s, {DRIVE_W_MAX_DEG:.0f}°/s at the cap), not {float(secs):g}s")
+        return p
+
+    def _check_base(self, where, c):
+        p = []
+        given = [k for k in ("x", "y", "yaw") if k in c]
+        if not given:
+            return [f"{where}: a BASE cue is a pose: give x and y (metres, forward and left) and/or yaw (degrees)"]
+        for k in given:
+            v = c[k]
+            lim = 720.0 if k == "yaw" else FLOOR_RADIUS_SANITY_M[1]
+            if not (_num(v) and abs(float(v)) <= lim):
+                p.append(f"{where}: BASE {k} {v!r} must be a number within ±{lim:g}"
+                         + (" degrees" if k == "yaw" else " metres, in the show's starting frame"))
+        return p
+
+    @staticmethod
+    def _check_base_with_others(events, base_keys, floor_r) -> list:
+        """BASE against the other base slots: one owner at a time (a DANCE or DRIVE may not play while a BASE
+        move is under way), no DRIVE with BASE (DRIVE is the twin's open-loop draft of the same thing), and
+        each DANCE move's reach measured from where BASE has put the base."""
+        p = []
+        segs = base_segments(base_keys)
+        moving = [(s0, s1) for s0, s1, a, b in segs if s1 > s0 and any(abs(x - y) > 1e-9 for x, y in zip(a, b))]
+        for e in events:
+            if e.get("bad") or e["slot"] not in ("DANCE", "DRIVE") or "start" not in e:
+                continue
+            if e["slot"] == "DRIVE":
+                p.append(f"{e['where']}: a show uses BASE or DRIVE for its travel, not both — DRIVE is the "
+                         "twin-only draft of what BASE does on the robot")
+                continue
+            for s0, s1 in moving:
+                if e["start"] < s1 - 1e-9 and e["end"] > s0 + 1e-9:
+                    p.append(f"{e['where']}: this DANCE plays while a BASE move runs ({s0:.1f}–{s1:.1f} s) — the "
+                             "base has one move at a time")
+                    break
+            if floor_r is not None and e["fields"].get("move") in DANCE_MOVES:
+                bx, by = base_state(segs, e["start"])[:2]
+                c = e["fields"]
+                far = math.hypot(bx, by) + dance_excursion_m(c["move"], float(c.get("secs", DANCE_DEFAULT_SECS)),
+                                                             float(c.get("amp", DANCE_DEFAULT_AMP)))
+                if far + ROBOT_FOOTPRINT_RADIUS_M > floor_r + 1e-9:
+                    p.append(f"{e['where']}: this DANCE, where BASE has put the base, reaches ~{far:.2f} m from where "
+                             f"the show starts; with the base's own ~{ROBOT_FOOTPRINT_RADIUS_M:g} m that is outside "
+                             f"the declared floor radius {floor_r:g} m")
         return p
 
     def _check_dance(self, where, c):
@@ -2425,6 +2566,12 @@ def describe(limits: dict) -> str:
     w(f"DANCE: move {tuple(DANCE_MOVES)}, secs {DANCE_SECS} (default {DANCE_DEFAULT_SECS:g}), amp (0, {DANCE_PEAK_OF_CAP:g}] "
       f"(1 = the show cap, {SHOW_BASE_CAP:.0%} of full command; default {DANCE_DEFAULT_AMP:g}); <= {DANCE_TOTAL_MAX_S:g} s per show; needs "
       f"dance: {{ floor_radius_m: {FLOOR_RADIUS_SANITY_M} }}")
+    w(f"BASE: a pose in the show's starting frame — x, y (metres, forward and left), yaw (degrees, + left); a "
+      f"keyframe that arrives at its time and sets off when the last BASE cue ends; at its peak at most "
+      f"{DANCE_PEAK_OF_CAP:.0%} of the show cap (forward {BASE_M_PER_S_AT_CAP:g} m/s, strafe "
+      f"{BASE_M_PER_S_STRAFE_AT_CAP:g} m/s, turn {math.degrees(BASE_RAD_PER_S_AT_CAP):.0f}°/s at the cap, summed); "
+      f"inside dance: {{ floor_radius_m }} with the base's ~{ROBOT_FOOTPRINT_RADIUS_M:g} m; never during a DANCE "
+      f"move, never with DRIVE")
     w(f"requires: arms: active | head: true|false (tab5: is its old name) | rc_authority: {CH5_MODES}; a "
       f"show that moves {MOTION_SLOTS} needs rc_authority: AUTO; arms/grippers need arms: active; "
       f"HEAD/FACE need head: true")
