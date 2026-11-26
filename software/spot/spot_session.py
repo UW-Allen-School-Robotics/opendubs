@@ -13,6 +13,7 @@ from typing import Callable
 import bosdyn.client
 from bosdyn.api import arm_command_pb2
 from bosdyn.client.estop import EstopClient, EstopEndpoint, EstopKeepAlive
+from bosdyn.client.frame_helpers import GRAV_ALIGNED_BODY_FRAME_NAME, VISION_FRAME_NAME, get_se2_a_tform_b
 from bosdyn.client.lease import LeaseClient, LeaseKeepAlive
 from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient, blocking_sit,
                                          blocking_stand)
@@ -20,7 +21,7 @@ from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.token_manager import TokenManager
 
 from spot_credentials import load
-from spot_playback import build_window, command_problems, envelope_problems
+from spot_playback import build_window, command_problems, end_time_s, envelope_name, envelope_problems
 
 DEFAULT_HOST = "192.168.50.3"
 
@@ -81,6 +82,7 @@ class SpotSession:
         self.lease = None
         self.stood = False              # set by stand(); a show needs Spot standing, not just powered
         self._carry = {}
+        self._start = None              # Spot's vision-frame pose when a walking show started
         self.last_beat = time.monotonic()
         self.released = False
         estop_client = self.robot.ensure_client(EstopClient.default_service_name)
@@ -181,29 +183,40 @@ class SpotSession:
         return self.lease is not None and self.stood
 
     # Playback (player.py, spot_playback.py). ENCORE's limits for Spot are placeholders, so a real Spot plays
-    # only plans inside the player's own first-run envelope: feet planted, small body offsets, slow joints.
+    # only plans inside the player's own envelope: first-run (feet planted, small body offsets, slow
+    # joints), or walking (the same, plus BASE under its own caps) when the player has --walking.
     @staticmethod
     def plan_refusal(plan):
         problems = envelope_problems(plan)
         if problems:
-            return "outside the first-run envelope: " + "; ".join(problems[:4]) + \
+            return f"outside the {envelope_name()} envelope: " + "; ".join(problems[:4]) + \
                 (f"; and {len(problems) - 4} more" if len(problems) > 4 else "")
         return None
 
+    def start_pose(self):
+        """Where Spot stands now, in the vision frame: (x, y, angle) of its gravity-aligned body. A show's
+        BASE track is laid out from here. Start a walking show with the body's yaw offset at zero."""
+        snap = self.state_client.get_robot_state().kinematic_state.transforms_snapshot
+        p = get_se2_a_tform_b(snap, VISION_FRAME_NAME, GRAV_ALIGNED_BODY_FRAME_NAME)
+        return (p.x, p.y, p.angle)
+
     def send_window(self, commands, t0_wall):
-        """One window's commands (BODY, ARM, GRIP) as one synchronized command, sent ahead of its start."""
+        """One window's commands (BASE, BODY, ARM, GRIP) as one synchronized command, sent ahead of its
+        start. The first window of a walking show takes Spot's pose then as the show's starting frame."""
         self._need_released()
         self._need_powered()
         if self.lease is None:
             raise RuntimeError("refused: no lease held; Power on + stand first")
         if commands[0]["window"] == 0:
             self._carry = {}
+            self._start = self.start_pose() if any(c["part"] == "BASE" for c in commands) else None
         now = time.time()
-        cmd = build_window(commands, t0_wall, now, self._carry)
-        problems = command_problems(cmd, t0_wall, now)
+        cmd = build_window(commands, t0_wall, now, self._carry, self._start)
+        problems = command_problems(cmd, t0_wall, now, self._start)
         if problems:
             raise RuntimeError("refused before sending: " + "; ".join(problems))
-        cmd_id = self.cmd.robot_command(cmd, timesync_endpoint=self.robot.time_sync.endpoint)  # to Spot's clock
+        cmd_id = self.cmd.robot_command(cmd, end_time_secs=end_time_s(cmd),  # Spot's clock, both
+                                        timesync_endpoint=self.robot.time_sync.endpoint)
         threading.Thread(target=self._arm_planner, args=(cmd_id, commands[0]["window"]), daemon=True).start()
 
     def _arm_planner(self, cmd_id, window):

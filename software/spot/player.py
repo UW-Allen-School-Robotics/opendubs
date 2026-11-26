@@ -14,6 +14,7 @@ import copy
 import threading
 import time
 
+from spot_playback import link_windows
 from spot_session import SpotSession, explain, plan_length_s, summarize_plan
 
 ARM_EXPIRES_S = 120.0       # an armed show nobody starts disarms itself
@@ -100,7 +101,7 @@ class Playback:
         if problems:
             raise RuntimeError("refused: " + "; ".join(problems))
         self.speed = float(speed)
-        self.playing = at_speed(self.plan, self.speed)
+        self.playing = link_windows(at_speed(self.plan, self.speed))     # smooth through window edges
         self.state, self.armed_at, self.why, self.sent = "ARMED", time.monotonic(), "", 0
         self.log(f"show READY at {self.speed:.0%} speed: Start, or ENCORE's start(at), plays it")
         return self.describe()

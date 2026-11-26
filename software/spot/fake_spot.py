@@ -3,14 +3,19 @@ so the player and its page can be developed with Spot switched off. Every comman
 with the time it arrived, and each show window is checked against its deadline: on time means it
 arrived before its reference time (show start + window start), as Spot needs it.
 
-Show windows go through the real path up to the network: the first-run envelope, build_window() and
-command_problems(), so a plan or a builder change that a real Spot would refuse fails here first.
+Show windows go through the real path up to the network: the envelope, build_window() and
+command_problems() with the walking guard, so a plan or a builder change that a real Spot would refuse
+fails here first. Its Spot starts a walking show at an awkward vision-frame pose (START), facing nearly
+backwards, so a mistake in the frame change or in the angle's wrap shows up here.
 """
 import threading
 import time
 
-from spot_playback import build_window, command_problems
+from spot_playback import build_window, command_problems, end_time_s
 from spot_session import FREEZE_STOP_S, SpotSession
+
+
+START = (3.2, -1.7, 3.05)       # the fake Spot's vision-frame pose (x, y, angle) at a walking show's start
 
 
 class FakeSession:
@@ -27,6 +32,7 @@ class FakeSession:
         self.gripper_open = 0.0
         self.stood = False
         self._carry = {}
+        self._start = None
         self.sent = []                      # one entry per show window received
         self.stop("connected")
         threading.Thread(target=self._watchdog, daemon=True).start()
@@ -90,7 +96,12 @@ class FakeSession:
         now = time.time()
         if commands[0]["window"] == 0:
             self._carry = {}
-        problems = command_problems(build_window(commands, t0_wall, now, self._carry), t0_wall, now)
+            self._start = START if any(c["part"] == "BASE" for c in commands) else None
+        cmd = build_window(commands, t0_wall, now, self._carry, self._start)
+        problems = command_problems(cmd, t0_wall, now, self._start)
+        end = end_time_s(cmd)
+        if end is not None and end <= now:
+            problems.append("BASE: its end time is already past")
         if problems:
             raise RuntimeError("a real Spot would refuse this window: " + "; ".join(problems))
         due = t0_wall + commands[0]["show_start_s"]      # the trajectory's reference time

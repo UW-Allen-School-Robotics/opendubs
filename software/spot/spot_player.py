@@ -7,6 +7,8 @@ runner does for opendubs2; the operator page runs on any browser, such as a tabl
         --with 'uvicorn[standard]' python spot_player.py [--fake] [--spot HOST] [--listen ADDR] [--port N]
 
   --fake      no robot: fake_spot.py stands in, for developing shows and the page with Spot off.
+  --walking   the walking envelope: shows with BASE play, under its caps. Without it the feet stay
+              planted. Only with the owner's word at Spot.
   --listen    127.0.0.1 by default (this machine only); 0.0.0.0 on the Orin, so a tablet can reach it.
 
 The E-Stop is the person's, on the operator page:
@@ -54,6 +56,7 @@ from fastapi.staticfiles import StaticFiles
 
 import spot_credentials
 from player import Playback
+from spot_playback import envelope_name, use_envelope
 from spot_session import BY_NAME, COMMANDS, DEFAULT_HOST, explain, plan_length_s
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -246,7 +249,7 @@ def make_app(p):
     @app.get("/api/describe")
     def describe():
         return {"robot": "spot", "player": "opendubs-spot-player", "interface": INTERFACE_VERSION, "commit": COMMIT,
-                "fake": p.args.fake, "parts": ["BASE", "BODY", "ARM", "GRIP"],
+                "fake": p.args.fake, "parts": ["BASE", "BODY", "ARM", "GRIP"], "envelope": envelope_name(),
                 "states": ["EMPTY", "LOADED", "ARMED", "PLAYING", "DONE", "STOPPED"],
                 "start": "accepted only while the operator has ARMED the show; at is wall-clock seconds",
                 "never": ["release the E-Stop", "arm a show", "send Spot a command"]}
@@ -377,9 +380,13 @@ def main():
     ap.add_argument("--plans", default=os.path.expanduser("~/.opendubs-spot/plans"))
     ap.add_argument("--login-stdin", action="store_true",
                     help="for ENCORE's Connect: read Spot's login as two lines on stdin, then exit when stdin closes")
+    ap.add_argument("--walking", action="store_true",
+                    help="hold Spot to the walking envelope (BASE allowed, under its caps) instead of feet planted. "
+                         "Only with the owner's word at Spot")
     ap.add_argument("--allow-origin", action="append", default=[],
                     help="another browser origin allowed on /ws, e.g. http://192.168.80.3:21099")
     args = ap.parse_args()
+    use_envelope("walking" if args.walking else "first-run")
     probe = socket.socket()
     # As uvicorn binds: connections from a player that just stopped linger in TIME_WAIT for up to a
     # minute, and without this the next start (ENCORE's reconnect after a drop) would read "busy". A
@@ -422,7 +429,7 @@ def main():
         print(f"Spot at {args.spot}: its login is asked for here and kept in memory only.", flush=True)
         spot_credentials.ask(check)
     p = Player(args)
-    print(f"Spot player{' (FAKE Spot)' if args.fake else ''}: open http://{args.listen}:{args.port}/  "
+    print(f"Spot player{' (FAKE Spot)' if args.fake else ''}, {envelope_name()} envelope: open http://{args.listen}:{args.port}/  "
           f"pairing code {p.code}", flush=True)
     uvicorn.run(make_app(p), host=args.listen, port=args.port, log_level="warning")
 

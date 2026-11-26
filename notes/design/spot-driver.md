@@ -274,7 +274,8 @@ shows. This gives Spot the same three roles opendubs2 has:
   jaw speed limits stay in place. The arm is stowed when a show ends. Every trajectory is built in the
   local clock: the SDK's `robot_command` converts each `reference_time` to Spot's clock itself.
 - **The first-run envelope.** ENCORE's limits for Spot are still placeholders (`built: false`), so a
-  real Spot plays only plans inside the player's own envelope: no BASE (feet planted), body offsets
+  real Spot plays only plans inside the player's own envelope (or the walking envelope, below, with
+  `--walking`): no BASE (feet planted), body offsets
   within 0.10 m and 20 to 22 deg, body speeds within 45 deg/s, arm joints within the profile's ranges
   and 90 deg/s. A show is armed at 25, 50, 75 or 100 % speed. The Werewolves plan is outside the
   envelope (body yaw 114 deg/s at 3.2 s); the first-moves show (`software/spot/shows/spot_moves.py`)
@@ -332,6 +333,42 @@ shows. This gives Spot the same three roles opendubs2 has:
     is still checking in (`_refuse_live_estop`).
 
 Sound, lights and the buzzer for Spot and for group shows: `notes/design/spot-show-outputs.md`.
+
+## Walking (BASE)
+
+The player can walk Spot. It is built and played on the fake, and has not run on Spot yet. It walks
+only when started with `--walking`, and that takes the owner's word at Spot. Without the flag the
+first-run envelope holds as before, with the feet planted.
+
+- **The command.** A window with BASE becomes one SE2 trajectory command in Spot's `vision` frame.
+  ENCORE gives BASE in Spot's starting frame (x forward, y left). The session reads Spot's pose in
+  `vision` (its gravity-aligned body) when it sends the first window, and lays the whole track out
+  from there. The angle stays unwrapped, so a lap never reads as a turn back. Start a walking show with
+  the body's yaw offset at zero, because the start is read from the body.
+- **The window's MobilityParams** carry the gait (`locomotion_hint`), the swing height, a speed cap
+  that Spot holds to itself (`vel_limit`), and the BODY offsets. The body rides in the walking command's
+  params, so a walking window sends no stand command. The step style comes from the BASE command's
+  optional `mobility` field: `{"gait": "CRAWL"|"AMBLE"|"TROT", "swing": "LOW"|"MEDIUM"|"HIGH",
+  "speed_cap": m/s}`. The defaults are TROT, MEDIUM and the envelope's cap. Spot's SDK has no WALK
+  hint.
+- **The end time.** Spot requires an end time on a trajectory command. Each walking window ends 1 s after
+  its last point. If no next window comes, Spot finishes the trajectory and stands.
+- **Smooth through window edges.** Each window used to have its own curve, which slowed to zero at the
+  window's edges: a body barely shows it, but a walk stutters at every window. `link_windows()` now gives
+  each window its neighbours' points next to its edges, so the curve through a boundary is the same from
+  both sides. On Run Rudolph Run the base speed at window starts went from as low as 0.11 m/s (with
+  0.42 m/s between) to a steady 0.32 m/s. The body and the jaw get the same fix.
+- **The walking envelope** (`WALKING` in `spot_playback.py`) is the first-run envelope plus BASE: at
+  most 0.35 m/s and 30 deg/s, within 3.0 m of the start, gaits CRAWL, AMBLE and TROT only (never JOG or
+  HOP), swing LOW, MEDIUM or HIGH. These caps are ours, set from the shows (Rudolph laps at
+  0.28 m/s), and are placeholders until measured at Spot.
+- **The guard.** The plan is checked against the envelope when it loads and at Ready. Each built window
+  is checked again just before it is sent: the frame, the gait and swing, the speed cap Spot is
+  sent, and every point read back into the starting frame against the radius, speed and turn caps. The
+  fake runs the same checks and starts from an awkward pose (facing nearly backwards), so a frame or
+  wrap mistake shows up there.
+- **Not built yet:** re-anchoring the track on a fiducial on opendubs2's base, and the duet guard on
+  the gap between the robots. Both wait on the measurements in `notes/design/spot-walking-session.md`.
 
 ## Where the code goes
 
