@@ -66,7 +66,9 @@ def _state(sp, smp):
     for side in ("left", "right"):
         q.append([math.radians(float(smp[side].get(str(j), smp[side].get(j, 0.0)))) for j in range(1, 8)])
     grips = (float(smp.get("grip_left", 0.0)) + float(smp.get("grip_right", 0.0))) * GRIP_TRAVEL_M
-    return q, math.radians(smp["head_pan"]), math.radians(smp["head_tilt"]), smp["lift_mm"] / 1000.0, grips
+    import sim_preview as P
+    pan, tilt = P.head_joint_deg(smp)           # the real angles: a commanded degree turns more than one
+    return q, math.radians(pan), math.radians(tilt), smp["lift_mm"] / 1000.0, grips
 
 
 def _bound_mm(s0, s1) -> float:
