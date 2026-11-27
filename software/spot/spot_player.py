@@ -9,6 +9,8 @@ runner does for opendubs2; the operator page runs on any browser, such as a tabl
   --fake      no robot: fake_spot.py stands in, for developing shows and the page with Spot off.
   --walking   the walking envelope: shows with BASE play, under its caps. Without it the feet stay
               planted. Only with the owner's word at Spot.
+  --live      serve /live on port 8100, where a stream of velocity requests drives Spot once the operator
+              switches Live on (live.py). Only with the owner's word at Spot.
   --listen    127.0.0.1 by default (this machine only); 0.0.0.0 on the Orin, so a tablet can reach it.
 
 The E-Stop is the person's, on the operator page:
@@ -54,6 +56,7 @@ import uvicorn
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+import live as live_mode
 import spot_credentials
 from player import Playback
 from spot_playback import envelope_name, use_envelope
@@ -101,6 +104,7 @@ class Player:
         self.operator_token = None
         self.operator_ws = None
         os.makedirs(args.plans, exist_ok=True)
+        self.live = live_mode.Live(self, args.live_log, args.live_padding) if args.live else None
         threading.Thread(target=self._poll_status, daemon=True).start()
 
     def log(self, msg):
@@ -111,6 +115,8 @@ class Player:
 
     # The E-Stop and the session
     def stop(self, why):
+        if self.live:
+            self.live.switch(False, f"STOP: {why}")
         if self.session:
             self.session.stop(why)
         else:
@@ -226,6 +232,7 @@ class Player:
                 "problems": self.playback.problems(s), "shows": self.shows(),
                 "commands": [{"name": c.name, "label": c.label, "group": c.group, "widget": c.widget}
                              for c in COMMANDS],
+                "live": self.live.describe() if self.live else None,
                 "operator": operator, "operator_present": self.operator_ws is not None,
                 "log": lines, "seq": self.seq}
 
@@ -250,6 +257,8 @@ def make_app(p):
     def describe():
         return {"robot": "spot", "player": "opendubs-spot-player", "interface": INTERFACE_VERSION, "commit": COMMIT,
                 "fake": p.args.fake, "parts": ["BASE", "BODY", "ARM", "GRIP"], "envelope": envelope_name(),
+                "live": {"port": p.args.live_port, "path": "/live", "end_s": live_mode.END_S,
+                         "limits": p.live.describe()["limits"]} if p.live else None,
                 "states": ["EMPTY", "LOADED", "ARMED", "PLAYING", "DONE", "STOPPED"],
                 "start": "accepted only while the operator has ARMED the show; at is wall-clock seconds",
                 "never": ["release the E-Stop", "arm a show", "send Spot a command"]}
@@ -353,7 +362,11 @@ def make_app(p):
                     elif op == "load":
                         p.load(msg.get("name"))
                     elif op == "arm":
+                        if p.live and p.live.on:
+                            raise RuntimeError("refused: switch Live off before readying a show")
                         p.playback.arm(p.session, msg.get("speed", 1.0))
+                    elif op == "live" and p.live:
+                        p.live.switch(bool(msg.get("on")))
                     elif op == "start":
                         p.playback.start(p.session)
                 except Exception as e:
@@ -371,6 +384,87 @@ def make_app(p):
     return app
 
 
+def make_live_app(p):
+    """The live port's app: /live and nothing else, so a client there can't load, start or stop a show
+    or touch the E-Stop. live.py describes the messages."""
+    app = FastAPI()
+
+    @app.websocket("/live")
+    async def live(sock: WebSocket):
+        # Scripts send no Origin. A browser page may drive Spot only from an --allow-origin, so a web page
+        # open anywhere on Spot's network can't.
+        origin = sock.headers.get("origin")
+        if origin and origin not in p.args.allow_origin:
+            await sock.close(code=1008)
+            return
+        who = f"{sock.client.host}:{sock.client.port}" if sock.client else "?"
+        if not p.live.connect(who):
+            await sock.close(code=1013, reason="another live client is connected")
+            return
+        await sock.accept()
+        none = object()
+        pending, ready = none, asyncio.Event()
+
+        async def receive():
+            # Keeps only the newest request while Spot is taking the one before, so a slow link never
+            # plays out a backlog of old requests.
+            nonlocal pending
+            try:
+                while True:
+                    text = await sock.receive_text()
+                    try:
+                        msg = json.loads(text)
+                    except ValueError:
+                        await sock.send_text(json.dumps(p.live.refuse(text[:200], "not JSON")))
+                        continue
+                    if pending is not none:
+                        await sock.send_text(json.dumps(p.live.refuse(pending, "superseded by a newer request")))
+                    pending = msg
+                    ready.set()
+            finally:
+                ready.set()             # wakes the sender to see the client has gone
+
+        reader = asyncio.create_task(receive())
+        try:
+            while True:
+                await ready.wait()
+                if reader.done():
+                    break
+                ready.clear()
+                msg, pending = pending, none
+                if msg is none:
+                    continue
+                await sock.send_text(json.dumps(await asyncio.to_thread(p.live.request, msg)))
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            reader.cancel()
+            p.live.disconnect(who)
+
+    return app
+
+
+def serve_live(p, addr, port):
+    """The live port on one address, on its own thread (uvicorn installs no signal handlers there)."""
+    server = uvicorn.Server(uvicorn.Config(make_live_app(p), host=addr, port=port, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True, name=f"live {addr}:{port}").start()
+
+
+def _bind_or_exit(addr, port):
+    probe = socket.socket()
+    # As uvicorn binds: connections from a player that just stopped linger in TIME_WAIT for up to a
+    # minute, and without this the next start (ENCORE's reconnect after a drop) would read "busy". A
+    # live listener still refuses the bind.
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind((addr, port))
+    except OSError as e:
+        raise SystemExit(f"refused: cannot listen on {addr}:{port} ({e.strerror}). If it is busy, "
+                         f"see who holds it: lsof -nP -iTCP:{port}")
+    finally:
+        probe.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--fake", action="store_true", help="no robot: a fake Spot stands in")
@@ -384,21 +478,24 @@ def main():
                     help="hold Spot to the walking envelope (BASE allowed, under its caps) instead of feet planted. "
                          "Only with the owner's word at Spot")
     ap.add_argument("--allow-origin", action="append", default=[],
-                    help="another browser origin allowed on /ws, e.g. http://192.168.80.3:21099")
+                    help="another browser origin allowed on /ws (and on /live), e.g. http://192.168.80.3:21099")
+    ap.add_argument("--live", action="store_true",
+                    help="serve /live, where a stream of velocity requests drives Spot once the operator "
+                         "switches Live on (live.py). Only with the owner's word at Spot")
+    ap.add_argument("--live-listen", action="append", default=None,
+                    help="an address for the live port; repeat for more (default 127.0.0.1)")
+    ap.add_argument("--live-port", type=int, default=live_mode.PORT)
+    ap.add_argument("--live-padding", type=float, default=None,
+                    help="how far (m) Spot's obstacle avoidance keeps from obstacles; Spot's default if unset")
+    ap.add_argument("--live-log", default=os.path.expanduser("~/.opendubs-spot/live"),
+                    help="where each run's JSON-lines log of requests and commands goes")
     args = ap.parse_args()
+    args.live_listen = args.live_listen or ["127.0.0.1"]
     use_envelope("walking" if args.walking else "first-run")
-    probe = socket.socket()
-    # As uvicorn binds: connections from a player that just stopped linger in TIME_WAIT for up to a
-    # minute, and without this the next start (ENCORE's reconnect after a drop) would read "busy". A
-    # live listener still refuses the bind.
-    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        probe.bind((args.listen, args.port))
-    except OSError as e:
-        raise SystemExit(f"refused: cannot listen on {args.listen}:{args.port} ({e.strerror}). If it is busy, "
-                         f"see who holds it: lsof -nP -iTCP:{args.port}")
-    finally:
-        probe.close()
+    _bind_or_exit(args.listen, args.port)
+    if args.live:
+        for addr in args.live_listen:
+            _bind_or_exit(addr, args.live_port)
     def check(user, password):
         import bosdyn.client                # a login only: nothing is sent to Spot
         bosdyn.client.create_standard_sdk("opendubs-spot-login").create_robot(args.spot).authenticate(user, password)
@@ -431,6 +528,11 @@ def main():
     p = Player(args)
     print(f"Spot player{' (FAKE Spot)' if args.fake else ''}, {envelope_name()} envelope: open http://{args.listen}:{args.port}/  "
           f"pairing code {p.code}", flush=True)
+    if args.live:
+        for addr in args.live_listen:
+            serve_live(p, addr, args.live_port)
+        print(f"live mode: ws://{{{','.join(args.live_listen)}}}:{args.live_port}/live, off until the operator "
+              f"switches it on; log {p.live.path}", flush=True)
     uvicorn.run(make_app(p), host=args.listen, port=args.port, log_level="warning")
 
 

@@ -11,6 +11,9 @@ backwards, so a mistake in the frame change or in the angle's wrap shows up here
 import threading
 import time
 
+import math
+
+from live import command_problems as velocity_problems, velocity_command
 from spot_playback import build_window, command_problems, end_time_s
 from spot_session import FREEZE_STOP_S, SpotSession
 
@@ -34,12 +37,18 @@ class FakeSession:
         self._carry = {}
         self._start = None
         self.sent = []                      # one entry per show window received
+        self.pose = [0.0, 0.0, 0.0]         # live mode: x, y (m), yaw (rad) in the fake's odometry frame
+        self._vel = (0.0, 0.0, 0.0, 0.0)    # vx, vy, wz (body frame) and the wall time they end
+        self._pose_t = time.time()
         self.stop("connected")
         threading.Thread(target=self._watchdog, daemon=True).start()
 
     def stop(self, why):
         self.released = False
         self.stood = False
+        if hasattr(self, "_vel"):
+            self._advance(time.time())
+            self._vel = (0.0, 0.0, 0.0, 0.0)    # sits: the last velocity command no longer moves it
         if self.motors:
             self.motors = False             # settle_then_cut: sits, then power is cut
             self.log("fake Spot sits and its motors are cut")
@@ -115,13 +124,47 @@ class FakeSession:
                  + ("" if entry["on_time"] else "  LATE"))
         return entry
 
+    def _advance(self, now):
+        """Moves the fake pose by the velocity it was last sent, until that command's end time."""
+        vx, vy, wz, end = self._vel
+        t0, t1 = self._pose_t, min(now, end)
+        self._pose_t = now
+        steps = max(1, int((t1 - t0) / 0.01)) if t1 > t0 else 0
+        dt = (t1 - t0) / steps if steps else 0.0
+        x, y, a = self.pose
+        for _ in range(steps):
+            x += (vx * math.cos(a) - vy * math.sin(a)) * dt
+            y += (vx * math.sin(a) + vy * math.cos(a)) * dt
+            a += wz * dt
+        self.pose = [x, y, math.atan2(math.sin(a), math.cos(a))]
+
+    def pose_report(self):
+        self._advance(time.time())
+        x, y, a = self.pose
+        return {"x": round(x, 4), "y": round(y, 4), "yaw_deg": round(math.degrees(a), 2)}
+
+    def send_velocity(self, vx, vy, wz, end_wall, padding=None):
+        """Live mode: the same checks as a real Spot, then it integrates the velocity into its pose."""
+        self._need_released()
+        if not self.is_standing():
+            raise RuntimeError("refused: Spot isn't standing; Power on + stand first")
+        problems = velocity_problems(velocity_command(vx, vy, wz, padding))
+        now = time.time()
+        if end_wall <= now:
+            problems.append("its end time is already past")
+        if problems:
+            raise RuntimeError("a real Spot would refuse this command: " + "; ".join(problems))
+        self._advance(now)
+        self._vel = (vx, vy, wz, end_wall)
+        return {"pose": self.pose_report()}
+
     def after_show(self):
         return "arm stowed (fake)"
 
     def status(self):
         return {"motors": "ON" if self.motors else "OFF", "battery_pct": 100,
                 "estop": "RELEASED" if self.released else "STOPPED", "estop_robot": ["fake"],
-                "lease": "held" if self.lease else "not held", "faults": []}
+                "lease": "held" if self.lease else "not held", "faults": [], "fake_pose": self.pose_report()}
 
     def close(self):
         self.stop("closing")

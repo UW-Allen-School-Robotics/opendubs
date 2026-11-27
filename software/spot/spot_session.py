@@ -219,6 +219,20 @@ class SpotSession:
                                         timesync_endpoint=self.robot.time_sync.endpoint)
         threading.Thread(target=self._arm_planner, args=(cmd_id, commands[0]["window"]), daemon=True).start()
 
+    def send_velocity(self, vx, vy, wz, end_wall, padding=None):
+        """Live mode (live.py): one velocity request, in the body frame, ending at end_wall (this machine's
+        clock; the SDK converts it to Spot's). Checked on the built message before it goes."""
+        from live import command_problems as velocity_problems, velocity_command
+        self._need_released()
+        self._need_powered()
+        if not self.is_standing():
+            raise RuntimeError("refused: Spot isn't standing; Power on + stand first")
+        cmd = velocity_command(vx, vy, wz, padding)
+        problems = velocity_problems(cmd)
+        if problems:
+            raise RuntimeError("refused before sending: " + "; ".join(problems))
+        self.cmd.robot_command(cmd, end_time_secs=end_wall, timesync_endpoint=self.robot.time_sync.endpoint)
+
     def _arm_planner(self, cmd_id, window):
         """Say when Spot's arm planner could not follow a window: it then keeps within its own speed and
         acceleration limits (MODIFIED) and the arm lags the beat, or it goes to the first point (FAILED)."""

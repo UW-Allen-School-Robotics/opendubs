@@ -370,6 +370,36 @@ first-run envelope holds as before, with the feet planted.
 - **Not built yet:** re-anchoring the track on a fiducial on opendubs2's base, and the duet guard on
   the gap between the robots. Both wait on the measurements in `notes/design/spot-walking-session.md`.
 
+## Live mode: velocity requests from another program
+
+The owner approved this on 2026-11-27 ("robot traffic - yes") for the students' traffic-control
+system. The students' own controller reads MOCAP and keeps the robots apart. The player only holds
+Spot to the walking limits and lets it stop when requests stop. `software/spot/live.py` has the
+message format.
+
+- The player serves `/live` on its own port (8100) only when it is started with `--live`. That port
+  serves nothing else, so a client there can't load, start or stop a show or touch the E-Stop.
+  `--live-listen` names its addresses. `orin/run-player.sh` binds 127.0.0.1 for an SSH tunnel and
+  192.168.50.5 for the payload network.
+- The operator switches Live on from the operator page, which needs Spot standing and no show ready or
+  playing. A stop of any kind switches Live off at once, and so does a show being readied.
+- Each request `{"seq", "vx", "vy", "wz"}` (body frame, m/s and rad/s) becomes a velocity command
+  that ends 0.4 s after it is sent. When requests stop, Spot stands where it is. The requests never
+  count as the operator's heartbeat, and the heartbeat stop is unchanged.
+- Requests are clamped to the walking caps (0.35 m/s along the ground, 30 deg/s), and the reply says
+  "limited" when they were. The gait is TROT. Obstacle avoidance stays on, and `--live-padding` sets
+  its distance. The built command is checked against the caps just before it goes.
+- One client at a time. An out-of-order seq is refused. A browser page may connect only from an
+  `--allow-origin`. While Spot takes one command, only the newest request waits, and older ones are
+  refused as superseded.
+- Every request, reply and command goes to a JSON-lines log in `~/.opendubs-spot/live/`.
+- With `--fake`, the fake Spot integrates the velocities into a pose and returns it as `fake_pose`, so
+  the fake player stands in for Spot while the students develop. `software/spot/fake_live.py` checks
+  all of the above against it.
+
+It has run only on the fake Spot. Students reach the live port over an SSH key that can only forward to
+it, or from Spot's network. Both are security changes that wait for the owner's review.
+
 ## Where the code goes
 
 `software/spot/` in this repository, owned by the Spot lane (decided by the maintainers, 2026-10-27;

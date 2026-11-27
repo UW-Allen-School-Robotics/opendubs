@@ -47,6 +47,8 @@ $("claim").onclick = async () => {
 $("release").onclick = () => send({ op: "release" });
 $("connect").onclick = () => send({ op: "connect", host: $("host").value.trim() });
 $("disconnect").onclick = () => send({ op: "disconnect" });
+$("live-on").onclick = () => send({ op: "live", on: true });
+$("live-off").onclick = () => send({ op: "live", on: false });
 $("arm").onclick = () => send({ op: "arm", speed: parseFloat($("speed").value) });
 $("start").onclick = () => send({ op: "start" });
 $("upload").onchange = async (e) => {
@@ -126,6 +128,17 @@ function render(s) {
   $("release").disabled = !s.connected || s.estop === "RELEASED";
   buildGroups(s.commands);
   for (const b of document.querySelectorAll(".cmd")) b.disabled = !s.connected;
+
+  const lv = s.live;
+  $("live").hidden = !lv;
+  if (lv) {
+    $("live-on").disabled = lv.on || !!lv.why_not;
+    $("live-off").disabled = !lv.on;
+    const last = lv.last ? `last ${lv.last.result}${lv.last.reason ? ` (${lv.last.reason})` : ""}` : "no requests yet";
+    $("live-state").textContent = (lv.on ? "ON" : `OFF${lv.why_not ? `: ${lv.why_not}` : ""}`) +
+      ` · client ${lv.client || "none"} · ${lv.stale ? "no current request: Spot stands" : "moving on requests"}` +
+      ` · sent ${lv.counts.sent} limited ${lv.counts.limited} refused ${lv.counts.refused} · ${last}`;
+  }
 
   const pb = s.playback;
   renderShows(s, pb);
