@@ -96,7 +96,7 @@ diff, and can restore any snapshot. Notes never move the robot.
 
 Twin (MuJoCo + face page) · MP4 render · tablet (dialogue, the face) · projector: cast, the **stage
 box** (`/stage/` page, local copies or streamed with a head start), or HDMI · live skeletons on the
-stage page · the floor hand (CRAWL) · the base (DANCE, through the Thor's tracker) · the **armed run**:
+stage page · the floor hand (CRAWL) · the base (BASE poses and DANCE moves, through the Thor's tracker) · the **armed run**:
 on the robot a show waits ARMED until the operator presses the deadman in CH5 AUTO.
 
 ## 7. Invariants: never break these
@@ -110,6 +110,13 @@ on the robot a show waits ARMED until the operator presses the deadman in CH5 AU
   measured speed caps (`cue.SPEED_CAP_DEG_S`) are gates, not suggestions. A clearance or speed figure
   counts only for the path the runner actually sends (`motion.py`'s smoothed path); a planner's route is
   advice until the runner executes it.
+- **The base moves only through the Thor's base tracker, one move at a time.** A `BASE` cue is a pose
+  (x, y, yaw) in the show's starting frame, a keyframe that arrives at its time; a `DANCE` is a named move
+  that ends where it started and plays around wherever `BASE` has put the base. Both go to the same
+  tracker (`base_output.py`, `/dance/target`: closed loop on `/odom`, its people guard, the base lease),
+  and on every end the runner's stop is the last thing it hears. Never a `DANCE` during a `BASE` move,
+  never `DRIVE` with `BASE`, every pose inside the declared floor radius, and every move within 70 % of
+  the show cap at its peak (`cue.py` checks all four). Running a show that moves the base needs the owner's word.
 - **Effectors declare what they need.** Parts come from the slots a show uses (`cue.EFFECTORS`); a show
   may list parts it can do without in `can_skip:`; the operator approves a run without them.
 - **Audio roles hold:** dialogue on the tablet, music to the projector with the tablet as fallback.
