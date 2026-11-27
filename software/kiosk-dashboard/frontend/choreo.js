@@ -15,6 +15,7 @@
   if (!el("view-shows")) return;
   let routines = [], status = null, robot = null, video = null, sound = null, timer = null;
   let listKey = "", selected = null, runError = null, choiceKey = null;
+  let armStack = null;   // /api/arms/status "stack": which controller has the arms (teleop.js's poll, below)
 
   async function getJSON(url, opts) {
     const r = await fetch(url, opts);
@@ -42,6 +43,29 @@
     if (r.head != null) bits.push(dotLine(r.head === true, r.head ? "head up" : "head not showing its face"));
     el("showsRobotRow").innerHTML = rowHTML("Robot", "checked again at GO", bits.join(" · "));
   }
+  // The Arms line: which controller has the arms (ROS 2, gafro, none or CONFLICT), in the backend's words.
+  // teleop.js polls /api/arms/status on every page and shares each answer as the "opendubs-arms" event.
+  function renderArms() {
+    const row = el("showsArmsRow");
+    if (!row) return;
+    const c = armStack, sub = "which controller has them";
+    if (!c) { row.innerHTML = rowHTML("Arms", sub, dotLine(null, "not known")); return; }
+    const ok = c.controller === "conflict" ? false : c.controller === "none" ? null : true;
+    const why = c.controller === "none" ? "no controller has the arms: they are limp. Choose one on the Arms page." : c.why;
+    row.innerHTML = rowHTML("Arms", sub, dotLine(ok, `<b>${esc(c.label || c.controller)}</b>${why ? " — " + esc(why) : ""}`));
+  }
+  // PARK is off while a routine runs (the runner owns the arms), and when the controller that has the arms
+  // cannot park them (stack.unavailable.park, the words the backend refuses with), said beside the button.
+  function paintPark(running) {
+    const why = running ? null : (armStack && armStack.unavailable && armStack.unavailable.park) || null;
+    el("showsPark").disabled = !!running || !!why;
+    el("showsParkWhy").textContent = why ? ` Off: ${sentence(why)}` : "";
+  }
+  window.addEventListener("opendubs-arms", (e) => {
+    armStack = (e.detail && e.detail.stack) || null;
+    renderArms();
+    paintPark(status && status.running);
+  });
   function rowHTML(name, sub, body, ctl = "") {
     return `<div class="shows-k"><b>${name}</b>${sub}</div><div class="shows-v">${body}</div>${ctl}`;
   }
@@ -168,7 +192,7 @@
     go.disabled = !!running || !sel || !sel.valid;
     go.innerHTML = `GO<small>${esc(sel ? sel.label : "pick a show")}</small>`;
     el("showsStop").disabled = !running;
-    el("showsPark").disabled = !!running;            // the runner owns the arms while a routine runs
+    paintPark(running);
     const without = (parts) => (parts && parts.length ? ` <span class="bad">without ${esc(parts.join(", ").replace(/_/g, " "))}</span>` : "");
     let html, bad = false;
     if (running) {
@@ -202,7 +226,7 @@
       badge.classList.toggle("livebadge", armsFollow);
     }
     renderAudioLine();
-    renderRobot();
+    renderRobot(); renderArms();
     renderFallbackRows();
     foldOldCards();
     renderList(running);
