@@ -132,7 +132,7 @@ import { ArmView } from "./armview.js?v=39c54689";   // the teleop tab's arm vie
   }
 
   /* ---------- the demo day's coordinator (software/architect/opendubs_architect/demo_day.py) ---------- */
-  const DAY_NAMES = { IDLE_NAV: "PATROL", APPROACH: "APPROACH", ENGAGED: "WITH A VISITOR", CANDY: "CANDY", CHOREO: "SHOW", PAUSED: "PAUSED" };
+  const DAY_NAMES = { IDLE_NAV: "PATROL", APPROACH: "APPROACH", ENGAGED: "WITH A VISITOR", CANDY: "CANDY", CHOREO: "SHOW", REST: "ARMS TO REST", PAUSED: "PAUSED" };
   let dayBusy = false;
   function secs(s) { return s >= 60 ? Math.floor(s / 60) + " min " + Math.round(s % 60) + " s" : Math.round(s) + " s"; }
   async function dayTick() {

@@ -58,8 +58,15 @@ CAMERA = {"azimuth": 128.0, "elevation": -10.0, "distance": 3.0, "lookat": (0.35
 
 
 def ffmpeg() -> str:
-    import imageio_ffmpeg
-    return imageio_ffmpeg.get_ffmpeg_exe()
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        import shutil
+        exe = shutil.which("ffmpeg")
+        if exe:
+            return exe
+        raise
 
 
 # ---- audio -----------------------------------------------------------------------------------------
